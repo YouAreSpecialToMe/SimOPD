@@ -1,0 +1,18 @@
+# third-party clones (see README for setup)
+verl/
+OPD/
+EasyOPD/
+
+# system / editor
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# experiment outputs
+logs/
+outputs/
+checkpoints/
+wandb/
+*.log

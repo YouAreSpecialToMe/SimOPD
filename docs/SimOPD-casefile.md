@@ -1,0 +1,126 @@
+# SimOPD 案卷:变体动物园普查与参赛名单 v1
+
+> 来源:awesome-on-policy-distillation(chrisliu298),**462 条目**(badge 实数)。
+> 本文档 = 普查(§1)→ 管辖权裁定(§2)→ 8 轴参赛名单(§3)→ 代表选择准则(§4)。
+> ⚠ arXiv 编号取自清单摘要,实现前每篇代表作需全文核验(第 1–2 周功课)。
+
+---
+
+## 1. 普查:动物园结构
+
+| 区 | 规模 | 处置 |
+|---|---|---|
+| Start Here / 综述随笔 | 8 + ~35 | 背景,不受审 |
+| Foundations / Gap-Bridging | 2 + ~25 | 部分入 A 轴 |
+| **Stability & Objective Design** | **~65** | **主审区,8 轴大部分来源** |
+| Self-Distillation (OPSD 族) | ~80 | **管辖权外**(范围决策:不做 OPSD)|
+| Context/Experience Internalization | ~13 | 管辖权外(经验内化线)|
+| Efficiency/Systems/Privacy | ~23 | 工程默认,不审(例外:见 H 轴)|
+| Agents & Tool-Use | ~40 | 管辖权外(范围决策:general)|
+| Multimodal/VLM | ~8 | 管辖权外 |
+| Cross-Tokenizer | ~13 | 管辖权外(协议用同族师生)|
+| Frameworks | — | 基础设施选型用(verl/EasyOPD)|
+| 偏好/奖励混合 RL+KD、自博弈、Taxonomy 区 | ~130 | 邻线,引用不受审 |
+
+**核心受审池 ≈ 55 篇**(Objective/Stability/Token/Support/Curriculum/Gating/Reward 七小区)。
+
+---
+
+## 2. 管辖权外裁定(写进 paper 的 scope 声明)
+
+1. OPSD 族(~80):自蒸馏动力学与外部 teacher 不同,独立成域;
+2. 跨词表(~13):协议固定 Qwen3 同族;引 SimCT/2606.09456 划界;
+3. 多 teacher 路由(DOPD、MOPD、tool-call drift):teacher 数=1 的审计;
+4. 隐状态对齐(OPRD 2606.06021):监督信号类型不同(非 logit-KL),邻线;
+5. 弱到强合成 teacher(2607.26246):无强 teacher 的不同问题;
+6. 纯效率件(Lightning OPD 预计算、f-OPD 异步、EffOPD 外推):不改精度主张,
+   工程默认 —— **例外**:序列视界族有精度主张,入 H 轴。
+
+---
+
+## 3. 八轴参赛名单(Phase 1 = 18 runs:17 臂 + vanilla 基线)
+
+图例:【审】= 上庭代表;【替】= 替补(代表结果含糊时加赛);【落】= 落选+理由。
+
+### A — rollout 来源与日程(族 ~25,Gap-Bridging)
+- 【审】纯 on-policy λ=1(基线约定)
+- 【审】GKD λ=0.5 混合(2306.13649)
+- 【审】离策略冷启动→OPD(Rethinking 2604.13016 recipe 复核)
+- 【落】PACED 通过率课程(2603.11178)→ 替补;Escaping KL Agreement Trap
+  (2606.09471)rollout 终止 → 替补
+
+### B — 散度/目标函数(族 ~14)
+- 【审】Reverse KL(基线)
+- 【审】Skew-KL α=0.1(DistiLLM 2402.03898 —— 被采纳最广的替代散度)
+- 【审】Forward KL(完整性臂:审计应含"公认差"的对照)
+- 【替】JSD-β(GKD);CADENCE 前反 KL 逐 token 日程(2607.16955);
+  EOPD 熵切换(2603.07079);DistiLLM-2 对比式(2503.07067)
+- 【落】ExOPD(2602.12125,RL 化重构,越界到 RL 线);OPD+/vOPD 估计器修正
+  (2606.01039/2605.07865)→ 并入工程默认核对项,不单独成臂;
+  Veto/TRPD 近端 teacher(2601.07155/2607.04751)→ 替补(与 F 轴软压缩同治一病)
+
+### C — 词表支撑(族 ~8)★含自研
+- 【审】sampled-token(基线;Rethinking 已判"够用"—— 本轴任务是画适用域边界)
+- 【审】teacher top-k + 重归一化(LSM/Revisiting 2603.25562)
+- 【审】分位预算分配 margin=max(q,π)(**自研**;重归一化 vs 尾桶作内部消融)
+- 【替】top-p;margin=π / margin=q 拆解
+- 【落】RSKD 无偏采样(2503.16870,离线设定)→ 尾桶修正可选件
+
+### D — token 选择/加权(族 ~15)
+- 【审】uniform(基线)
+- 【审】TIP 高熵+自信错(2604.14084)—— 熵判据代表
+- 【审】SelecTKD propose-verify(2510.24021)—— 秩验证判据代表
+- 【审】Teachability(2605.26844)—— 支撑落点判据代表
+- 【替】SEAD(2606.28562)、FiRe-OPD(2606.02684)、Evidence(2606.22830)、
+  Rock Tokens(2605.09253)、Position-Bias IW(2606.22600)、
+  Blockwise gating(2606.24084)
+- 【落】SafeSteer(安全域)、TRACE(需标注)、Prefix-fade(并入 H 轴族)
+
+### E — 支撑内对齐目标 ★自研,防火墙臂
+- 【审】value 对齐 KL(基线)
+- 【审】PL-rank + 小 value 锚(**自研**;loss 形式源 PLD 2506.12542)
+- 【替】set-coverage(rank 的更松端点)
+- 防火墙声明:自研臂接受与所有被告完全相同的预注册协议
+
+### F — 信号调节(族 ~8)
+- 【审】无(基线)
+- 【审】软 log 压缩(Demystifying 2607.13399 赢家复核)
+- 【替】PowerOPD Box–Cox 有界变换(2606.17199,同族);硬 clip(仅当 D5 出 Mode B);
+  Stable-OPD 散度约束(**注意:2604.08527 是另一篇同名 "Demystifying"**,治长度通胀)
+- 【落】CaOPD 过自信修正(2604.16830)→ 替补池
+
+### G — 轨迹/奖励门控(族 ~9)
+- 【审】无门控(基线)
+- 【审】verified-only(规则验证器过滤;发表代表 = Reward-Gated OPD 2607.04037)
+- 【审】teacher 似然过滤(FiRe-OPD 2606.02684 的轨迹级半件)
+- 【替】SG-OPD 符号路由(2606.09304);ReNIO 轨迹重权(2606.23104)
+- 【落】ATESD/EGRSD/TRAD(自蒸馏设定)、Beyond GRPO and OPD(流程编排非 trick)
+
+### H — 序列视界(族 ~7,新增轴;从效率区捞回,因其有精度主张)
+- 【审】全 rollout 监督(基线)
+- 【审】首段 token 监督(Less is More 2605.27028 —— "teacher 信号集中在响应前段"
+  是可证伪的科学主张;若成立,预算全盘 ×2–47 杠杆)
+- 【替】ADWIN 自适应窗(2605.28396);Prefix-Guided 预算分配(2606.21994);
+  Prune-OPD 漂移截断(2605.07804);Are Full Rollouts Necessary(2605.31490)
+
+**Phase 1 合计**:A2 + B2 + C2 + D3 + E1 + F1 + G2 + H1 = 14 个非基线臂
+(+vanilla,+3 个机动位给替补加赛)≈ 18 runs,与预算吻合。
+
+---
+
+## 4. 代表选择准则(写进 paper,防"为什么是这几个"之问)
+
+1. **机制独异性**:每个机制族一名代表(不重复审五个熵变体);
+2. **可复现性**:公式级描述,优先有码;
+3. **协议适配**:同族师生、logit 可达、general 推理域内有效性主张;
+4. **采纳度/新近度平衡**:被采纳最广的老件(DistiLLM)+ 各族最新明确表述件。
+替补规则:代表显著胜/败 → 同族替补不加赛;代表与基线打平但族内主张分歧 → 加赛一名。
+
+---
+
+## 5. 与审计三纪律的对接
+
+- fresh 仲裁轴:C(边界)、D、E、G、H;replication+boundary 轴:A(冷启动)、
+  B(部分)、F(软压缩);
+- 自研臂防火墙:C 分位、E rank —— 同协议同预算;
+- 跨域列:Phase 3 三域(math/code/IFEval)验证 shortlist。
