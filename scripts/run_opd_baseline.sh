@@ -44,7 +44,7 @@ experiment_name=${EXPERIMENT_NAME:-vanilla_$(basename $STUDENT_MODEL)_from_$(bas
 logger=${LOGGER:-'["console","wandb"]'}
 
 data_dir=${DATA_DIR:-$HOME/data/simopd_math}
-train_files="['$data_dir/train.parquet']"
+train_files="['$data_dir/${TRAIN_FILE_BASENAME:-train.parquet}']"
 val_files="['$data_dir/math500.parquet']"
 
 max_num_tokens=$(( max_prompt_length + max_response_length + 1 ))
