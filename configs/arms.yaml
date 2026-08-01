@@ -139,16 +139,22 @@ arms:
   - run_id: g1_verified_only
     axis: G
     desc: "distil only rollouts passing the rule verifier (RG-OPD 2607.04037 family)"
-    status: needs
-    seam: "trainer-side batch filter on verifier reward (~50 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/losses.py as a rescaled loss mask, not a batch filter, so it
+           composes with other axes in the greedy rounds; the rescale keeps token-mean
+           equivalent to filtering. Verifier answer never enters the training input"
+    env:
+      DISTILLATION_LOSS_MODE: k1_verified_only
 
   - run_id: g2_fire_likelihood
     axis: G
     desc: "drop bottom-20% trajectories by normalized teacher logprob (FiRe 2606.02684)"
-    status: needs
-    seam: "trainer-side filter on s(y)=1/T sum log pi* (~40 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/losses.py; threshold is per micro-batch (noisier population than
+           FiRe's full batch -- realised keep fraction is logged so that is visible)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_fire_gate
+      SIMOPD_FIRE_DROP_FRAC: "0.2"
 
   # ---- H: sequence horizon ----
   - run_id: h1_first_segment

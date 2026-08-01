@@ -39,6 +39,9 @@ _QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
 # responses; 512 is the comparable fraction of our 8k cap).
 FIRST_SEGMENT_K = int(os.environ.get("SIMOPD_FIRST_SEGMENT_K", "512"))
 
+# FiRe drops the bottom 20% of trajectories by normalised teacher logprob.
+FIRE_DROP_FRAC = float(os.environ.get("SIMOPD_FIRE_DROP_FRAC", "0.2"))
+
 
 def _unpack(model_output, data):
     """Student/teacher sampled-token logprobs and the response mask, padded & aligned."""
@@ -183,3 +186,79 @@ def lsm_truncated_reverse_kl(config, distillation_config, model_output, data):
     Rethinking Eq.6/Eq.7 metrics the flight recorder already promises.
     """
     return _vl.compute_forward_kl_topk(config, distillation_config, model_output, data)
+
+
+def _reweight_kept(losses, mask, keep_seq):
+    """Zero out dropped trajectories and rescale so token-mean matches a real filter.
+
+    Gating arms drop trajectories. Implementing that as a loss mask keeps the
+    dropped tokens in agg_loss's denominator, which would silently shrink the
+    effective step size in proportion to the drop rate -- the arm would then be
+    measuring a learning-rate change, not gating. Rescaling by
+    kept_tokens/total_tokens restores the mean a true batch filter would produce.
+    """
+    keep = keep_seq.unsqueeze(-1) & mask
+    kept, total = keep.sum().clamp_min(1).float(), mask.sum().clamp_min(1).float()
+    return losses * keep * (total / kept), keep
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_verified_only"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_verified_only(config, distillation_config, model_output, data):
+    """G axis: distil only rollouts that pass the rule verifier.
+
+    Discipline from the plan: the verifier only filters, its answer never enters
+    the training input. Implemented as a rescaled loss mask rather than a batch
+    filter so it composes with the other axes in the greedy rounds; the rescale
+    in _reweight_kept makes the two equivalent in expectation.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+
+    for key in ("token_level_scores", "token_level_rewards"):
+        if key in data.keys():
+            seq_score = data[key].sum(dim=-1)
+            break
+    else:
+        raise KeyError(
+            "k1_verified_only needs the verifier score in the actor micro-batch; "
+            f"found none of token_level_scores/token_level_rewards in {sorted(data.keys())}"
+        )
+    keep_seq = seq_score > 0.5
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(losses, keep))
+    metrics["distillation/gate_keep_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=keep_seq.float().mean()
+    )
+    return losses, metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_fire_gate"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_fire_likelihood_gate(config, distillation_config, model_output, data):
+    """G axis: drop the bottom quantile of trajectories by teacher likelihood (FiRe 2606.02684).
+
+    FiRe ranks trajectories by s(y) = (1/T) sum log pi*(y_t | ...) and discards the
+    bottom 20%. The threshold is taken within the micro-batch, so it tracks the
+    running distribution rather than a fixed cutoff -- with the caveat that a
+    micro-batch is a noisier ranking population than FiRe's full batch; the
+    realised drop fraction is logged so that noise is visible.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+
+    lengths = mask.sum(dim=-1).clamp_min(1)
+    s_y = (teacher * mask).sum(dim=-1) / lengths  # normalised teacher logprob per trajectory
+    thresh = torch.quantile(s_y.float(), FIRE_DROP_FRAC)
+    keep_seq = s_y >= thresh
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(losses, keep))
+    metrics["distillation/gate_keep_frac"] = Metric(aggregation=AggregationType.MEAN, value=keep_seq.float().mean())
+    metrics["distillation/fire_s_y_thresh"] = Metric(aggregation=AggregationType.MEAN, value=thresh)
+    return losses, metrics
