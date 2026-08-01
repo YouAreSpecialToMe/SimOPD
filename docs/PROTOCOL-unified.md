@@ -99,6 +99,24 @@ overlap_ratio(verl 内建打点)、student/teacher 逐 token mass、Δℓ 分布
 
 ## 2. 各臂实现来源(不重复造轮子;能移植就移植)
 
+**代码复用政策(2026-08-01 定,写进 paper 的 reproducibility 节)**
+
+| 复用什么 | 做不做 | 理由 |
+|---|---|---|
+| 他们的**方法实现**(作为规格) | **必须** | 论文文字有歧义,代码没有。"你把我的方法实现错了"是审计论文最致命的审稿意见 |
+| 他们的 **harness**(训练框架/数据管线/评测) | **不用** | 各家框架互不相同(TA-OPD 自建 PyTorch 64×H800、TIP fork OPSD、LSM 用 verl-agent、FiRe 自建)。直接跑各自仓库 = 原样复制"没有两篇可比"这个病,而那正是本文要治的东西 |
+
+**执行方式**:每个臂实现前先读对应仓库,把差异逐条记进本表;实现后与其代码做
+数值/结构对照,对照结论写进臂的 `note`。已完成的对照:
+
+- **LSM(C 轴)vs EasyOPD `kl_renorm_topk`**(`methods/opcd/core.py`):双侧 logsumexp
+  重归一化 + KL=Σp(log p−log q) 与我们一致 ✓;**但他们多一层 `> -1e15` 填充位掩码,
+  我们原先没有 —— 已补**(padded slot 若进入归一化会静默压低所有概率)。
+
+**尚未对照(实现前必做)**:TIP(HJSang/OPSD fork)、Teachability(wyy-code/TA-OPD)、
+FiRe、RG-OPD。SelecTKD / LSM 仓库地址待查。
+
+
 | 臂 | 参考实现 | 移植方式 |
 |---|---|---|
 | C: top-k 截断 RKL(±重归一化) | thunlp/OPD fork(`LOG_PROB_TOP_K`,`TOP_K_STRATEGY={only_stu,only_tch,intersection,union}`)+ LSM 论文(K=32 双侧重归一化) | 语义照抄进 mainline 损失注册表(~80 行);尾桶修正参考 RG-OPD(K=50+tail correction) |
@@ -106,6 +124,7 @@ overlap_ratio(verl 内建打点)、student/teacher 逐 token mass、Δℓ 分布
 | D: TIP | HJSang/OPSD_OnPolicyDistillation fork | soft-OR score fn 移植(熵+自信错,批内 top2% clip) |
 | D: Teachability | wyy-code/TA-OPD | s=D̃·C̃ score fn 移植 |
 | D: SelecTKD | 库待查(W2 第一件事) | propose-verify 掩码;TAR 打点进飞行记录仪 |
+| **D 轴共同前置** | **thunlp/OPD 官方库(已本地 clone)** | 其 `ray_trainer.py` 用**两次前向**:先算 student top-k ids/logprobs,再让 teacher 按 `TOP_K_STRATEGY∈{only_stu,only_tch,intersection,union}` 在选定支撑上打分 —— 这正是 verl 主线缺的那块(主线 teacher 只返回 top-k **或**采样 token,二者不可兼得),也是 D 轴三个臂的解锁钥匙。移植其**设计**,不移植其代码(fork 已与主线分叉) |
 | E: PL-rank / set-coverage(自研) | PLD 2506.12542 公式 | 新写(~100 行) |
 | F: 软 log 压缩 | Demystifying 公式 sign(Δℓ)·log(1+|Δℓ|) | 估计器路径逐 token 变换(~20 行);硬 clip 已有(`loss_max_clamp`) |
 | G: verified-only | verl reward 管线现成 | trainer 侧 batch filter(~50 行);发表代表 RG-OPD 的符号对齐门控作替补语义参考 |

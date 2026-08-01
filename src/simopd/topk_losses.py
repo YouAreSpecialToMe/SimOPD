@@ -22,6 +22,15 @@ from verl.workers.config import DistillationLossConfig
 # internal ablation of the same arm, not as two separate arms.
 SUPPORT_MODE = os.environ.get("SIMOPD_SUPPORT_MODE", "renorm")
 
+_PAD_LOGPROB_THRESHOLD = -1e15
+_WARNED = False
+
+
+def _warn_padding(n):
+    global _WARNED
+    _WARNED = True
+    print(f"[simopd] top-k arm saw {n} padded teacher slots; they are excluded from the support")
+
 
 def compute_reverse_kl_topk(
     student_logits: torch.Tensor,
@@ -64,10 +73,20 @@ def compute_reverse_kl_topk(
         student_topk_log_probs = student_topk_log_probs.clamp_min(loss_config.log_prob_min_clamp)
         teacher_topk_log_probs = teacher_topk_log_probs.clamp_min(loss_config.log_prob_min_clamp)
 
+    # Positions where the teacher returned fewer than k entries are padded. Guarding
+    # logsumexp against them follows EasyOPD's kl_renorm_topk (methods/opcd/core.py),
+    # whose implementation this arm was checked against; without the guard a padded
+    # slot would enter the normaliser and silently deflate every probability.
+    valid = teacher_topk_log_probs > _PAD_LOGPROB_THRESHOLD
+    n_pad = (~valid).sum()
+
+    def _renorm(log_probs):
+        masked = torch.where(valid, log_probs, torch.full_like(log_probs, -1e20))
+        return log_probs - torch.logsumexp(masked, dim=-1, keepdim=True)
+
     if SUPPORT_MODE == "renorm":
         # Both sides become distributions over S; the tail is dropped, not modelled.
-        stu = student_topk_log_probs - torch.logsumexp(student_topk_log_probs, dim=-1, keepdim=True)
-        tch = teacher_topk_log_probs - torch.logsumexp(teacher_topk_log_probs, dim=-1, keepdim=True)
+        stu, tch = _renorm(student_topk_log_probs), _renorm(teacher_topk_log_probs)
     elif SUPPORT_MODE == "tailbucket":
         # One extra bucket holds the off-support mass, so the tail contributes to the
         # divergence instead of vanishing (RSKD 2503.16870's correction, in spirit).
@@ -81,7 +100,12 @@ def compute_reverse_kl_topk(
         raise ValueError(f"SIMOPD_SUPPORT_MODE must be 'renorm' or 'tailbucket', got {SUPPORT_MODE!r}")
 
     # kl_divergence(log_q, log_p) = sum p (log p - log q); student as p gives reverse KL.
+    if SUPPORT_MODE == "renorm":
+        stu = torch.where(valid, stu, torch.full_like(stu, -1e20))
+        tch = torch.where(valid, tch, torch.full_like(tch, -1e20))
     distillation_losses = kl_divergence(log_q=tch, log_p=stu)
+    if n_pad > 0 and not _WARNED:
+        _warn_padding(int(n_pad))
 
     overlap_mask = (teacher_topk_ids.unsqueeze(-1) == student_topk_ids.unsqueeze(-2)).any(dim=-1)
     overlap_count = overlap_mask.sum(dim=-1)
