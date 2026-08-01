@@ -1,0 +1,11 @@
+OPD/
+EasyOPD/
+logs/
+outputs/
+checkpoints/
+wandb/
+.venv/
+.git/
+docs/
+verl/.git/
+**/__pycache__/

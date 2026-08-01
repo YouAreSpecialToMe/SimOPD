@@ -12,7 +12,12 @@
 |---|---|
 | [docs/SimOPD-plan.md](docs/SimOPD-plan.md) | 实验计划 v3.1:定位、7 轴、诊断 D1'–D6、三阶段流程、判决规则、硬件预算、里程碑 |
 | [docs/SimOPD-casefile.md](docs/SimOPD-casefile.md) | 案卷:动物园普查、管辖权裁定、8 轴参赛名单(审/替/落)、代表选择准则 |
-| [docs/INFRA-NOTES.md](docs/INFRA-NOTES.md) | infra 勘察:verl 主线原生 OPD 基座裁定、缺口→接缝图、槽位布局、W1 清单 |
+| [docs/INFRA-NOTES.md](docs/INFRA-NOTES.md) | infra 勘察:verl 主线原生 OPD 基座裁定、缺口→接缝图、槽位布局、W1 清单;v1.1 集群实测补充 |
+| [docs/PROTOCOL-unified.md](docs/PROTOCOL-unified.md) | **统一实验协议(预注册)**:10 篇受审论文 setup 调研表 + 锁定协议 + 各臂实现来源(代码复用图)+ 显式偏离清单 |
+| [docs/PROTOCOL-demystifying.md](docs/PROTOCOL-demystifying.md) | Demystifying 协议实录(锚点依据):模型/数据/超参抽取 + 未决项 |
+| [docs/METRICS.md](docs/METRICS.md) | **Metrics 规范(预注册)**:判决层/副作用面板/机理飞行记录仪/效率层 + 节奏总表 + 实施清单 |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | **Benchmark 选型(预注册)**:文献频次表 + 分档套件 + 数据源/统一评分器 + 卫生检查 + 不选清单 |
+| [docs/DEPLOY-PAI-DLC.md](docs/DEPLOY-PAI-DLC.md) | 阿里云 PAI-DLC 部署:形态映射、镜像/存储/提交三步、上机前必查清单、抢占与断点、跨集群分工纪律 |
 
 ## 快速事实
 

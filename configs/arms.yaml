@@ -1,0 +1,164 @@
+# SimOPD arm registry — single source of truth for every run in the audit.
+#
+# One arm = vanilla + exactly one knob turned (SimOPD-casefile.md §3, 8 axes).
+# Everything else comes from the locked protocol (PROTOCOL-unified.md §1), so an
+# arm definition only ever lists its own deviation. `run_id` is the wandb run name,
+# the eval artifact prefix, and the verdict-ledger row key — never rename one.
+#
+# status:
+#   stock  = runs on unmodified verl today
+#   needs  = blocked on the loss/seam listed in `seam` (INFRA-NOTES 接缝图)
+#
+# Usage:
+#   python scripts/arm.py list [--status stock]
+#   python scripts/arm.py env <run_id>      # env-var block for run_opd_baseline.sh
+
+arms:
+  # ---- baseline (the reference every verdict is measured against) ----
+  - run_id: vanilla
+    axis: "-"
+    desc: "sampled-token reverse KL (k1) as per-token advantage, PG form"
+    status: stock
+    note: "k1_rec is bit-identical to verl's k1 and adds the Delta-ell quantile panel
+           that METRICS.md requires on every run, baseline included"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+
+  # ---- A: rollout source & schedule ----
+  - run_id: a1_gkd_mix0.5
+    axis: A
+    desc: "GKD lambda=0.5 on/off-policy mixing (2306.13649)"
+    status: needs
+    seam: "off-policy batch mixing in the rollout loop"
+    env: {}
+
+  - run_id: a2_coldstart
+    axis: A
+    desc: "off-policy SFT cold start then OPD (Rethinking recipe)"
+    status: needs
+    seam: "separate SFT stage (verl sft / LlamaFactory), outside the OPD loop"
+    env: {}
+
+  # ---- B: divergence ----
+  - run_id: b1_skew_kl
+    axis: B
+    desc: "skew-KL alpha=0.1 (DistiLLM 2402.03898)"
+    status: stock
+    note: "src/simopd/losses.py; mixture log-density is exact from the two
+           sampled-token logprobs, so this stays on the same C axis as vanilla.
+           Verified: alpha->0 collapses to k1, and the estimator is bounded by -log(alpha)"
+    env:
+      DISTILLATION_LOSS_MODE: skew_kl_a0.1
+
+  - run_id: b2_forward_kl
+    axis: B
+    desc: "forward KL, teacher top-k form (completeness arm: the known-worse control)"
+    status: stock
+    note: "verl's forward_kl_topk is top-k and NOT renormalized; that is a C-axis
+           confound, so this arm is reported as forward-KL-topk, not plain forward KL"
+    env:
+      DISTILLATION_LOSS_MODE: forward_kl_topk
+      DISTILLATION_TOPK: "32"
+
+  # ---- C: vocabulary support ----
+  - run_id: c1_lsm_topk32_renorm
+    axis: C
+    desc: "truncated reverse KL on teacher top-k=32, both sides renormalized (LSM 2603.25562)"
+    status: stock
+    note: "src/simopd/topk_losses.py. verl's top-k path hardcodes forward KL with no
+           loss_mode dispatch, so we rebind compute_topk_loss at import; verl itself
+           is still unmodified. SIMOPD_SUPPORT_MODE=renorm|tailbucket is the
+           pre-registered internal ablation of this arm"
+    env:
+      DISTILLATION_LOSS_MODE: lsm_topk_renorm
+      DISTILLATION_TOPK: "32"
+      SIMOPD_SUPPORT_MODE: renorm
+
+  - run_id: c2_quantile_budget
+    axis: C
+    desc: "quantile budget allocation, margin=max(q,pi) [OURS]"
+    status: needs
+    seam: "new registry loss; teacher top-K tensor already returned (~120 lines)"
+    env: {}
+
+  # ---- D: token selection / weighting ----
+  - run_id: d1_tip
+    axis: D
+    desc: "TIP high-entropy + confidently-wrong soft-OR (2604.14084)"
+    status: needs
+    seam: "top-k path: entropy must come from student_logits in the kernel --
+           model_output['entropy'] only exists when calculate_entropy is on, and
+           enabling it via entropy_coeff would add an entropy bonus that contaminates
+           the arm. Base loss stays sampled-token RKL, weighted (~60 lines)"
+    env: {}
+
+  - run_id: d2_selectkd
+    axis: D
+    desc: "SelecTKD propose-verify, student top-1 vs teacher top-k (2510.24021)"
+    status: needs
+    seam: "top-k path: student top-1 vs teacher top-k acceptance mask + TAR
+           metric; needs the sampled token ids inside the kernel (~60 lines)"
+    env: {}
+
+  - run_id: d3_teachability
+    axis: D
+    desc: "teachability score s = disagreement x compatibility (2605.26844)"
+    status: needs
+    seam: "top-k path: s = disagreement x compatibility, where compatibility is
+           teacher mass on the student's top-K -- both sides already computed by the
+           LSM kernel, so this largely reuses it (~50 lines)"
+    env: {}
+
+  # ---- E: in-support objective ----
+  - run_id: e1_pl_rank
+    axis: E
+    desc: "PL-rank loss + small value anchor [OURS], form from PLD 2506.12542"
+    status: needs
+    seam: "new registry loss (~100 lines)"
+    env: {}
+
+  # ---- F: signal regulation ----
+  - run_id: f1_soft_log
+    axis: F
+    desc: "soft log compression sign(d)*log(1+|d|) (Demystifying winner)"
+    status: stock
+    note: "implemented in src/simopd/losses.py, registered via sitecustomize"
+    env:
+      DISTILLATION_LOSS_MODE: k1_softlog
+
+  - run_id: f2_hard_clip
+    axis: F
+    desc: "hard clip of the per-token signal (Demystifying Mode B remedy)"
+    status: stock
+    note: "verl ships loss_max_clamp; pre-registered to enter only if D5 finds Mode B,
+           but it is stock so it is smoked with the rest"
+    env:
+      LOSS_MAX_CLAMP: "10.0"
+
+  # ---- G: trajectory gating ----
+  - run_id: g1_verified_only
+    axis: G
+    desc: "distil only rollouts passing the rule verifier (RG-OPD 2607.04037 family)"
+    status: needs
+    seam: "trainer-side batch filter on verifier reward (~50 lines)"
+    env: {}
+
+  - run_id: g2_fire_likelihood
+    axis: G
+    desc: "drop bottom-20% trajectories by normalized teacher logprob (FiRe 2606.02684)"
+    status: needs
+    seam: "trainer-side filter on s(y)=1/T sum log pi* (~40 lines)"
+    env: {}
+
+  # ---- H: sequence horizon ----
+  - run_id: h1_first_segment
+    axis: H
+    desc: "supervise only the first K response tokens (loss mask form of ESR 2605.27028)"
+    status: stock
+    note: "src/simopd/losses.py; generation is NOT truncated -- the rollout-truncation
+           form changes the sampling distribution and would confound with axis A.
+           K via SIMOPD_FIRST_SEGMENT_K; this arm intentionally cuts the supervision
+           budget (that is its claim), so the ledger reports rather than matches it"
+    env:
+      DISTILLATION_LOSS_MODE: k1_firstseg
+      SIMOPD_FIRST_SEGMENT_K: "512"
