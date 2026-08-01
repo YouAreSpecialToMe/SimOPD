@@ -77,45 +77,70 @@ arms:
   - run_id: c2_quantile_budget
     axis: C
     desc: "quantile budget allocation, margin=max(q,pi) [OURS]"
-    status: needs
-    seam: "new registry loss; teacher top-K tensor already returned (~120 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/topk_losses.py [OURS]. One batch-level threshold on a per-candidate
+           margin: realised support varies per token while the mean is pinned to
+           QB_TARGET_BUDGET, so it is budget-matched against fixed top-k in expectation.
+           Verified adaptive (budget p5/p50/p95 = 6/9/12 at target 8), not fixed-k in disguise"
+    env:
+      DISTILLATION_LOSS_MODE: qb_quantile_budget
+      DISTILLATION_TOPK: 64
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_QB_MARGIN: max
 
   # ---- D: token selection / weighting ----
   - run_id: d1_tip
     axis: D
     desc: "TIP high-entropy + confidently-wrong soft-OR (2604.14084)"
-    status: needs
-    seam: "top-k path: entropy must come from student_logits in the kernel --
-           model_output['entropy'] only exists when calculate_entropy is on, and
-           enabling it via entropy_coeff would add an entropy bonus that contaminates
-           the arm. Base loss stays sampled-token RKL, weighted (~60 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/topk_losses.py. Entropy computed from student_logits in the kernel,
+           not model_output['entropy'] -- switching that on via entropy_coeff would add
+           an entropy bonus and contaminate the arm. Needs SIMOPD_KEEP_SAMPLED=1"
+    env:
+      DISTILLATION_LOSS_MODE: tip_select
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_D_RETENTION: "0.5"
 
   - run_id: d2_selectkd
     axis: D
     desc: "SelecTKD propose-verify, student top-1 vs teacher top-k (2510.24021)"
-    status: needs
-    seam: "top-k path: student top-1 vs teacher top-k acceptance mask + TAR
-           metric; needs the sampled token ids inside the kernel (~60 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/topk_losses.py, greedy Top-k variant. Retention is data-determined
+           here, so unlike d1/d3 it is NOT budget-matched by construction; TAR is logged
+           and the ledger reports the realised budget rather than claiming a match"
+    env:
+      DISTILLATION_LOSS_MODE: selectkd_verify
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
 
   - run_id: d3_teachability
     axis: D
     desc: "teachability score s = disagreement x compatibility (2605.26844)"
-    status: needs
-    seam: "top-k path: s = disagreement x compatibility, where compatibility is
-           teacher mass on the student's top-K -- both sides already computed by the
-           LSM kernel, so this largely reuses it (~50 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/topk_losses.py. Compatibility = teacher mass on the student's top-K,
+           computable only over the intersection of the two top-k sets, i.e. a lower
+           bound (exact when the student's top-K sits inside the teacher's, which
+           Rethinking reports is the common case). Deviation recorded"
+    env:
+      DISTILLATION_LOSS_MODE: teachability_select
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_D_RETENTION: "0.5"
 
   # ---- E: in-support objective ----
   - run_id: e1_pl_rank
     axis: E
     desc: "PL-rank loss + small value anchor [OURS], form from PLD 2506.12542"
-    status: needs
-    seam: "new registry loss (~100 lines)"
-    env: {}
+    status: stock
+    note: "src/simopd/topk_losses.py [OURS]. Plackett-Luce over the teacher's rank order
+           (verl returns top-k already rank-sorted) plus a value-KL anchor whose
+           coefficient is the internal ablation. Verified monotonic in disorder:
+           agreeing 0.34 < flat 1.10 < reversed 2.84"
+    env:
+      DISTILLATION_LOSS_MODE: pl_rank_anchor
+      DISTILLATION_TOPK: 32
+      SIMOPD_PL_ANCHOR_COEF: "0.1"
 
   # ---- F: signal regulation ----
   - run_id: f1_soft_log

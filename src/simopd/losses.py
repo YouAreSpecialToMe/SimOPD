@@ -262,3 +262,55 @@ def k1_fire_likelihood_gate(config, distillation_config, model_output, data):
     metrics["distillation/gate_keep_frac"] = Metric(aggregation=AggregationType.MEAN, value=keep_seq.float().mean())
     metrics["distillation/fire_s_y_thresh"] = Metric(aggregation=AggregationType.MEAN, value=thresh)
     return losses, metrics
+
+
+def _topk_registry_fn(*extra_keys):
+    """Post-processor for our top-k arms.
+
+    Deliberately NOT verl's compute_forward_kl_topk: that one ends with
+    `clamp_min(0.0)`, correct for its unnormalised top-k forward KL but fatal for
+    the D-axis arms, whose base loss is vanilla's k1 and is legitimately negative
+    wherever the student already outranks the teacher. Clamping there would erase
+    exactly half the signal without erroring.
+    """
+
+    def fn(config, distillation_config, model_output, data):
+        losses = no_padding_2_padding(model_output["distillation_losses"], data)
+        mask = data["response_mask"]
+        mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+
+        metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+        metrics.update(_delta_ell_metrics(losses, mask))
+
+        k = distillation_config.distillation_loss.topk
+        for key, label in [("student_mass", "student_mass"), ("teacher_mass", "teacher_mass")]:
+            if key in model_output:
+                v = no_padding_2_padding(model_output[key], data)
+                metrics[f"distillation/{label}"] = Metric(aggregation=AggregationType.MEAN, value=v[mask].mean())
+        if "overlap_count" in model_output:
+            oc = no_padding_2_padding(model_output["overlap_count"], data)
+            metrics["distillation/overlap_ratio"] = Metric(
+                aggregation=AggregationType.MEAN, value=oc[mask].float().mean() / k
+            )
+        if "overlap_token_advantage" in model_output:
+            ota = no_padding_2_padding(model_output["overlap_token_advantage"], data)
+            metrics["distillation/overlap_token_advantage"] = Metric(
+                aggregation=AggregationType.MEAN, value=ota[mask].mean()
+            )
+        for key in extra_keys:
+            if key in model_output:
+                v = no_padding_2_padding(model_output[key], data)
+                metrics[f"distillation/{key}"] = Metric(aggregation=AggregationType.MEAN, value=v[mask].float().mean())
+        return losses, metrics
+
+    return fn
+
+
+for _name, _extras in [
+    ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
+    ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
+    ("tip_select", ("d_selected_frac", "tip_entropy_mean")),
+    ("selectkd_verify", ("d_selected_frac", "selectkd_tar")),
+    ("teachability_select", ("d_selected_frac", "teach_compatibility")),
+]:
+    register_distillation_loss(DistillationLossSettings(names=[_name], use_topk=True))(_topk_registry_fn(*_extras))

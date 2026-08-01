@@ -13,9 +13,10 @@ import os
 
 import torch
 import torch.nn.functional as F
-import verl.trainer.distillation.losses as vl
-from verl.trainer.distillation.fsdp.losses import kl_divergence
-from verl.workers.config import DistillationLossConfig
+
+# verl is imported inside functions, never at module scope: importing it here
+# would re-enter our own install hook (which imports simopd.losses, which imports
+# this module) and hit a partially-initialised module.
 
 # "renorm" divides both sides by their top-k mass; "tailbucket" instead appends a
 # single bucket carrying the leftover mass. The casefile pre-registers these as an
@@ -49,6 +50,7 @@ def compute_reverse_kl_topk(
     Returns the same dict keys verl's version does, so the downstream registry
     function and all existing overlap metrics keep working.
     """
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
     from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, slice_input_tensor
 
     assert teacher_topk_log_probs.is_nested and teacher_topk_ids.is_nested
@@ -60,7 +62,7 @@ def compute_reverse_kl_topk(
         teacher_topk_ids = slice_input_tensor(teacher_topk_ids, dim=1)
     assert teacher_topk_log_probs.shape[:2] == teacher_topk_ids.shape[:2] == student_logits.shape[:2]
 
-    loss_config: DistillationLossConfig = config.distillation_loss
+    loss_config = config.distillation_loss
 
     student_log_probs = F.log_softmax(student_logits, dim=-1)
     student_topk_ids = torch.topk(student_log_probs, k=teacher_topk_ids.shape[-1], dim=-1).indices
@@ -126,7 +128,7 @@ def compute_reverse_kl_topk(
 
 TOPK_DISPATCH = {"lsm_topk_renorm": compute_reverse_kl_topk}
 
-_original_compute_topk_loss = vl.compute_topk_loss
+_original_compute_topk_loss = None
 
 
 def _dispatching_compute_topk_loss(config, distillation_config, data, student_logits, data_format):
@@ -153,4 +155,288 @@ def _dispatching_compute_topk_loss(config, distillation_config, data, student_lo
 
 
 def install():
+    global _original_compute_topk_loss
+    import verl.trainer.distillation.losses as vl
+
+    if vl.compute_topk_loss is _dispatching_compute_topk_loss:
+        return
+    _original_compute_topk_loss = vl.compute_topk_loss
     vl.compute_topk_loss = _dispatching_compute_topk_loss
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for arms that need the student's full distribution.
+# ---------------------------------------------------------------------------
+
+
+def _prepare(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled):
+    """Unwrap verl's nested teacher tensors and align them with student_logits.
+
+    With SIMOPD_KEEP_SAMPLED=1 the teacher tensors carry one extra trailing column
+    holding the sampled token (see simopd.teacher_patch); `want_sampled` splits it
+    off. Everything before that split is the teacher's rank-ordered top-k.
+    """
+    from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, slice_input_tensor
+
+    assert teacher_topk_log_probs.is_nested and teacher_topk_ids.is_nested
+    t_lp = teacher_topk_log_probs.values().unsqueeze(0)
+    t_id = teacher_topk_ids.values().unsqueeze(0)
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        t_lp = slice_input_tensor(t_lp, dim=1)
+        t_id = slice_input_tensor(t_id, dim=1)
+    assert t_lp.shape[:2] == t_id.shape[:2] == student_logits.shape[:2]
+
+    sampled_lp = sampled_id = None
+    if want_sampled:
+        k_cfg = config.distillation_loss.topk
+        if t_lp.shape[-1] != k_cfg + 1:
+            raise RuntimeError(
+                f"D-axis arms need SIMOPD_KEEP_SAMPLED=1: expected teacher width {k_cfg + 1}, "
+                f"got {t_lp.shape[-1]}. Without it the sampled token's teacher logprob is dropped "
+                "by verl and the arm cannot keep vanilla's objective."
+            )
+        t_lp, sampled_lp = t_lp[..., :k_cfg], t_lp[..., k_cfg]
+        t_id, sampled_id = t_id[..., :k_cfg], t_id[..., k_cfg].long()
+
+    student_log_probs = F.log_softmax(student_logits, dim=-1)
+    return student_log_probs, t_lp, t_id, sampled_lp, sampled_id
+
+
+def _student_entropy(student_log_probs):
+    """Full-vocabulary token entropy, computed here rather than taken from
+    model_output['entropy'] -- that key only exists when calculate_entropy is on,
+    and the usual way to switch it on (entropy_coeff != 0) adds an entropy bonus
+    to the loss, which would contaminate any arm that used it."""
+    return -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+
+
+def _minmax(x, mask=None):
+    """Batch-relative min-max normalisation, as TIP specifies. A micro-batch is a
+    smaller population than TIP's, so the normaliser is noisier; realised
+    selection rates are logged so that noise stays visible."""
+    flat = x[mask] if mask is not None else x
+    lo, hi = flat.min(), flat.max()
+    return (x - lo) / (hi - lo).clamp_min(1e-8)
+
+
+def _weighted_sampled_token_loss(student_log_probs, sampled_lp, sampled_id, weight, loss_config):
+    """vanilla's objective (sampled-token reverse KL), scaled by a D-axis weight."""
+    stu_sampled = torch.gather(student_log_probs, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1)
+    tch_sampled = sampled_lp
+    if loss_config.log_prob_min_clamp is not None:
+        stu_sampled = stu_sampled.clamp_min(loss_config.log_prob_min_clamp)
+        tch_sampled = tch_sampled.clamp_min(loss_config.log_prob_min_clamp)
+    return (stu_sampled - tch_sampled) * weight
+
+
+def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
+    """Rethinking Eq.6/Eq.7 diagnostics, kept identical across every top-k arm."""
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    overlap_mask = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)
+    overlap_count = overlap_mask.sum(dim=-1)
+    token_kl = t_lp.exp() * (t_lp - stu_at_teacher)
+    adv = (-token_kl * overlap_mask).sum(dim=-1) / overlap_count.clamp_min(1)
+    return {
+        "student_mass": stu_at_teacher.exp().sum(dim=-1),
+        "teacher_mass": t_lp.exp().sum(dim=-1),
+        "overlap_count": overlap_count,
+        "overlap_token_advantage": torch.where(overlap_count > 0, adv, torch.zeros_like(adv)),
+    }
+
+
+# Shared retention for every D-axis selector, so the three arms are supervision-budget
+# matched by construction (the protocol requires equal budget within an axis).
+D_RETENTION = float(os.environ.get("SIMOPD_D_RETENTION", "0.5"))
+# C2: candidate pool width and the average per-token support size to aim for.
+QB_TARGET_BUDGET = float(os.environ.get("SIMOPD_QB_TARGET_BUDGET", "8"))
+QB_MARGIN = os.environ.get("SIMOPD_QB_MARGIN", "max")  # q | pi | max
+# E1: weight on the value-KL anchor beside the rank loss.
+PL_ANCHOR_COEF = float(os.environ.get("SIMOPD_PL_ANCHOR_COEF", "0.1"))
+
+
+def _rescale_selection(losses, keep):
+    """Keep total loss magnitude comparable to vanilla after masking tokens.
+
+    Without this a selector arm is indistinguishable from a learning-rate cut:
+    agg_loss divides by the full token count, so dropping half the tokens halves
+    the update. Same correction as the G-axis gates.
+    """
+    kept = keep.sum().clamp_min(1).float()
+    total = torch.ones_like(keep, dtype=torch.float32).sum()
+    return losses * keep * (total / kept)
+
+
+def _topk_by_score(score, retention):
+    """Keep the top `retention` fraction of positions by score, batch-relative."""
+    thresh = torch.quantile(score.float().flatten(), 1.0 - retention)
+    return score >= thresh
+
+
+def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+    """C axis [OURS]: per-token adaptive support by a batch-level margin quantile.
+
+    Fixed top-k spends the same vocabulary budget on a token the student is sure
+    about and on a genuine fork. Here a single batch-level threshold tau is placed
+    on a per-candidate margin, so the realised support size varies per token while
+    the average is pinned to QB_TARGET_BUDGET -- budget-matched against a fixed-k
+    arm in expectation, but allocated where the distributions actually disagree.
+    """
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+
+    q, pi = t_lp.exp(), stu_at_teacher.exp()
+    margin = {"q": q, "pi": pi}.get(QB_MARGIN, torch.maximum(q, pi))
+
+    k = t_lp.shape[-1]
+    frac = 1.0 - min(QB_TARGET_BUDGET / k, 1.0)
+    tau = torch.quantile(margin.float().flatten(), frac)
+    keep = margin >= tau
+    keep[..., 0] = True  # the teacher's own top-1 is never dropped, so no support is empty
+
+    neg = torch.finfo(t_lp.dtype).min
+    stu_masked = torch.where(keep, stu_at_teacher, torch.full_like(stu_at_teacher, neg))
+    tch_masked = torch.where(keep, t_lp, torch.full_like(t_lp, neg))
+    stu_n = stu_masked - torch.logsumexp(stu_masked, dim=-1, keepdim=True)
+    tch_n = tch_masked - torch.logsumexp(tch_masked, dim=-1, keepdim=True)
+    stu_n = torch.where(keep, stu_n, torch.full_like(stu_n, -1e20))
+    tch_n = torch.where(keep, tch_n, torch.full_like(tch_n, -1e20))
+
+    losses = kl_divergence(log_q=tch_n, log_p=stu_n)
+
+    stu_topk_ids = torch.topk(student_log_probs, k=k, dim=-1).indices
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    out["distillation_losses"] = losses
+    out["qb_budget"] = keep.sum(dim=-1).float()
+    out["qb_captured_mass"] = (q * keep).sum(dim=-1)
+    return out
+
+
+def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+    """E axis [OURS]: Plackett-Luce rank loss over the teacher's top-k, plus a value anchor.
+
+    Rank-only supervision asks the student to reproduce the teacher's *ordering*
+    rather than its probabilities, which is the weaker and possibly more
+    transferable target when the capacity gap makes exact values unreachable, and
+    it lines up with greedy decoding. The value anchor is kept because sampled
+    evaluation (avg@32) still rewards calibrated margins; its coefficient is the
+    arm's internal ablation.
+
+    verl returns the teacher's top-k already in rank order, so the target
+    permutation is the identity along the last dimension.
+    """
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    s = torch.gather(student_log_probs, dim=-1, index=t_id)
+
+    # PL log-likelihood of the teacher's order: sum_i [ s_i - logsumexp(s_i..s_k) ].
+    # The suffix logsumexp is a reversed cumulative logsumexp.
+    suffix_lse = torch.flip(torch.logcumsumexp(torch.flip(s, dims=[-1]), dim=-1), dims=[-1])
+    pl_loglik = (s - suffix_lse).sum(dim=-1)
+    rank_loss = -pl_loglik / s.shape[-1]
+
+    stu_n = s - torch.logsumexp(s, dim=-1, keepdim=True)
+    tch_n = t_lp - torch.logsumexp(t_lp, dim=-1, keepdim=True)
+    value_anchor = kl_divergence(log_q=tch_n, log_p=stu_n)
+
+    losses = rank_loss + PL_ANCHOR_COEF * value_anchor
+
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    out["distillation_losses"] = losses
+    out["pl_rank_loss"] = rank_loss
+    out["pl_value_anchor"] = value_anchor
+    return out
+
+
+def _d_axis_kernel(score_fn, extra_fn=None):
+    """Build a D-axis kernel: vanilla's sampled-token objective, weighted by a selector.
+
+    The base loss stays sampled-token reverse KL for every D-axis arm, so what
+    varies between them is only *which tokens are supervised* -- the axis's actual
+    claim. Computing the selector needs the teacher's top-k, and keeping vanilla's
+    objective needs the sampled token's teacher logprob; both are available only
+    because simopd.teacher_patch stops verl discarding the latter.
+    """
+
+    def kernel(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+        student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
+            student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+        )
+        stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+        stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+
+        keep, diag = score_fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
+        raw = _weighted_sampled_token_loss(
+            student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
+        )
+        losses = _rescale_selection(raw, keep)
+
+        out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+        out["distillation_losses"] = losses
+        out["d_selected_frac"] = keep.float()
+        out.update(diag)
+        return out
+
+    return kernel
+
+
+def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+    """TIP 2604.14084: soft-OR of student entropy and teacher-weighted divergence.
+
+    s = h_hat + d_hat - h_hat*d_hat on min-max normalised inputs, with the top 2%
+    of entropy clipped within the batch, then the top D_RETENTION fraction kept.
+    """
+    h = _student_entropy(student_log_probs)
+    h_clip = torch.quantile(h.float().flatten(), 0.98)
+    h = h.clamp(max=h_clip)
+    delta = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)  # forward divergence at this token
+    h_n, d_n = _minmax(h), _minmax(delta)
+    score = h_n + d_n - h_n * d_n
+    return _topk_by_score(score, D_RETENTION), {"tip_entropy_mean": h}
+
+
+def _selectkd_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+    """SelecTKD 2510.24021 (greedy Top-k): the student proposes its top-1, the
+    teacher verifies by whether that token is inside its own top-k.
+
+    Unlike the other two D-axis selectors this arm's retention is data-determined,
+    not tunable, so it is not budget-matched with them by construction. The
+    acceptance rate (the paper's TAR) is logged so the ledger can report the
+    realised budget instead of pretending it matches.
+    """
+    student_top1 = stu_topk_ids[..., :1]
+    accepted = (t_id == student_top1).any(dim=-1)
+    return accepted, {"selectkd_tar": accepted.float()}
+
+
+def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+    """Teachability 2605.26844: s = disagreement x compatibility.
+
+    Compatibility is the teacher's probability mass on the student's top-K. The
+    teacher only reports its own top-k, so this is the mass on the intersection --
+    a lower bound, exact whenever the student's top-K sits inside the teacher's,
+    which Rethinking reports is the common case. Recorded as a deviation.
+    """
+    disagreement = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
+    in_student_topk = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)
+    compatibility = (t_lp.exp() * in_student_topk).sum(dim=-1)
+    score = _minmax(disagreement) * _minmax(compatibility)
+    return _topk_by_score(score, D_RETENTION), {"teach_compatibility": compatibility}
+
+
+TOPK_DISPATCH.update(
+    {
+        "qb_quantile_budget": compute_quantile_budget_topk,
+        "pl_rank_anchor": compute_pl_rank_topk,
+        "tip_select": _d_axis_kernel(_tip_score),
+        "selectkd_verify": _d_axis_kernel(_selectkd_score),
+        "teachability_select": _d_axis_kernel(_teachability_score),
+    }
+)
