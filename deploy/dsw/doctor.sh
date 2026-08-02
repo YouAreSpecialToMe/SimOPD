@@ -85,9 +85,20 @@ case "$T" in
                      *) fix "see the traceback above; nothing downstream can work until torch imports" ;;
                    esac ;;
     "<no __version__>"*)
-                   bad "torch imports but has no __version__ -- a different 'torch' is answering"
-                   fix "it resolves to: ${T#*$'\t'}"
-                   fix "usually a PYTHONPATH or user-site copy shadowing the venv" ;;
+                   ORIGIN=${T#*$'\t'}
+                   if [ "$ORIGIN" = "None" ]; then
+                       # spec.origin is None <=> namespace package <=> a bare directory
+                       # with no __init__.py. Almost always an install that died partway
+                       # (the dependencies land first, the package body last).
+                       bad "torch is a namespace package -- an install that never finished"
+                       fix "the dependency wheels are there but torch's own body is not; force a clean reinstall:"
+                       fix "  rm -rf \"\$(python -c 'import site;print(site.getsitepackages()[0])')/torch\""
+                       fix "  bash deploy/dsw/setup.sh          # detects and repairs this case"
+                   else
+                       bad "torch imports but has no __version__ -- a different 'torch' is answering"
+                       fix "it resolves to: $ORIGIN"
+                       fix "usually a PYTHONPATH or user-site copy shadowing the venv"
+                   fi ;;
     *)             ok "torch ${T%%$'\t'*}  ($(python -c 'import torch;print("cuda "+str(torch.version.cuda))' 2>/dev/null))"
                    printf '       from %s\n' "${T#*$'\t'}" ;;
 esac
