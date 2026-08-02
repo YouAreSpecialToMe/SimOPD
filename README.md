@@ -50,6 +50,27 @@ bash deploy/dsw/run_parallel.sh               # 正式 campaign
 `SAVE_FREQ` 步落在 workspace 卷上,停机后是续跑而不是重跑 —— 这条纪律是
 2026-07-31 那次 24 GPU·时全损换来的(见 INFRA-NOTES 事故复盘)。
 
+## 监控实验
+
+```bash
+python scripts/watch.py              # 全部 run 一屏
+python scripts/watch.py --watch 60   # 每 60 秒刷新
+python scripts/watch.py --run vanilla_s0   # 单个 run 的 val 轨迹 + 长度/步时
+```
+
+读的是**日志里 verl 的 step 行**而不是 wandb —— 两个集群格式一致,wandb 离线或被墙也照常работа。
+四个健康告警都是这个项目真实踩过的坑,不是通用模板:
+
+| 告警 | 含义 | 来历 |
+|---|---|---|
+| `STALLED` | 久无新 step | 一次 18 分钟静默启动,实为每进程 14.5s 的导入税 |
+| `MODE-A` | 长度上涨 + 步时恶化 | 300 步跑成 >24h、在第 229 步被杀 |
+| `NO-CKPT` | 过了 SAVE_FREQ 仍无 checkpoint | 同一次:24 GPU·时零产出 |
+| `DISK` | checkpoint 逼近容量 | verl 默认全留,17 run ≈850GB |
+
+`age` 和 `src` 两列用来分辨**作废的 run** —— 被取消的作业在日志里和活着的长得一模一样,
+拿作废数据下判断比没数据更糟。
+
 ## 第三方代码(不入库,本地 clone)
 
 ```bash
