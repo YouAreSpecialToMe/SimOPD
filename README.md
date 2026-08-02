@@ -29,6 +29,27 @@
 - **竞品边界**:Rethinking(2604.13016)/ Demystifying(2607.13399)是机理研究线;
   本项目是文献审计线 —— 它们不是竞品,是案卷
 
+## 在 PAI-DSW 上跑(8×A100-80G 交互实例)
+
+```bash
+git clone git@github.com:YouAreSpecialToMe/SimOPD.git && cd SimOPD
+bash deploy/dsw/setup.sh                      # 环境 + 模型 + 数据,幂等可重跑
+python scripts/arm.py check                   # 15/16 臂应报 runnable
+bash deploy/dsw/run_parallel.sh --rehearsal   # 每臂 3 步,先便宜地验一遍
+bash deploy/dsw/run_parallel.sh               # 正式 campaign
+```
+
+一个 run = **2 卡**(actor + teacher 池;verl 把 teacher 池注册成独立 Ray 资源池,
+不与 actor 共卡),所以 8 卡 = **4 条泳道并行**。泳道之间只共享文件系统:各自的
+`CUDA_VISIBLE_DEVICES`、各自的 Ray 临时目录、各自的日志。
+
+⚠ 泳道清理**不能**用 `ray stop --force` —— 它是全机范围的,会连带杀掉另外三条泳道。
+`_lane.sh` 按泳道私有临时目录精确清理。
+
+⚠ DSW 实例**停止**会丢掉进程(nohup 只扛掉线,扛不住停机)。checkpoint 每
+`SAVE_FREQ` 步落在 workspace 卷上,停机后是续跑而不是重跑 —— 这条纪律是
+2026-07-31 那次 24 GPU·时全损换来的(见 INFRA-NOTES 事故复盘)。
+
 ## 第三方代码(不入库,本地 clone)
 
 ```bash
