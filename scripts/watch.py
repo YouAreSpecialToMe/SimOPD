@@ -105,11 +105,15 @@ def checkpoints(ckpt_root, run):
     return None, 0
 
 
-def flags(r, ckpt_step, save_freq):
+def flags(r, ckpt_step, save_freq, live_jobs=None):
     out = []
     idle_min = (time.time() - r["mtime"]) / 60
     if r["status"] == "running" and idle_min > STALL_MIN:
-        out.append(f"STALLED({idle_min:.0f}m)")
+        # A run whose job is gone is abandoned, not stuck: nothing to wait for and
+        # its numbers are void. Distinguishing them decides whether you debug or re-queue.
+        job = re.search(r"-(\d{5,})\.out$", r["log"])
+        gone = live_jobs is not None and job and job.group(1) not in live_jobs
+        out.append(f"ABANDONED({idle_min:.0f}m)" if gone else f"STALLED({idle_min:.0f}m)")
     s = r["steps"]
     if len(s) >= 6:
         early = sum(x["len"] for x in s[:3]) / 3
@@ -124,7 +128,17 @@ def flags(r, ckpt_step, save_freq):
     return out
 
 
+def _live_jobs():
+    try:
+        q = subprocess.run(["squeue", "-u", os.environ.get("USER", ""), "-h", "-o", "%i"],
+                           capture_output=True, text=True, timeout=10)
+        return {x.strip() for x in q.stdout.split()}
+    except Exception:
+        return None
+
+
 def collect(log_dir, ckpt_root, save_freq):
+    live = _live_jobs()
     runs = {}
     for path in sorted(glob.glob(os.path.join(log_dir, "*.out")) +
                        glob.glob(os.path.join(log_dir, "*.log"))):
@@ -134,7 +148,7 @@ def collect(log_dir, ckpt_root, save_freq):
                 runs[name] = r
     for name, r in runs.items():
         r["ckpt_step"], r["ckpt_n"] = checkpoints(ckpt_root, name)
-        r["flags"] = flags(r, r["ckpt_step"], save_freq)
+        r["flags"] = flags(r, r["ckpt_step"], save_freq, live)
     return runs
 
 
