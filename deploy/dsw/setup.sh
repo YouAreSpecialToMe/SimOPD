@@ -84,12 +84,43 @@ echo "=== [1/6] third-party checkouts ==="
 [ -d OPD ] || git clone --depth 1 "$(GH https://github.com/thunlp/OPD.git)" || true
 
 echo "=== [2/6] python env ==="
-# astral.sh can be slow from the mainland; pip from the configured index is the fallback.
-command -v uv >/dev/null || curl -LsSf --max-time 120 https://astral.sh/uv/install.sh | sh \
-    || python3 -m pip install -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" uv
-export PATH="$HOME/.local/bin:$PATH"
-[ -d .venv ] || uv venv --python 3.12 .venv
+# uv is resolved to an absolute path, not assumed to be on PATH: the installer
+# script drops it in ~/.local/bin and `pip install uv` puts it in that python's
+# scripts dir, neither of which a DSW shell necessarily searches. (`python -m uv`
+# is NOT an option -- the wheel ships only a binary, no importable module.)
+# pip-from-the-mirror is tried first; astral.sh is the overseas, slower path.
+find_uv() {
+    command -v uv 2>/dev/null && return 0
+    for c in "$(python3 -c 'import sysconfig,os;print(os.path.join(sysconfig.get_path("scripts"),"uv"))' 2>/dev/null)" \
+             "$(python3 -m site --user-base 2>/dev/null)/bin/uv" \
+             "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+        [ -n "$c" ] && [ -x "$c" ] && { echo "$c"; return 0; }
+    done
+    return 1
+}
+
+UV=$(find_uv || true)
+if [ -z "$UV" ]; then
+    python3 -m pip install -q -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" uv 2>/dev/null || true
+    UV=$(find_uv || true)
+fi
+if [ -z "$UV" ]; then
+    curl -LsSf --max-time 180 https://astral.sh/uv/install.sh | sh || true
+    UV=$(find_uv || true)
+fi
+[ -n "$UV" ] || {
+    echo "FATAL: could not install uv. Install it by hand, then re-run:" >&2
+    echo "  python3 -m pip install -i ${UV_DEFAULT_INDEX:-https://pypi.org/simple/} uv" >&2
+    echo "  # or: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    exit 1
+}
+export PATH="$(dirname "$UV"):$PATH"
+echo "uv: $UV ($("$UV" --version 2>&1 | head -1))"
+
+[ -d .venv ] || $UV venv --python 3.12 .venv
 source .venv/bin/activate
+# From here on uv installs into the activated venv; keep using the same resolved
+# command so a PATH-less uv still works.
 
 echo "=== [3/6] torch + vLLM (cu129) ==="
 # cu129, not the cu130 PyPI default: cu130 needs driver >= 580, while cu129 runs on
@@ -98,16 +129,16 @@ VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/down
 python -c "import vllm" 2>/dev/null || {
     if [ "$CUDA_FLAVOR" = "cu130" ]; then
         # Plain PyPI builds, both mirrored: nothing here leaves the mainland.
-        uv pip install "torch==2.11.0" "torchvision==0.26.0" "torchaudio==2.11.0" "vllm==0.26.0"
+        $UV pip install "torch==2.11.0" "torchvision==0.26.0" "torchaudio==2.11.0" "vllm==0.26.0"
     elif [ -n "$TORCH_FIND_LINKS" ]; then
-        uv pip install --find-links "$TORCH_FIND_LINKS" \
+        $UV pip install --find-links "$TORCH_FIND_LINKS" \
             "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129"
-        uv pip install "vllm @ $VLLM_WHEEL"
+        $UV pip install "vllm @ $VLLM_WHEEL"
     else
-        uv pip install --index-url https://download.pytorch.org/whl/cu129 \
+        $UV pip install --index-url https://download.pytorch.org/whl/cu129 \
             "torch==2.11.0+cu129" "torchvision==0.26.0+cu129"
-        uv pip install "torchaudio==2.11.0"
-        uv pip install "vllm @ $VLLM_WHEEL"
+        $UV pip install "torchaudio==2.11.0"
+        $UV pip install "vllm @ $VLLM_WHEEL"
     fi
 }
 
@@ -122,7 +153,7 @@ python -c "import vllm" 2>/dev/null || {
 if ! python -c "import torch" 2>/tmp/torchimp.txt; then
     if grep -q "nvJitLink" /tmp/torchimp.txt; then
         echo "  torch import failed on an nvJitLink symbol -- realigning the CUDA runtime packages"
-        uv pip install -U "nvidia-nvjitlink-cu12>=12.9"
+        $UV pip install -U "nvidia-nvjitlink-cu12>=12.9"
         python -c "import torch; print('  torch ok after realignment:', torch.__version__)"
     else
         cat /tmp/torchimp.txt >&2
@@ -134,8 +165,8 @@ else
 fi
 
 echo "=== [4/6] verl + extras ==="
-uv pip install -e ./verl
-uv pip install huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
+$UV pip install -e ./verl
+$UV pip install huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
 
 echo "=== [5/6] flash-attn ==="
 # LAST, deliberately. flash-attn compiles against whatever torch is installed at
@@ -147,15 +178,15 @@ echo "=== [5/6] flash-attn ==="
 # No prebuilt wheel exists for torch 2.11, so this compiles (~14 min for one arch).
 # A100 = sm80. Drop a prebuilt wheel in deploy/dsw/ to skip it -- but only one built
 # against this exact torch, or you get the same undefined symbol.
-uv pip install packaging ninja psutil setuptools wheel   # flash-attn build deps; --no-build-isolation means they must already be here
+$UV pip install packaging ninja psutil setuptools wheel   # flash-attn build deps; --no-build-isolation means they must already be here
 # Probe the compiled extension, not the package: `import flash_attn` can succeed
 # while flash_attn_2_cuda is the one carrying the missing symbols. And uninstall
 # first -- a broken build of the same version makes `uv pip install` a no-op, so
 # a re-run would silently keep it.
 python -c "import flash_attn_2_cuda" 2>/dev/null || {
-    uv pip uninstall flash-attn >/dev/null 2>&1 || true
+    $UV pip uninstall flash-attn >/dev/null 2>&1 || true
     if ls deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
-        uv pip install --force-reinstall deploy/dsw/flash_attn-*.whl
+        $UV pip install --force-reinstall deploy/dsw/flash_attn-*.whl
     else
         # FORCE_BUILD stops flash-attn's setup.py from first trying to fetch a
         # prebuilt wheel off GitHub -- a request that tends to hang rather than
@@ -164,7 +195,7 @@ python -c "import flash_attn_2_cuda" 2>/dev/null || {
         TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0}" \
         FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-80}" \
         MAX_JOBS="${MAX_JOBS:-32}" NVCC_THREADS=2 \
-        uv pip install --force-reinstall --no-cache flash-attn --no-build-isolation
+        $UV pip install --force-reinstall --no-cache flash-attn --no-build-isolation
     fi
 }
 
