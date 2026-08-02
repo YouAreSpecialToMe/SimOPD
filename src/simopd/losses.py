@@ -12,6 +12,7 @@ A loss-space transform therefore applies to -Delta-ell; for odd transforms (all
 of ours) that is identical to transforming Delta-ell itself.
 """
 
+import math
 import os
 
 import torch
@@ -103,11 +104,14 @@ def skew_kl(config, distillation_config, model_output, data):
     """
     student, teacher, mask = _unpack(model_output, data)
     alpha = 0.1
+    # In fp32: the mixture is a logaddexp of two shifted log-densities, and in bf16
+    # log(alpha) alone already costs ~2 decimal digits.
+    s32, t32 = student.float(), teacher.float()
     log_mix = torch.logaddexp(
-        torch.log(torch.tensor(alpha, device=student.device, dtype=student.dtype)) + student,
-        torch.log(torch.tensor(1.0 - alpha, device=student.device, dtype=student.dtype)) + teacher,
+        s32 + math.log(alpha),
+        t32 + math.log(1.0 - alpha),
     )
-    losses = student - log_mix
+    losses = (s32 - log_mix).to(student.dtype)
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
     metrics.update(_delta_ell_metrics(losses, mask))
@@ -125,23 +129,25 @@ def k1_first_segment(config, distillation_config, model_output, data):
     form changes the sampling distribution itself, which would confound this with
     the A axis, so only the supervision window moves (SimOPD-casefile H).
 
-    Note this arm deliberately breaks the equal-supervision budget rule: cutting
-    supervised tokens IS its claim, so the ledger reports supervised_token_count
-    rather than matching it.
+    Masked tokens are rescaled away exactly as in the G-axis gates. Without that
+    the arm would also shrink the update by the masked fraction, and a drop could
+    be blamed on a smaller effective learning rate rather than on the late tokens
+    carrying signal -- which is the only thing this arm is meant to test. The
+    covered fraction is still logged so the ledger can state the budget it used.
     """
     student, teacher, mask = _unpack(model_output, data)
     losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
 
-    k = FIRST_SEGMENT_K
     positions = torch.arange(losses.shape[1], device=losses.device).unsqueeze(0)
-    window = positions < k
-    losses = losses * window
+    window = positions < FIRST_SEGMENT_K
+    keep = window & mask
+    kept, total = keep.sum().clamp_min(1).float(), mask.sum().clamp_min(1).float()
+    losses = losses * keep * (total / kept)
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-    metrics.update(_delta_ell_metrics(losses, mask & window))
+    metrics.update(_delta_ell_metrics(losses, keep))
     metrics["distillation/firstseg_covered_frac"] = Metric(
-        aggregation=AggregationType.MEAN,
-        value=(mask & window).sum().float() / mask.sum().clamp_min(1).float(),
+        aggregation=AggregationType.MEAN, value=kept / total
     )
     return losses, metrics
 

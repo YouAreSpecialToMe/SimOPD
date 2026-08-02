@@ -35,7 +35,12 @@ def _extract_with_sampled(original):
         actual_ids = output.prompt_token_ids[1:]
         for i, logprobs_dict in enumerate(output.prompt_logprobs[1:]):
             token_id = int(actual_ids[i])
+            # verl's own reader calls these keys token_id_str and int()s them, and the
+            # teacher is reached over HTTP where JSON keys are always strings, so accept
+            # either rather than silently missing every lookup.
             entry = logprobs_dict.get(token_id)
+            if entry is None:
+                entry = logprobs_dict.get(str(token_id))
             ids[i].append(token_id)
             # vLLM guarantees the actual token is present; -inf is a loud fallback
             # rather than a silent wrong number if that ever stops holding.

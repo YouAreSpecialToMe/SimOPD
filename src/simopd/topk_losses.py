@@ -75,10 +75,12 @@ def compute_reverse_kl_topk(
         student_topk_log_probs = student_topk_log_probs.clamp_min(loss_config.log_prob_min_clamp)
         teacher_topk_log_probs = teacher_topk_log_probs.clamp_min(loss_config.log_prob_min_clamp)
 
-    # Positions where the teacher returned fewer than k entries are padded. Guarding
-    # logsumexp against them follows EasyOPD's kl_renorm_topk (methods/opcd/core.py),
-    # whose implementation this arm was checked against; without the guard a padded
-    # slot would enter the normaliser and silently deflate every probability.
+    # Guard mirrored from EasyOPD's kl_renorm_topk (methods/opcd/core.py), which this
+    # arm was checked against. Note it is INERT under verl's current plumbing: verl
+    # fills every rank slot and pads only along the sequence dimension, with 0.0 rather
+    # than -inf, and those positions are dropped by response_mask downstream. Kept as a
+    # cheap invariant that would catch a change of padding convention instead of
+    # silently deflating every probability in the row.
     valid = teacher_topk_log_probs > _PAD_LOGPROB_THRESHOLD
     n_pad = (~valid).sum()
 

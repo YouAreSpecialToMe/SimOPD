@@ -80,7 +80,8 @@ for entry in $RUNS; do
             data.seed=$SEED \
             actor_rollout_ref.rollout.seed=$SEED
     )
-    RESULT[$NAME]=$([ $? -eq 0 ] && echo OK || echo FAIL)
+    rc=$?   # must be captured before any other command, including the substitution below
+    RESULT[$NAME]=$([ $rc -eq 0 ] && echo OK || echo FAIL)
     echo "################ $NAME -> ${RESULT[$NAME]} ################"
     date +"end %F %T"
     ray stop --force >/dev/null 2>&1 || true

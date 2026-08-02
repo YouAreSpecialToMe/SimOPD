@@ -1,53 +1,76 @@
 #!/usr/bin/env bash
-# Submit one SimOPD arm to Alibaba PAI-DLC.
-# Same env-var interface as slurm/baseline.sbatch, so an arm is defined once and
-# runs identically on either cluster (protocol parity is an audit requirement).
+# Submit one slice of the SimOPD campaign to Alibaba PAI-DLC.
 #
-#   EXPERIMENT_NAME=vanilla_s0 ./deploy/pai/submit_dlc.sh
-#   EXPERIMENT_NAME=lsm_topk32 DISTILLATION_LOSS_MODE=forward_kl_topk ./deploy/pai/submit_dlc.sh
+# Same run-list interface as slurm/campaign.sbatch, and both drive the same
+# scripts/run_opd_baseline.sh, so an arm is defined once and behaves identically
+# on either cluster -- protocol parity is an audit requirement, not a nicety.
 #
-# Fill the ACCOUNT SETTINGS block once (values come from the PAI console).
+# Parallelism = one job per 2-GPU slot with a disjoint RUNS slice. That is the
+# whole reason for going to PAI: locally the account is capped at gpu=2, so the
+# 15 screening arms can only run one at a time.
+#
+#   export WORKSPACE_ID=... RESOURCE_ID=... IMAGE=... DATA_SOURCES=...
+#   ./deploy/pai/submit_dlc.sh "vanilla:0 vanilla:1 vanilla:2"
+#   ./deploy/pai/submit_dlc.sh "d1_tip:0 d2_selectkd:0 d3_teachability:0"
+#   STEPS=3 ./deploy/pai/submit_dlc.sh "vanilla:0"        # rehearsal first
 
 set -euo pipefail
 
-# ---------------- ACCOUNT SETTINGS (fill these in) ----------------
-WORKSPACE_ID=${WORKSPACE_ID:?set WORKSPACE_ID (PAI console > 工作空间)}
-RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (专有资源组 quota id, e.g. quotaxxxxxxxx)}
+# ---------------- ACCOUNT SETTINGS (from the PAI console) ----------------
+WORKSPACE_ID=${WORKSPACE_ID:?set WORKSPACE_ID}
+RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (专有资源组 quota id)}
 IMAGE=${IMAGE:?set IMAGE (e.g. registry-vpc.cn-hangzhou.aliyuncs.com/<ns>/simopd:v1)}
-# Dataset ids: NAS holding models + data + checkpoints. Comma-separated, mounted per
-# the mount path configured on each dataset (default /mnt/data).
-DATA_SOURCES=${DATA_SOURCES:?set DATA_SOURCES (e.g. d-xxxxxxxxxxxx)}
+DATA_SOURCES=${DATA_SOURCES:?set DATA_SOURCES (NAS dataset id, e.g. d-xxxxxxxx)}
 NAS_ROOT=${NAS_ROOT:-/mnt/data}
-# ------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
-EXPERIMENT_NAME=${EXPERIMENT_NAME:?set EXPERIMENT_NAME (= arm name; also the wandb run name)}
-WORKER_GPU=${WORKER_GPU:-2}          # 1 actor + 1 teacher, our standard slot
+RUNS=${1:-${RUNS:-}}
+[ -n "$RUNS" ] || { echo "usage: $0 \"arm:seed arm:seed ...\"  (see: python scripts/arm.py list)" >&2; exit 1; }
+
+JOB_NAME=${JOB_NAME:-simopd-$(echo "$RUNS" | tr ' :' '--' | cut -c1-40)}
+WORKER_GPU=${WORKER_GPU:-2}      # 1 actor + 1 teacher; verl's teacher pool cannot share the actor's GPU
 WORKER_CPU=${WORKER_CPU:-16}
 WORKER_MEMORY=${WORKER_MEMORY:-200Gi}
 PRIORITY=${PRIORITY:-5}
-# 0 = no limit. Mode A length inflation made a 300-step screen exceed 24h locally,
-# so never set this below ~48h for a full screening run.
+# 0 = unlimited. Mode A length inflation pushed a 300-step run past 24h locally,
+# and a run killed mid-flight leaves nothing behind, so do not cap this tightly.
 MAX_MINUTES=${MAX_MINUTES:-0}
 
-# Protocol knobs forwarded to run_opd_baseline.sh (defaults live in that script)
-FORWARD_ENVS="EXPERIMENT_NAME=${EXPERIMENT_NAME}"
-for v in STUDENT_MODEL TEACHER_MODEL DISTILLATION_LOSS_MODE USE_POLICY_GRADIENT \
-         TRAIN_BATCH_SIZE MAX_RESPONSE_LENGTH ACTOR_LR TOTAL_TRAINING_STEPS \
-         TEST_FREQ SAVE_FREQ PROJECT_NAME; do
-    [ -n "${!v:-}" ] && FORWARD_ENVS="${FORWARD_ENVS},${v}=${!v}"
-done
+STEPS=${STEPS:-300}
+TEST_FREQ=${TEST_FREQ:-25}
+SAVE_FREQ=${SAVE_FREQ:-50}   # resumable: a preempted run with no checkpoint already cost this project 24 GPU-hours
 
-# Everything stateful lives on NAS so a preempted job can resume.
-RUN_CMD="export HF_HOME=${NAS_ROOT}/hf_cache HF_HUB_OFFLINE=1; \
-export WANDB_DIR=${NAS_ROOT}/wandb; \
-export RAY_TMPDIR=/root/ray_tmp; mkdir -p \$RAY_TMPDIR ${NAS_ROOT}/wandb; \
-export DATA_DIR=${NAS_ROOT}/simopd_math; \
-export CKPT_ROOT=${NAS_ROOT}/ckpt; \
-cd /opt/simopd && bash scripts/run_opd_baseline.sh"
+# Everything stateful lives on NAS so a preempted job resumes instead of restarting.
+RUN_CMD=$(cat <<EOF
+set -uo pipefail
+export HF_HOME=${NAS_ROOT}/hf_cache HF_HUB_OFFLINE=1
+export DATA_DIR=${NAS_ROOT}/simopd_math
+export CKPT_ROOT=${NAS_ROOT}/ckpt
+export WANDB_DIR=${NAS_ROOT}/wandb
+export RAY_TMPDIR=/root/ray_tmp
+mkdir -p \\\$RAY_TMPDIR ${NAS_ROOT}/wandb ${NAS_ROOT}/ckpt
+cd /opt/simopd
+nvidia-smi -L
+for entry in ${RUNS}; do
+  ARM=\\\${entry%%:*}; SEED=\\\${entry##*:}
+  echo "################ RUN: \\\${ARM}_s\\\${SEED} ################"
+  (
+    set -e
+    eval "\\\$(python scripts/arm.py env \\\$ARM)"
+    export EXPERIMENT_NAME="\\\${ARM}_s\\\${SEED}"
+    export TOTAL_TRAINING_STEPS=${STEPS} TEST_FREQ=${TEST_FREQ} SAVE_FREQ=${SAVE_FREQ}
+    bash scripts/run_opd_baseline.sh data.seed=\\\$SEED actor_rollout_ref.rollout.seed=\\\$SEED
+  )
+  echo "################ \\\${ARM}_s\\\${SEED} -> exit \\\$? ################"
+  ray stop --force >/dev/null 2>&1 || true
+done
+echo CAMPAIGN_DONE
+EOF
+)
 
 set -x
 dlc submit pytorchjob \
-    --name="simopd-${EXPERIMENT_NAME}" \
+    --name="${JOB_NAME}" \
     --workers=1 \
     --worker_gpu="${WORKER_GPU}" \
     --worker_cpu="${WORKER_CPU}" \
@@ -58,5 +81,4 @@ dlc submit pytorchjob \
     --resource_id="${RESOURCE_ID}" \
     --priority="${PRIORITY}" \
     --job_max_running_time_minutes="${MAX_MINUTES}" \
-    --envs="${FORWARD_ENVS}" \
-    --command="${RUN_CMD}"
+    --command="bash -lc '${RUN_CMD}'"
