@@ -53,7 +53,23 @@ if [ "${DRV:-0}" -lt 525 ]; then
     echo "FATAL: driver $DRV < 525; the cu129 wheels this project pins will not load." >&2
     exit 1
 fi
-echo "driver $DRV: OK for cu129 (needs >= 525 via CUDA minor-version compatibility)"
+# Which CUDA family we can use decides whether GitHub is on the critical path at all.
+# PyPI's plain torch 2.11.0 / vllm 0.26.0 are cu13 builds (verified: 4 cu13 deps, 0
+# cu12) and need driver >= 580 -- but they are mirrored on Aliyun, so that path
+# touches no overseas host. Below 580 we need the +cu129 variants, and the vLLM one
+# exists only as a GitHub release asset.
+if [ "$DRV" -ge 580 ]; then
+    CUDA_FLAVOR=cu130
+    echo "driver $DRV: using cu130 -- everything comes from the Aliyun mirror, no GitHub"
+else
+    CUDA_FLAVOR=cu129
+    echo "driver $DRV: using cu129 (>=525 via CUDA minor-version compatibility)"
+    if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ -z "${GITHUB_PROXY:-}" ] && [ -z "${VLLM_WHEEL:-}" ]; then
+        echo "  NOTE: the cu129 vLLM wheel (~400MB) is a GitHub release asset and has no" >&2
+        echo "  mainland mirror. If it stalls, set GITHUB_PROXY=https://<relay>/ or download" >&2
+        echo "  it yourself and pass VLLM_WHEEL=/path/to/the.whl" >&2
+    fi
+fi
 AVAIL_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
 echo "free space here: ${AVAIL_GB}G"
 # ~50G models + ~17G per run of checkpoints (MAX_CKPT_KEEP=2). A 17-run campaign
@@ -80,17 +96,19 @@ echo "=== [3/6] torch + vLLM (cu129) ==="
 # any 525+ driver through CUDA minor-version compatibility. Check with nvidia-smi.
 VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl)}
 python -c "import vllm" 2>/dev/null || {
-    if [ -n "$TORCH_FIND_LINKS" ]; then
+    if [ "$CUDA_FLAVOR" = "cu130" ]; then
+        # Plain PyPI builds, both mirrored: nothing here leaves the mainland.
+        uv pip install "torch==2.11.0" "torchvision==0.26.0" "torchaudio==2.11.0" "vllm==0.26.0"
+    elif [ -n "$TORCH_FIND_LINKS" ]; then
         uv pip install --find-links "$TORCH_FIND_LINKS" \
             "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129"
+        uv pip install "vllm @ $VLLM_WHEEL"
     else
         uv pip install --index-url https://download.pytorch.org/whl/cu129 \
             "torch==2.11.0+cu129" "torchvision==0.26.0+cu129"
         uv pip install "torchaudio==2.11.0"
+        uv pip install "vllm @ $VLLM_WHEEL"
     fi
-    # ~400MB from GitHub. If this crawls, set GITHUB_PROXY, or download the wheel
-    # elsewhere and point VLLM_WHEEL at the local file.
-    uv pip install "vllm @ $VLLM_WHEEL"
 }
 
 echo "=== [4/6] flash-attn ==="

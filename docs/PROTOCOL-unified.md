@@ -133,6 +133,16 @@ FiRe、RG-OPD。SelecTKD / LSM 仓库地址待查。
 | A: 冷启动 | thunlp recipe(OpenThoughts3 math 子集 SFT→OPD) | 复用其 SFT 配置思路;verl sft 或 LlamaFactory |
 | B: skew-KL / JSD / FKL | DistiLLM / GKD 公式 | 估计器族加 loss_mode(各 ~40 行;数学三行,不需要移植代码) |
 
+## 2.5 环境偏离(跨集群必须记录)
+
+DSW 上 `setup.sh` 会**按驱动版本自动选 CUDA 家族**:驱动 ≥580 走 cu130
+(torch/vLLM 全部走阿里 PyPI 镜像,不碰 GitHub);<580 走 cu129(torch 走阿里
+pytorch-wheels,vLLM 轮子只有 GitHub release 一处,需 GITHUB_PROXY)。
+
+**torch 与 vLLM 的版本号两条路完全相同(2.11.0 / 0.26.0),只是 CUDA runtime 不同。**
+数值差异应落在 run-to-run 噪声内(噪声底本来就在量这个),但**这是一条跨集群偏离,
+必须记进台账**:vanilla 双跑校验的 pass@1 差值若超噪声底,CUDA 家族是第一嫌疑。
+
 ## 3. 与文献 setup 的显式偏离(防审稿人问)
 
 1. lr 1e-6 无 warmup:Demystifying 未报,取文献众数;RG-OPD(5e-6+warmup)与
