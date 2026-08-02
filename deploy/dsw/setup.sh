@@ -58,23 +58,38 @@ if [ "${DRV:-0}" -lt 525 ]; then
     echo "FATAL: driver $DRV < 525; the cu129 wheels this project pins will not load." >&2
     exit 1
 fi
-# Which CUDA family we can use decides whether GitHub is on the critical path at all.
-# PyPI's plain torch 2.11.0 / vllm 0.26.0 are cu13 builds (verified: 4 cu13 deps, 0
-# cu12) and need driver >= 580 -- but they are mirrored on Aliyun, so that path
-# touches no overseas host. Below 580 we need the +cu129 variants, and the vLLM one
-# exists only as a GitHub release asset.
-if [ "$DRV" -ge 580 ]; then
+# CUDA family is decided by nvcc, NOT by the driver. The driver only says what can
+# RUN; flash-attn has no prebuilt wheel for torch 2.11 and must be compiled, and
+# torch refuses to build an extension when its CUDA major differs from nvcc's:
+#   RuntimeError: The detected CUDA version (12.8) mismatches the version that was
+#   used to compile PyTorch (13.0)
+# A >=580 driver on a box whose toolkit is 12.8 therefore still needs cu129 torch.
+# (Minor differences are fine -- torch warns for 12.9-vs-12.8 and carries on.)
+NVCC_MAJ=""
+if command -v nvcc >/dev/null 2>&1; then
+    NVCC_VER=$(nvcc --version | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
+    NVCC_MAJ=${NVCC_VER%%.*}
+    echo "nvcc $NVCC_VER (build toolkit)"
+else
+    echo "WARNING: no nvcc on PATH; flash-attn cannot be compiled here." >&2
+fi
+if [ "${NVCC_MAJ:-12}" = "13" ] && [ "$DRV" -ge 580 ]; then
     CUDA_FLAVOR=cu130
-    echo "driver $DRV: using cu130 -- everything comes from the Aliyun mirror, no GitHub"
+    echo "driver $DRV + nvcc ${NVCC_VER:-?} -> cu130 (all from the Aliyun mirror, no GitHub)"
 else
     CUDA_FLAVOR=cu129
-    echo "driver $DRV: using cu129 (>=525 via CUDA minor-version compatibility)"
+    if [ "${NVCC_MAJ:-}" = "12" ] && [ "$DRV" -ge 580 ]; then
+        echo "driver $DRV would allow cu130, but nvcc is ${NVCC_VER} -> cu129, so flash-attn can build"
+    else
+        echo "driver $DRV, nvcc ${NVCC_VER:-none} -> cu129"
+    fi
     if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ -z "${GITHUB_PROXY:-}" ] && [ -z "${VLLM_WHEEL:-}" ]; then
-        echo "  NOTE: the cu129 vLLM wheel (~400MB) is a GitHub release asset and has no" >&2
-        echo "  mainland mirror. If it stalls, set GITHUB_PROXY=https://<relay>/ or download" >&2
-        echo "  it yourself and pass VLLM_WHEEL=/path/to/the.whl" >&2
+        echo "  NOTE: the cu129 vLLM wheel (~400MB) is a GitHub release asset with no" >&2
+        echo "  mainland mirror. If it stalls, set GITHUB_PROXY=https://<relay>/ or" >&2
+        echo "  download it yourself and pass VLLM_WHEEL=/path/to/the.whl" >&2
     fi
 fi
+
 # A managed image often exports PYTHONPATH at its own site-packages. That wins over
 # the venv we are about to build, so `import torch` can resolve to the image's copy
 # -- which is how a venv with a perfectly good torch still reports

@@ -31,8 +31,11 @@ echo "venv site-packages: $SITE"
 echo "uv link mode:       $UV_LINK_MODE"
 
 DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
-if [ "${DRV:-0}" -ge 580 ]; then FLAVOR=cu130; else FLAVOR=cu129; fi
-echo "driver ${DRV:-unknown} -> $FLAVOR"
+# nvcc decides the family, not the driver: flash-attn is compiled from source and
+# torch refuses to build an extension across a CUDA major mismatch.
+NVCC_VER=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
+if [ "${NVCC_VER%%.*}" = "13" ] && [ "${DRV:-0}" -ge 580 ]; then FLAVOR=cu130; else FLAVOR=cu129; fi
+echo "driver ${DRV:-unknown}, nvcc ${NVCC_VER:-none} -> $FLAVOR"
 
 echo
 echo "=== 1. removing the broken trees ==="

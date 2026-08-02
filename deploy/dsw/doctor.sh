@@ -45,6 +45,11 @@ elif [ -n "${SIMOPD_EXPECT_GPU:-}" ]; then
 else
     warn "nvidia-smi not found (expected on a login node; on DSW this is a problem)"
 fi
+# The build toolkit, not the driver, is what has to agree with torch: flash-attn is
+# compiled here, and torch refuses across a CUDA major mismatch.
+NVCC_VER=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
+if [ -n "$NVCC_VER" ]; then ok "nvcc $NVCC_VER -> torch must be cu${NVCC_VER%%.*}x"
+else warn "no nvcc on PATH -- flash-attn cannot be compiled here"; fi
 AVAIL=$(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9')
 [ "${AVAIL:-0}" -ge 150 ] && ok "${AVAIL}G free here" || warn "${AVAIL:-?}G free -- a 17-run campaign wants ~350G (MAX_CKPT_KEEP=1 to halve it)"
 
@@ -99,8 +104,15 @@ case "$T" in
                        fix "it resolves to: $ORIGIN"
                        fix "usually a PYTHONPATH or user-site copy shadowing the venv"
                    fi ;;
-    *)             ok "torch ${T%%$'\t'*}  ($(python -c 'import torch;print("cuda "+str(torch.version.cuda))' 2>/dev/null))"
-                   printf '       from %s\n' "${T#*$'\t'}" ;;
+    *)             TC=$(python -c 'import torch;print(torch.version.cuda or "none")' 2>/dev/null)
+                   ok "torch ${T%%$'\t'*}  (cuda $TC)"
+                   printf '       from %s\n' "${T#*$'\t'}"
+                   if [ -n "$NVCC_VER" ] && [ "${TC%%.*}" != "${NVCC_VER%%.*}" ]; then
+                       bad "torch is cuda $TC but nvcc is $NVCC_VER -- CUDA majors differ"
+                       fix "extensions cannot be compiled against this pair; flash-attn will fail with"
+                       fix "  'The detected CUDA version mismatches the version used to compile PyTorch'"
+                       fix "install the torch matching nvcc:  bash deploy/dsw/repair_torch.sh"
+                   fi ;;
 esac
 # The pip CUDA stack must be internally consistent; a 12.9-era cusparse against an
 # older nvJitLink is the mismatch that surfaces wherever torch is first imported.
