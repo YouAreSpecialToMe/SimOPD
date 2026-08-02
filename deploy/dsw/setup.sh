@@ -32,6 +32,11 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     # x86_64 -- the only mainland mirror of the three checked that does (Tsinghua
     # 404s on cu129, SJTU redirects away).
     TORCH_FIND_LINKS=${TORCH_FIND_LINKS:-https://mirrors.aliyun.com/pytorch-wheels/cu129/}
+    # uv hardlinks from its cache by default. On DSW the cache sits on local disk
+    # and the venv on the /mnt/workspace network volume; hardlinking across
+    # filesystems is the kind of thing that half-succeeds and leaves a package
+    # directory with no __init__.py. Copying is slower and reliable.
+    export UV_LINK_MODE=${UV_LINK_MODE:-copy}
     # github.com release assets and clones are the remaining slow path. Set e.g.
     # GITHUB_PROXY=https://gh-proxy.com/ to route them; left empty by default
     # rather than hardcoding someone else's relay into the setup path.
@@ -147,7 +152,10 @@ if ! python -c "import torch, vllm; torch.__version__; vllm.__version__" 2>/dev/
     if python -c "import torch" 2>/dev/null && ! python -c "import torch; torch.__version__" 2>/dev/null; then
         echo "  partial torch detected (namespace stub) -- removing before reinstall"
         $UV pip uninstall torch torchvision torchaudio vllm >/dev/null 2>&1 || true
-        rm -rf "$(python -c 'import site;print(site.getsitepackages()[0])')/torch" 2>/dev/null || true
+        # A stub has no dist-info, so uninstall leaves it; remove the trees by hand
+        # or the reinstall lands on top of the wreckage.
+        _site=$(python -c 'import site;print(site.getsitepackages()[0])')
+        rm -rf "${_site:?}/torch" "${_site:?}/vllm" "${_site:?}"/torch-*.dist-info 2>/dev/null || true
     fi
 
     if [ "$CUDA_FLAVOR" = "cu130" ]; then
