@@ -374,6 +374,16 @@ def _d_axis_kernel(score_fn, extra_fn=None):
         stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
         stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
 
+        # teacher_patch writes -inf if it ever fails to find the sampled token. One
+        # such token would make the loss inf and NaN every gradient in the batch, with
+        # no error. Floor it at the teacher's weakest top-k entry -- a true upper bound
+        # on a token that ranked below them -- and surface the rate.
+        finite = torch.isfinite(sampled_lp)
+        n_missing = (~finite).sum()
+        if n_missing > 0:
+            floor = t_lp.min(dim=-1).values
+            sampled_lp = torch.where(finite, sampled_lp, floor)
+
         keep, diag = score_fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
         raw = _weighted_sampled_token_loss(
             student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
@@ -383,6 +393,7 @@ def _d_axis_kernel(score_fn, extra_fn=None):
         out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
         out["distillation_losses"] = losses
         out["d_selected_frac"] = keep.float()
+        out["d_sampled_missing"] = (~finite).float()
         out.update(diag)
         return out
 

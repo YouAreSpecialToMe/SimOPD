@@ -169,7 +169,8 @@ arms:
     desc: "hard clip of the per-token signal (Demystifying Mode B remedy)"
     status: stock
     note: "verl ships loss_max_clamp; pre-registered to enter only if D5 finds Mode B,
-           but it is stock so it is smoked with the rest"
+           but it is stock so it is smoked with the rest. Loss mode is inherited
+           (k1_rec) so the clamp is this arm's ONLY deviation from vanilla"
     env:
       LOSS_MAX_CLAMP: "10.0"
 

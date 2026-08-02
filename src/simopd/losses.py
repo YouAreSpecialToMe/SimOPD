@@ -315,8 +315,8 @@ def _topk_registry_fn(*extra_keys):
 for _name, _extras in [
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
-    ("tip_select", ("d_selected_frac", "tip_entropy_mean")),
-    ("selectkd_verify", ("d_selected_frac", "selectkd_tar")),
-    ("teachability_select", ("d_selected_frac", "teach_compatibility")),
+    ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),
+    ("selectkd_verify", ("d_selected_frac", "d_sampled_missing", "selectkd_tar")),
+    ("teachability_select", ("d_selected_frac", "d_sampled_missing", "teach_compatibility")),
 ]:
     register_distillation_loss(DistillationLossSettings(names=[_name], use_topk=True))(_topk_registry_fn(*_extras))

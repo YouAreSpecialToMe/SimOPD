@@ -15,7 +15,11 @@ TEACHER_MODEL=${TEACHER_MODEL:-Qwen/Qwen3-1.7B}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-1}
 TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}
 
-distillation_loss_mode=${DISTILLATION_LOSS_MODE:-k1}
+# k1_rec, not stock k1: mathematically identical, but it carries the Delta-ell panel
+# METRICS.md requires on EVERY run. Defaulting to stock k1 meant f2_hard_clip and
+# a2_coldstart (which set other knobs, not the loss mode) silently differed from
+# vanilla in two ways instead of one. Requires src/ on PYTHONPATH; it fails loudly.
+distillation_loss_mode=${DISTILLATION_LOSS_MODE:-k1_rec}
 use_policy_gradient=${USE_POLICY_GRADIENT:-True}
 distillation_topk=${DISTILLATION_TOPK:-32}
 
