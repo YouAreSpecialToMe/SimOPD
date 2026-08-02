@@ -37,6 +37,10 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     # filesystems is the kind of thing that half-succeeds and leaves a package
     # directory with no __init__.py. Copying is slower and reliable.
     export UV_LINK_MODE=${UV_LINK_MODE:-copy}
+    # uv checks TLS against bundled roots, not the system store; behind a
+    # TLS-intercepting proxy that gives "invalid peer certificate: UnknownIssuer"
+    # while curl and git work fine. This points uv at the system CA bundle.
+    export UV_NATIVE_TLS=${UV_NATIVE_TLS:-1}
     # github.com release assets and clones are the remaining slow path. Set e.g.
     # GITHUB_PROXY=https://gh-proxy.com/ to route them; left empty by default
     # rather than hardcoding someone else's relay into the setup path.
@@ -154,6 +158,22 @@ source .venv/bin/activate
 echo "=== [3/6] torch + vLLM (cu129) ==="
 # cu129, not the cu130 PyPI default: cu130 needs driver >= 580, while cu129 runs on
 # any 525+ driver through CUDA minor-version compatibility. Check with nvidia-smi.
+# GitHub release assets are the one hop with no mainland mirror; curl (system CA
+# store) is the fallback when uv's bundled roots reject an intercepting proxy.
+vllm_install() {
+    case "$1" in
+        /*|file://*) $UV pip install "$1"; return $? ;;
+    esac
+    $UV pip install "vllm @ $1" && return 0
+    echo "  uv could not fetch the wheel; retrying via curl" >&2
+    local tmp; tmp=$(mktemp -d)/vllm.whl
+    curl -fL --retry 3 --retry-delay 5 -o "$tmp" "$1" || {
+        echo "  curl failed too -- download it elsewhere and pass VLLM_WHEEL=/path/to/the.whl" >&2
+        return 1
+    }
+    $UV pip install "$tmp"
+}
+
 VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl)}
 
 # Probe an ATTRIBUTE, not just importability. An interrupted wheel install leaves
@@ -179,12 +199,12 @@ if ! python -c "import torch, vllm; torch.__version__; vllm.__version__" 2>/dev/
     elif [ -n "$TORCH_FIND_LINKS" ]; then
         $UV pip install --find-links "$TORCH_FIND_LINKS" \
             "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129"
-        $UV pip install "vllm @ $VLLM_WHEEL"
+        vllm_install "$VLLM_WHEEL"
     else
         $UV pip install --index-url https://download.pytorch.org/whl/cu129 \
             "torch==2.11.0+cu129" "torchvision==0.26.0+cu129"
         $UV pip install "torchaudio==2.11.0"
-        $UV pip install "vllm @ $VLLM_WHEEL"
+        vllm_install "$VLLM_WHEEL"
     fi
 fi
 

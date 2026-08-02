@@ -24,6 +24,25 @@ export UV_LINK_MODE=${UV_LINK_MODE:-copy}
 export UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}
 export UV_INDEX=${UV_INDEX:-$UV_DEFAULT_INDEX}
 
+# uv validates TLS against its own bundled roots, not the system store. Behind a
+# TLS-intercepting proxy that yields "invalid peer certificate: UnknownIssuer"
+# even though curl and git are fine, because those use the system CA bundle.
+# UV_NATIVE_TLS makes uv use it too; curl is the fallback when it still refuses.
+export UV_NATIVE_TLS=${UV_NATIVE_TLS:-1}
+
+fetch_and_install() {   # fetch_and_install <url> <label>
+    local url=$1 label=$2 tmp
+    "$UV" pip install --no-cache "$label @ $url" && return 0
+    echo "  uv could not fetch it; retrying via curl (system CA store)" >&2
+    tmp=$(mktemp -d)/$(basename "${url%%\?*}")
+    curl -fL --retry 3 --retry-delay 5 -o "$tmp" "$url" || {
+        echo "  curl failed too. Download it on a machine that can reach GitHub and pass" >&2
+        echo "    VLLM_WHEEL=/path/to/the.whl" >&2
+        return 1
+    }
+    "$UV" pip install --no-cache "$tmp"
+}
+
 UV=$(command -v uv || echo "$HOME/.local/bin/uv")
 [ -x "$UV" ] || { echo "uv not found" >&2; exit 1; }
 SITE=$(python -c 'import site; print(site.getsitepackages()[0])')
@@ -77,7 +96,10 @@ if [ "$FLAVOR" = "cu130" ]; then
     "$UV" pip install --no-cache "vllm==0.26.0" || exit 1
 else
     VLLM_WHEEL=${VLLM_WHEEL:-${GITHUB_PROXY:-}https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl}
-    "$UV" pip install --no-cache "vllm @ $VLLM_WHEEL" || exit 1
+    case "$VLLM_WHEEL" in
+        /*|file://*) "$UV" pip install --no-cache "$VLLM_WHEEL" || exit 1 ;;
+        *)           fetch_and_install "$VLLM_WHEEL" vllm || exit 1 ;;
+    esac
 fi
 python -c "import vllm; print('  vllm', vllm.__version__)" || exit 1
 
