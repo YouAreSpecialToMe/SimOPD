@@ -16,6 +16,23 @@ DATA_ROOT=${DATA_ROOT:-$SIMOPD_ROOT/../simopd_data}
 HF_ENDPOINT_DEFAULT=${HF_ENDPOINT:-https://hf-mirror.com}   # mainland-friendly HF mirror
 cd "$SIMOPD_ROOT"
 
+echo "=== [0/6] pre-flight ==="
+# Three things that decide whether the rest of this script can work at all. Checked
+# up front so a mismatch fails here instead of 40 minutes into a wheel install.
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv || {
+    echo "no GPU visible -- wrong instance type?"; exit 1; }
+DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1 | cut -d. -f1)
+if [ "${DRV:-0}" -lt 525 ]; then
+    echo "FATAL: driver $DRV < 525; the cu129 wheels this project pins will not load." >&2
+    exit 1
+fi
+echo "driver $DRV: OK for cu129 (needs >= 525 via CUDA minor-version compatibility)"
+AVAIL_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
+echo "free space here: ${AVAIL_GB}G"
+# ~50G models + ~17G per run of checkpoints (MAX_CKPT_KEEP=2). A 17-run campaign
+# wants ~350G; below 150G you will run out mid-campaign, not at the start.
+[ "${AVAIL_GB:-0}" -lt 150 ] && echo "WARNING: under 150G free -- cap runs or raise MAX_CKPT_KEEP=1" >&2
+
 echo "=== [1/6] third-party checkouts ==="
 [ -d verl ] || git clone --depth 1 https://github.com/volcengine/verl.git
 # Read-only references for arm provenance checks (PROTOCOL-unified section 2); the

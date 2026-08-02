@@ -41,6 +41,13 @@ total_epochs=${TOTAL_EPOCHS:-3}
 test_freq=${TEST_FREQ:-25}
 save_freq=${SAVE_FREQ:--1}
 
+# verl keeps every checkpoint by default (max_actor_ckpt_to_keep: null). At ~8-9GB
+# per checkpoint for 0.6B (weights + fp32 optimizer moments + master weights), 300
+# steps at SAVE_FREQ=50 is ~50GB per run and ~850GB for a 17-run campaign, which
+# would fill a DSW workspace volume mid-flight. Keep the newest two: one to resume
+# from, one as a fallback if the newest is torn.
+max_ckpt_keep=${MAX_CKPT_KEEP:-2}
+
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 
 project_name=${PROJECT_NAME:-simopd}
@@ -95,6 +102,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=${test_freq} \
     trainer.total_epochs=${total_epochs} \
     trainer.total_training_steps=${total_training_steps} \
+    trainer.max_actor_ckpt_to_keep=${max_ckpt_keep} \
     trainer.default_local_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name} \
     distillation.enabled=True \
     distillation.n_gpus_per_node=${TEACHER_WORLD_SIZE} \
