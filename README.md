@@ -34,7 +34,7 @@
 ```bash
 git clone git@github.com:YouAreSpecialToMe/SimOPD.git && cd SimOPD
 bash deploy/dsw/setup.sh                      # 环境 + 模型 + 数据,幂等可重跑
-python scripts/arm.py check                   # 15/16 臂应报 runnable
+bash deploy/dsw/doctor.sh                     # 体检:一屏看清哪里坏了、怎么修
 bash deploy/dsw/run_parallel.sh --rehearsal   # 每臂 3 步,先便宜地验一遍
 bash deploy/dsw/run_parallel.sh               # 正式 campaign
 ```

@@ -226,7 +226,7 @@ $UV pip install packaging ninja psutil setuptools wheel   # flash-attn build dep
 # while flash_attn_2_cuda is the one carrying the missing symbols. And uninstall
 # first -- a broken build of the same version makes `uv pip install` a no-op, so
 # a re-run would silently keep it.
-python -c "import flash_attn_2_cuda" 2>/dev/null || {
+python -c "import torch, flash_attn_2_cuda" 2>/dev/null || {   # torch first: it loads libc10.so that the extension links against
     $UV pip uninstall flash-attn >/dev/null 2>&1 || true
     if ls deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
         $UV pip install --force-reinstall deploy/dsw/flash_attn-*.whl
