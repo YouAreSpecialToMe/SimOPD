@@ -71,7 +71,9 @@
 | **overlap 质量版** | 交集 token 携带的双侧概率质量(97-99% 甜区对话用) | Rethinking App B.1 | 要写(~15 行) |
 | **overlap-token advantage** | Rethinking Eq.7 原式 | Rethinking | verl 现成 |
 | **π_stu(S̄) 尾质量** | student 在 teacher top-k 外的质量,分位数+均值,按位置类别分解 | **本文 headline**(定理直接量;文献只看交集,没人看尾) | 要写(~60 行) |
-| **Δℓ 分布分位数** | p5/25/50/75/95、mean\|Δℓ\|、clip 命中率(F 轴) | Demystifying(其只报均值;分位数是我们加密度) | 要写(~15 行) |
+| **Δℓ 分布分位数** | p5/25/50/75/95 + mean\|Δℓ\| | Demystifying(其只报均值;分位数是我们加密度) | ✅ `_signal_quantiles` |
+| **命名纪律(重要)** | **只有 k1 族的 loss 等于 −Δℓ**,才可用 `delta_ell_*`;C/E 轴优化的是散度或排序损失,一律报 `loss_*` | 本文新增 | ✅ 两个面板 key 不相交,防止三种不同量被画到同一张跨臂对比图上 |
+| **clip 命中率** | \|signal\| > clamp 的 token 占比(F 轴开启时) | METRICS 预注册项 | ✅ `_clip_metrics`;否则 f2 的机制不可见 —— 它的 Δℓ 面板是**裁剪前**分布,和 vanilla 一模一样 |
 | **熵差** | \|H(q)−H(p)\|(Rethinking Eq.8 原式;teacher 熵用 top-64 截断近似,近似误差随 recorder 报) | Rethinking | 要写 |
 | **逐位置类别分解** | 所有上述 × {boxed span, 高熵 fork, 其他}(math);AST 类(code,Phase 3);约束 token(IFEval) | Rethinking Fig13 只按绝对位置;**按语义类别是我们的加强** | 要写(~80 行) |
 | **Informativeness ℐ** | Demystifying **Eq.4 原式**:teacher 概率在 correct vs incorrect rollout 上的差 | Demystifying | 要写(~15 行;reward 标签现成) |

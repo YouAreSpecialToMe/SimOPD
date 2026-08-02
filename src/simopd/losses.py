@@ -54,22 +54,45 @@ def _unpack(model_output, data):
     return student_log_probs, teacher_log_probs, mask
 
 
-def _delta_ell_metrics(losses, mask):
-    """Flight-recorder panel for the per-token signal (METRICS.md section 3).
+def _signal_quantiles(losses, mask, name):
+    """Per-token signal distribution (METRICS.md section 3).
 
-    Reported on Delta-ell = -loss so the numbers read in the paper's convention
-    (positive = teacher assigns more mass than the student at this token).
+    `name` matters: only the k1 family's loss equals -Delta-ell, so only those arms
+    may report under delta_ell_*. The top-k arms optimise a divergence (>=0) or a
+    rank loss, and publishing those as Delta-ell would put three different
+    quantities on one cross-arm panel and make the curves look comparable when they
+    measure different things. They report loss_* instead.
     """
-    delta = -losses[mask].detach().float()
-    if delta.numel() == 0:
+    x = losses[mask].detach().float()
+    if name == "delta_ell":
+        x = -x  # paper convention: positive = teacher puts more mass here than the student
+    if x.numel() == 0:
         return {}
-    qs = torch.quantile(delta, torch.tensor(_QUANTILES, device=delta.device))
+    qs = torch.quantile(x, torch.tensor(_QUANTILES, device=x.device))
     metrics = {
-        f"distillation/delta_ell_p{int(q * 100)}": Metric(aggregation=AggregationType.MEAN, value=v)
+        f"distillation/{name}_p{int(q * 100)}": Metric(aggregation=AggregationType.MEAN, value=v)
         for q, v in zip(_QUANTILES, qs, strict=True)
     }
-    metrics["distillation/delta_ell_absmean"] = Metric(aggregation=AggregationType.MEAN, value=delta.abs().mean())
+    metrics[f"distillation/{name}_absmean"] = Metric(aggregation=AggregationType.MEAN, value=x.abs().mean())
     return metrics
+
+
+def _delta_ell_metrics(losses, mask):
+    return _signal_quantiles(losses, mask, "delta_ell")
+
+
+def _clip_metrics(losses, mask, distillation_config):
+    """F axis: what fraction of the signal the hard clip actually touches.
+
+    f2_hard_clip turns on verl's loss_max_clamp, which is applied downstream of the
+    loss fn, so without this the arm's own mechanism would be invisible -- its
+    Delta-ell panel is the pre-clip distribution, identical to vanilla's.
+    """
+    c = distillation_config.distillation_loss.loss_max_clamp
+    if c is None:
+        return {}
+    hit = (losses[mask].detach().abs() > c).float().mean()
+    return {"distillation/clip_hit_rate": Metric(aggregation=AggregationType.MEAN, value=hit)}
 
 
 @register_distillation_loss(
@@ -85,6 +108,7 @@ def k1_with_recorder(config, distillation_config, model_output, data):
     losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
     metrics.update(_delta_ell_metrics(losses, mask))
+    metrics.update(_clip_metrics(losses, mask, distillation_config))
     return losses, metrics
 
 
@@ -270,7 +294,7 @@ def k1_fire_likelihood_gate(config, distillation_config, model_output, data):
     return losses, metrics
 
 
-def _topk_registry_fn(*extra_keys):
+def _topk_registry_fn(*extra_keys, signal="loss"):
     """Post-processor for our top-k arms.
 
     Deliberately NOT verl's compute_forward_kl_topk: that one ends with
@@ -286,7 +310,7 @@ def _topk_registry_fn(*extra_keys):
         mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
 
         metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-        metrics.update(_delta_ell_metrics(losses, mask))
+        metrics.update(_signal_quantiles(losses, mask, signal))
 
         k = distillation_config.distillation_loss.topk
         for key, label in [("student_mass", "student_mass"), ("teacher_mass", "teacher_mass")]:
@@ -319,4 +343,9 @@ for _name, _extras in [
     ("selectkd_verify", ("d_selected_frac", "d_sampled_missing", "selectkd_tar")),
     ("teachability_select", ("d_selected_frac", "d_sampled_missing", "teach_compatibility")),
 ]:
-    register_distillation_loss(DistillationLossSettings(names=[_name], use_topk=True))(_topk_registry_fn(*_extras))
+    # D-axis arms keep vanilla's k1 base loss, so -loss really is Delta-ell for them;
+    # the C/E arms optimise a divergence or a rank loss and must not claim otherwise.
+    _signal = "delta_ell" if _name in ("tip_select", "selectkd_verify", "teachability_select") else "loss"
+    register_distillation_loss(DistillationLossSettings(names=[_name], use_topk=True))(
+        _topk_registry_fn(*_extras, signal=_signal)
+    )
