@@ -111,12 +111,29 @@ python -c "import vllm" 2>/dev/null || {
     fi
 }
 
-echo "=== [4/6] flash-attn ==="
+echo "=== [4/6] verl + extras ==="
+uv pip install -e ./verl
+uv pip install huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
+
+echo "=== [5/6] flash-attn ==="
+# LAST, deliberately. flash-attn compiles against whatever torch is installed at
+# build time, and installing verl/liger-kernel afterwards can re-resolve torch --
+# uv treats 2.11.0+cu129 and 2.11.0 as the same version with different local tags,
+# so a swap is silent. The compiled extension then fails at import with
+# "undefined symbol". Building it after everything else pins it to the final torch.
+#
 # No prebuilt wheel exists for torch 2.11, so this compiles (~14 min for one arch).
-# A100 = sm80. Drop a prebuilt wheel in deploy/dsw/ to skip it.
-python -c "import flash_attn" 2>/dev/null || {
+# A100 = sm80. Drop a prebuilt wheel in deploy/dsw/ to skip it -- but only one built
+# against this exact torch, or you get the same undefined symbol.
+uv pip install packaging ninja psutil setuptools wheel   # flash-attn build deps; --no-build-isolation means they must already be here
+# Probe the compiled extension, not the package: `import flash_attn` can succeed
+# while flash_attn_2_cuda is the one carrying the missing symbols. And uninstall
+# first -- a broken build of the same version makes `uv pip install` a no-op, so
+# a re-run would silently keep it.
+python -c "import flash_attn_2_cuda" 2>/dev/null || {
+    uv pip uninstall flash-attn >/dev/null 2>&1 || true
     if ls deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
-        uv pip install deploy/dsw/flash_attn-*.whl
+        uv pip install --force-reinstall deploy/dsw/flash_attn-*.whl
     else
         # FORCE_BUILD stops flash-attn's setup.py from first trying to fetch a
         # prebuilt wheel off GitHub -- a request that tends to hang rather than
@@ -125,13 +142,16 @@ python -c "import flash_attn" 2>/dev/null || {
         TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0}" \
         FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-80}" \
         MAX_JOBS="${MAX_JOBS:-32}" NVCC_THREADS=2 \
-        uv pip install flash-attn --no-build-isolation
+        uv pip install --force-reinstall --no-cache flash-attn --no-build-isolation
     fi
 }
 
-echo "=== [5/6] verl + extras ==="
-uv pip install -e ./verl
-uv pip install huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
+# Catch an ABI mismatch here, in ten seconds, instead of at the first training step.
+python - <<'PYCHK'
+import torch, flash_attn
+import flash_attn_2_cuda  # the extension whose symbols are the ones that go missing
+print(f"flash_attn {flash_attn.__version__} imports cleanly against torch {torch.__version__}")
+PYCHK
 
 echo "=== [6/6] models + data ==="
 export HF_HOME=${HF_HOME:-$DATA_ROOT/hf_cache}
