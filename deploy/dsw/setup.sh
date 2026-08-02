@@ -13,8 +13,35 @@ set -euo pipefail
 
 SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 DATA_ROOT=${DATA_ROOT:-$SIMOPD_ROOT/../simopd_data}
-HF_ENDPOINT_DEFAULT=${HF_ENDPOINT:-https://hf-mirror.com}   # mainland-friendly HF mirror
 cd "$SIMOPD_ROOT"
+
+# ---------------------------------------------------------------------------
+# Mirrors. On by default because this targets a mainland instance; set
+# SIMOPD_MIRRORS=0 to go straight upstream. Every one is overridable.
+# ---------------------------------------------------------------------------
+if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
+    # uv downloads its own CPython build; without this it pulls from GitHub.
+    export UV_PYTHON_INSTALL_MIRROR=${UV_PYTHON_INSTALL_MIRROR:-https://python-standalone.org/mirror/astral-sh/python-build-standalone}
+    # DEFAULT_INDEX *replaces* PyPI; UV_INDEX alone only appends one, leaving uv
+    # free to reach pypi.org and stall. Both are set so either uv version behaves.
+    export UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}
+    export UV_INDEX=${UV_INDEX:-$UV_DEFAULT_INDEX}
+    export HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
+    # A flat wheel listing, not a PEP 503 index, so it goes through --find-links.
+    # Verified 2026-08-01 to carry torch/torchvision/torchaudio 2.11.0+cu129 cp312
+    # x86_64 -- the only mainland mirror of the three checked that does (Tsinghua
+    # 404s on cu129, SJTU redirects away).
+    TORCH_FIND_LINKS=${TORCH_FIND_LINKS:-https://mirrors.aliyun.com/pytorch-wheels/cu129/}
+    # github.com release assets and clones are the remaining slow path. Set e.g.
+    # GITHUB_PROXY=https://gh-proxy.com/ to route them; left empty by default
+    # rather than hardcoding someone else's relay into the setup path.
+    GITHUB_PROXY=${GITHUB_PROXY:-}
+else
+    TORCH_FIND_LINKS=""; GITHUB_PROXY=""
+    export HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+fi
+GH() { echo "${GITHUB_PROXY}$1"; }
+echo "mirrors: pypi=${UV_DEFAULT_INDEX:-upstream} hf=$HF_ENDPOINT torch=${TORCH_FIND_LINKS:-upstream} gh_proxy=${GITHUB_PROXY:-none}"
 
 echo "=== [0/6] pre-flight ==="
 # Three things that decide whether the rest of this script can work at all. Checked
@@ -34,14 +61,16 @@ echo "free space here: ${AVAIL_GB}G"
 [ "${AVAIL_GB:-0}" -lt 150 ] && echo "WARNING: under 150G free -- cap runs or raise MAX_CKPT_KEEP=1" >&2
 
 echo "=== [1/6] third-party checkouts ==="
-[ -d verl ] || git clone --depth 1 https://github.com/volcengine/verl.git
+[ -d verl ] || git clone --depth 1 "$(GH https://github.com/volcengine/verl.git)"
 # Read-only references for arm provenance checks (PROTOCOL-unified section 2); the
 # audit ports their methods, never their harnesses.
-[ -d EasyOPD ] || git clone --depth 1 https://github.com/lds-ustc/EasyOPD.git || true
-[ -d OPD ] || git clone --depth 1 https://github.com/thunlp/OPD.git || true
+[ -d EasyOPD ] || git clone --depth 1 "$(GH https://github.com/lds-ustc/EasyOPD.git)" || true
+[ -d OPD ] || git clone --depth 1 "$(GH https://github.com/thunlp/OPD.git)" || true
 
 echo "=== [2/6] python env ==="
-command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+# astral.sh can be slow from the mainland; pip from the configured index is the fallback.
+command -v uv >/dev/null || curl -LsSf --max-time 120 https://astral.sh/uv/install.sh | sh \
+    || python3 -m pip install -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" uv
 export PATH="$HOME/.local/bin:$PATH"
 [ -d .venv ] || uv venv --python 3.12 .venv
 source .venv/bin/activate
@@ -49,11 +78,19 @@ source .venv/bin/activate
 echo "=== [3/6] torch + vLLM (cu129) ==="
 # cu129, not the cu130 PyPI default: cu130 needs driver >= 580, while cu129 runs on
 # any 525+ driver through CUDA minor-version compatibility. Check with nvidia-smi.
+VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl)}
 python -c "import vllm" 2>/dev/null || {
-    uv pip install "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" \
-        --index-url https://download.pytorch.org/whl/cu129
-    uv pip install "torchaudio==2.11.0"
-    uv pip install "vllm @ https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl"
+    if [ -n "$TORCH_FIND_LINKS" ]; then
+        uv pip install --find-links "$TORCH_FIND_LINKS" \
+            "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129"
+    else
+        uv pip install --index-url https://download.pytorch.org/whl/cu129 \
+            "torch==2.11.0+cu129" "torchvision==0.26.0+cu129"
+        uv pip install "torchaudio==2.11.0"
+    fi
+    # ~400MB from GitHub. If this crawls, set GITHUB_PROXY, or download the wheel
+    # elsewhere and point VLLM_WHEEL at the local file.
+    uv pip install "vllm @ $VLLM_WHEEL"
 }
 
 echo "=== [4/6] flash-attn ==="
@@ -63,6 +100,10 @@ python -c "import flash_attn" 2>/dev/null || {
     if ls deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
         uv pip install deploy/dsw/flash_attn-*.whl
     else
+        # FORCE_BUILD stops flash-attn's setup.py from first trying to fetch a
+        # prebuilt wheel off GitHub -- a request that tends to hang rather than
+        # fail from the mainland, so the build never starts.
+        FLASH_ATTENTION_FORCE_BUILD=TRUE \
         TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0}" \
         FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-80}" \
         MAX_JOBS="${MAX_JOBS:-32}" NVCC_THREADS=2 \
@@ -75,7 +116,6 @@ uv pip install -e ./verl
 uv pip install huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
 
 echo "=== [6/6] models + data ==="
-export HF_ENDPOINT=$HF_ENDPOINT_DEFAULT
 export HF_HOME=${HF_HOME:-$DATA_ROOT/hf_cache}
 mkdir -p "$HF_HOME" "$DATA_ROOT"
 for m in Qwen/Qwen3-0.6B-Base Qwen/Qwen3-1.7B Qwen/Qwen3-1.7B-Base \
@@ -100,6 +140,7 @@ Put these in your shell (or ~/.bashrc) before running anything:
 
   cd $SIMOPD_ROOT && source .venv/bin/activate
   export PYTHONPATH=$SIMOPD_ROOT/src        # registers our arm losses in Ray workers
+  export HF_ENDPOINT=$HF_ENDPOINT
   export HF_HOME=$HF_HOME
   export DATA_DIR=$DATA_ROOT/simopd_math
   export CKPT_ROOT=$DATA_ROOT/ckpt

@@ -18,13 +18,23 @@ FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
 ARG TORCH_CUDA_ARCH_LIST="8.0"
 ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple/
+# Flat wheel listing (not PEP 503), so it is consumed with --find-links. Verified
+# 2026-08-01 to carry torch/torchvision/torchaudio 2.11.0+cu129 cp312 x86_64 --
+# the only mainland mirror of three checked that does.
+ARG TORCH_FIND_LINKS=https://mirrors.aliyun.com/pytorch-wheels/cu129/
+# Prefix for github.com, e.g. https://gh-proxy.com/ . Empty by default rather than
+# baking someone else's relay into the image build.
+ARG GITHUB_PROXY=
 ARG MAX_JOBS=32
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     CUDA_HOME=/usr/local/cuda \
     UV_HTTP_TIMEOUT=600 \
-    PIP_INDEX_URL=${PIP_INDEX}
+    PIP_INDEX_URL=${PIP_INDEX} \
+    UV_DEFAULT_INDEX=${PIP_INDEX} \
+    UV_INDEX=${PIP_INDEX} \
+    UV_PYTHON_INSTALL_MIRROR=https://python-standalone.org/mirror/astral-sh/python-build-standalone
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git curl ca-certificates build-essential ninja-build \
@@ -39,13 +49,12 @@ ENV VIRTUAL_ENV=/opt/venv PATH="/opt/venv/bin:${PATH}"
 
 # 1. torch trio pinned to cu129. PyPI's default torch/vLLM are cu130-only and need
 #    driver >= 580; cu129 runs on any 525+ driver via CUDA minor-version compatibility.
-RUN uv pip install "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" \
-        --index-url https://download.pytorch.org/whl/cu129 \
- && uv pip install "torchaudio==2.11.0"
+RUN uv pip install --find-links ${TORCH_FIND_LINKS} \
+        "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129"
 
 # 2. vLLM cu129 build (the GitHub release carries the +cu129 variant; PyPI does not)
 RUN uv pip install \
-    "vllm @ https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl"
+    "vllm @ ${GITHUB_PROXY}https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl"
 
 # 3. flash-attn: no prebuilt wheel exists for torch 2.11, so use the one we already
 #    built for sm80 if it was copied into the context, else compile.
@@ -54,6 +63,7 @@ RUN if ls /tmp/paictx/flash_attn-*.whl >/dev/null 2>&1; then \
         echo "using prebuilt flash-attn wheel" && uv pip install /tmp/paictx/flash_attn-*.whl; \
     else \
         echo "compiling flash-attn for arch ${TORCH_CUDA_ARCH_LIST}" && \
+        FLASH_ATTENTION_FORCE_BUILD=TRUE \
         TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}" \
         FLASH_ATTN_CUDA_ARCHS="$(echo ${TORCH_CUDA_ARCH_LIST} | tr -d '.' | tr ';' ' ')" \
         MAX_JOBS=${MAX_JOBS} NVCC_THREADS=2 \
