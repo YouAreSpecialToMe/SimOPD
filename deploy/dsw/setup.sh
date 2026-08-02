@@ -111,6 +111,28 @@ python -c "import vllm" 2>/dev/null || {
     fi
 }
 
+# Verify torch here, not at the first thing that imports it. pip's CUDA libraries
+# are separate packages and the resolver can pick an inconsistent set: a 12.9-era
+# libcusparse against an older libnvJitLink gives
+#   undefined symbol: __nvJitLinkGetErrorLogSize_12_9
+# which surfaces wherever torch is first imported -- typically the flash-attn build,
+# so it reads like a flash-attn problem and is not one. The known-good env has
+# nvidia-nvjitlink-cu12 12.9.86 with cusparse 12.5.10.65; the symbol name tells you
+# the floor, so raise nvjitlink to meet it and re-check.
+if ! python -c "import torch" 2>/tmp/torchimp.txt; then
+    if grep -q "nvJitLink" /tmp/torchimp.txt; then
+        echo "  torch import failed on an nvJitLink symbol -- realigning the CUDA runtime packages"
+        uv pip install -U "nvidia-nvjitlink-cu12>=12.9"
+        python -c "import torch; print('  torch ok after realignment:', torch.__version__)"
+    else
+        cat /tmp/torchimp.txt >&2
+        echo "FATAL: torch does not import; nothing downstream can work." >&2
+        exit 1
+    fi
+else
+    python -c "import torch; print('torch ok:', torch.__version__, '| cuda', torch.version.cuda)"
+fi
+
 echo "=== [4/6] verl + extras ==="
 uv pip install -e ./verl
 uv pip install huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
