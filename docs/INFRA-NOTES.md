@@ -66,6 +66,23 @@ step 1 = 103s → step 81 = 98s → **step 121 = 454s** → step 201 = **763s** 
 见 docs/DEPLOY-PAI-DLC.md)。若并行度仍不够,备选是把筛选步数从 300 降到 150
 (Mode A 拐点在 100 步前已可见)—— 属协议参数变更,需预注册台账记录,待定。
 
+## 事故复盘 2:改动正在运行的脚本(2026-08-01,彩排 c1_lsm 假 FAIL)
+
+**现象**:c1_lsm 报 FAIL,日志只有一行
+`run_opd_baseline.sh: line 110: _tokens}: command not found`。
+
+**根因**:**bash 按字节偏移量边读边执行脚本**。我在彩排正跑着 c1 时编辑了
+`run_opd_baseline.sh`(加了 4 行注释 ≈250 字节),bash 于是在旧偏移处恢复,
+正好落在 `${max_num_tokens}` 中间。**kernel 代码完全无辜,是一个自造的假阳性。**
+危险之处在于它长得像真失败 —— 差一点就去 debug 那个没问题的 top-k dispatch。
+
+**结构性修复**:campaign / DSW lane 启动时把 `scripts configs src` 拷进
+`$SNAP` 快照目录并从那里运行(PYTHONPATH 也指向快照)。这样 40 小时的正式
+campaign 期间工作区可以随便改,不影响在跑的 run;快照目录名带 job id 与 git sha,
+顺带成了"这个 run 到底跑的哪份代码"的凭证。
+
+**纪律**:不要编辑正在被执行的 shell 脚本;要改就改工作区,run 用快照。
+
 ## verl 免费送的(对照我们的轴)
 
 - **teacher 服务全套**:独立 teacher 资源池,vLLM/SGLang 副本,`prompt_logprobs` 打分

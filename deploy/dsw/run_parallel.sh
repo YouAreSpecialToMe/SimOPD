@@ -48,6 +48,13 @@ if [ -z "$RUNS" ]; then
     done
 fi
 
+# One immutable snapshot shared by every lane; see the note in slurm/campaign.sbatch.
+SNAP="${SNAP_ROOT:-$SIMOPD_ROOT/../simopd_data/snapshots}/$(date +%Y%m%d_%H%M%S)_$$"
+mkdir -p "$SNAP"
+cp -r scripts configs src "$SNAP"/
+export SNAP
+echo "running from snapshot: $SNAP ($(git rev-parse --short HEAD 2>/dev/null || echo nogit))"
+
 read -r -a ALL <<< "$RUNS"
 LOG_DIR=${LOG_DIR:-$SIMOPD_ROOT/logs}
 mkdir -p "$LOG_DIR"
@@ -73,7 +80,7 @@ for lane in $(seq 0 $((LANES - 1))); do
     CUDA_VISIBLE_DEVICES="$devices" \
     RAY_TMPDIR="${RAY_TMPDIR:-/tmp}/ray_lane${lane}" \
     LANE_RUNS="$lane_runs" LANE_STEPS="$STEPS" LANE_TEST_FREQ="$TEST_FREQ" \
-    LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" \
+    LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" SNAP="$SNAP" \
     nohup bash deploy/dsw/_lane.sh > "$log" 2>&1 &
 done
 

@@ -35,7 +35,16 @@ export CKPT_ROOT=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}
 export WANDB_DIR=/scratch/zz865/simopd/wandb
 mkdir -p "$RAY_TMPDIR" "$CKPT_ROOT" "$WANDB_DIR"
 
-export PYTHONPATH="$PROJ_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+# Snapshot the code this job will run. bash executes a script by byte offset, so
+# editing scripts/run_opd_baseline.sh while a campaign is running makes bash resume
+# at a stale offset and execute garbage -- that is exactly how c1_lsm "failed" in the
+# 2026-08-01 rehearsal, with a perfectly good kernel. Running from an immutable copy
+# means the working tree stays editable during a 40-hour campaign.
+SNAP="${SNAP_ROOT:-/scratch/zz865/simopd/snapshots}/${SLURM_JOB_ID:-$$}"
+mkdir -p "$SNAP"
+cp -r scripts configs src "$SNAP"/
+export PYTHONPATH="$SNAP/src${PYTHONPATH:+:$PYTHONPATH}"
+echo "running from snapshot: $SNAP ($(git rev-parse --short HEAD 2>/dev/null || echo nogit))"
 export HF_HUB_OFFLINE=1
 export VLLM_LOGGING_LEVEL=WARNING
 
@@ -50,7 +59,7 @@ TAG=${TAG:-}
 # ever be judged 无用. Other arms are single-seed at the screening stage.
 if [ -z "${RUNS:-}" ]; then
     RUNS="vanilla:0 vanilla:1 vanilla:2"
-    for arm in $(python scripts/arm.py list --status stock); do
+    for arm in $(python "$SNAP"/scripts/arm.py list --status stock); do
         [ "$arm" = "vanilla" ] && continue
         RUNS="$RUNS ${arm}:0"
     done
@@ -70,13 +79,13 @@ for entry in $RUNS; do
     date +"start %F %T"
     (
         set -e
-        eval "$(python scripts/arm.py env "$ARM")"
+        eval "$(python "$SNAP"/scripts/arm.py env "$ARM")"
         export EXPERIMENT_NAME="$NAME"
         export PROJECT_NAME=${PROJECT_NAME:-simopd}
         export TOTAL_TRAINING_STEPS=$STEPS
         export TEST_FREQ=$TEST_FREQ
         export SAVE_FREQ=$SAVE_FREQ
-        bash scripts/run_opd_baseline.sh \
+        bash "$SNAP"/scripts/run_opd_baseline.sh \
             data.seed=$SEED \
             actor_rollout_ref.rollout.seed=$SEED
     )

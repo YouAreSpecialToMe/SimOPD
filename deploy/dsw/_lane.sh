@@ -8,7 +8,7 @@ set -uo pipefail
 SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 cd "$SIMOPD_ROOT"
 source .venv/bin/activate
-export PYTHONPATH="$SIMOPD_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$SNAP/src${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$RAY_TMPDIR"
 
 echo "lane on GPUs [${CUDA_VISIBLE_DEVICES}] : ${LANE_RUNS}"
@@ -23,12 +23,12 @@ for entry in $LANE_RUNS; do
     date +"start %F %T"
     (
         set -e
-        eval "$(python scripts/arm.py env "$ARM")"
+        eval "$(python "$SNAP"/scripts/arm.py env "$ARM")"
         export EXPERIMENT_NAME="$NAME"
         export TOTAL_TRAINING_STEPS=$LANE_STEPS
         export TEST_FREQ=$LANE_TEST_FREQ
         export SAVE_FREQ=$LANE_SAVE_FREQ
-        bash scripts/run_opd_baseline.sh \
+        bash "$SNAP"/scripts/run_opd_baseline.sh \
             data.seed="$SEED" \
             actor_rollout_ref.rollout.seed="$SEED"
     )
