@@ -70,6 +70,15 @@ else
         echo "  it yourself and pass VLLM_WHEEL=/path/to/the.whl" >&2
     fi
 fi
+# A managed image often exports PYTHONPATH at its own site-packages. That wins over
+# the venv we are about to build, so `import torch` can resolve to the image's copy
+# -- which is how a venv with a perfectly good torch still reports
+# "module 'torch' has no attribute '__version__'".
+if [ -n "${PYTHONPATH:-}" ]; then
+    echo "WARNING: PYTHONPATH is set to '$PYTHONPATH'." >&2
+    echo "  It takes precedence over the venv. If imports resolve oddly, unset it:" >&2
+    echo "    env -u PYTHONPATH bash deploy/dsw/setup.sh" >&2
+fi
 AVAIL_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
 echo "free space here: ${AVAIL_GB}G"
 # ~50G models + ~17G per run of checkpoints (MAX_CKPT_KEEP=2). A 17-run campaign
@@ -126,7 +135,21 @@ echo "=== [3/6] torch + vLLM (cu129) ==="
 # cu129, not the cu130 PyPI default: cu130 needs driver >= 580, while cu129 runs on
 # any 525+ driver through CUDA minor-version compatibility. Check with nvidia-smi.
 VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl)}
-python -c "import vllm" 2>/dev/null || {
+
+# Probe an ATTRIBUTE, not just importability. An interrupted wheel install leaves
+# site-packages/torch/ without its __init__.py, and Python then imports it happily
+# as an empty namespace package -- `import torch` succeeds and
+# `torch.__version__` raises "module has no attribute". A plain `import vllm`
+# guard therefore reports "already installed" and skips the whole step, leaving
+# torch absent. Touching __version__ is what tells a real package from a stub.
+if ! python -c "import torch, vllm; torch.__version__; vllm.__version__" 2>/dev/null; then
+    # Clear any half-written tree first; installing over it keeps the stub.
+    if python -c "import torch" 2>/dev/null && ! python -c "import torch; torch.__version__" 2>/dev/null; then
+        echo "  partial torch detected (namespace stub) -- removing before reinstall"
+        $UV pip uninstall torch torchvision torchaudio vllm >/dev/null 2>&1 || true
+        rm -rf "$(python -c 'import site;print(site.getsitepackages()[0])')/torch" 2>/dev/null || true
+    fi
+
     if [ "$CUDA_FLAVOR" = "cu130" ]; then
         # Plain PyPI builds, both mirrored: nothing here leaves the mainland.
         $UV pip install "torch==2.11.0" "torchvision==0.26.0" "torchaudio==2.11.0" "vllm==0.26.0"
@@ -140,7 +163,7 @@ python -c "import vllm" 2>/dev/null || {
         $UV pip install "torchaudio==2.11.0"
         $UV pip install "vllm @ $VLLM_WHEEL"
     fi
-}
+fi
 
 # Verify torch here, not at the first thing that imports it. pip's CUDA libraries
 # are separate packages and the resolver can pick an inconsistent set: a 12.9-era
@@ -150,11 +173,31 @@ python -c "import vllm" 2>/dev/null || {
 # so it reads like a flash-attn problem and is not one. The known-good env has
 # nvidia-nvjitlink-cu12 12.9.86 with cusparse 12.5.10.65; the symbol name tells you
 # the floor, so raise nvjitlink to meet it and re-check.
-if ! python -c "import torch" 2>/tmp/torchimp.txt; then
+if ! python -c "import torch; torch.__version__" 2>/tmp/torchimp.txt; then
     if grep -q "nvJitLink" /tmp/torchimp.txt; then
         echo "  torch import failed on an nvJitLink symbol -- realigning the CUDA runtime packages"
         $UV pip install -U "nvidia-nvjitlink-cu12>=12.9"
         python -c "import torch; print('  torch ok after realignment:', torch.__version__)"
+    elif grep -q "no attribute" /tmp/torchimp.txt; then
+        # `import torch` works but torch.__version__ does not: something other than
+        # a working torch is answering to that name. Which one is the whole question,
+        # so print the evidence instead of guessing -- __file__ names the culprit.
+        echo "FATAL: torch imports but has no __version__ -- the wrong torch is on the path." >&2
+        python - >&2 <<'PYDIAG' || true
+import sys, importlib.util
+spec = importlib.util.find_spec("torch")
+print(f"  torch resolves to : {getattr(spec, 'origin', None)}")
+print(f"  search locations  : {getattr(spec, 'submodule_search_locations', None)}")
+print(f"  interpreter       : {sys.executable}")
+print(f"  user site enabled : {getattr(sys, 'flags', None) and not sys.flags.no_user_site}")
+print("  sys.path:")
+for p in sys.path:
+    print(f"    {p or '<cwd>'}")
+PYDIAG
+        echo "  Most likely: another torch (image-provided, or a user-site one under" >&2
+        echo "  ~/.local/lib) is shadowing the venv. Re-run with PYTHONNOUSERSITE=1, or" >&2
+        echo "  \$UV pip install --force-reinstall --no-cache the torch line above." >&2
+        exit 1
     else
         cat /tmp/torchimp.txt >&2
         echo "FATAL: torch does not import; nothing downstream can work." >&2
