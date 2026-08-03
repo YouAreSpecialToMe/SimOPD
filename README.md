@@ -34,6 +34,7 @@
 ```bash
 git clone git@github.com:YouAreSpecialToMe/SimOPD.git && cd SimOPD
 bash deploy/dsw/setup.sh                      # 建 ./simopd 虚拟环境 + 装依赖 + 模型 + 数据(venv+pip,不需要 uv)
+#   装之前会给包源赛跑,挑实测最快的(SIMOPD_RACE=0 跳过;显式设 TORCH_FIND_LINKS/UV_DEFAULT_INDEX 则不赛)
 bash deploy/dsw/doctor.sh                     # 体检:一屏看清哪里坏了、怎么修
 bash deploy/dsw/run_parallel.sh --rehearsal   # 每臂 3 步,先便宜地验一遍
 bash deploy/dsw/run_parallel.sh               # 正式 campaign

@@ -21,6 +21,10 @@ VENV=${SIMOPD_VENV:-simopd}
 # Mirrors. On by default because this targets a mainland instance; set
 # SIMOPD_MIRRORS=0 to go straight upstream. Every one is overridable.
 # ---------------------------------------------------------------------------
+# Captured before defaults are filled in, so the race below can tell "the caller
+# chose this" from "this is just the default" and never overrides an explicit pick.
+_USER_INDEX=${UV_DEFAULT_INDEX:-}
+_USER_WHEELS=${TORCH_FIND_LINKS:-}
 if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     # uv downloads its own CPython build; without this it pulls from GitHub.
     export UV_PYTHON_INSTALL_MIRROR=${UV_PYTHON_INSTALL_MIRROR:-https://python-standalone.org/mirror/astral-sh/python-build-standalone}
@@ -128,18 +132,55 @@ echo "free space here: ${AVAIL_GB}G"
 # wants ~350G; below 150G you will run out mid-campaign, not at the start.
 [ "${AVAIL_GB:-0}" -lt 150 ] && echo "WARNING: under 150G free -- cap runs or raise MAX_CKPT_KEEP=1" >&2
 
-# The torch wheel alone is 1.16GB, so a slow index is worth knowing about in the
-# first ten seconds rather than twenty minutes in. Probes 8MB and reports the rate.
-if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && command -v curl >/dev/null 2>&1; then
-    _w=torch-2.11.0%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl
-    _spd=$(timeout 25 curl -s -o /dev/null -w '%{speed_download}' -r 0-8388607 \
-             "${TORCH_FIND_LINKS%/}/$_w" 2>/dev/null || echo 0)
-    _mbs=$(awk "BEGIN{printf \"%.1f\", ${_spd:-0}/1048576}")
-    echo "torch mirror throughput: ${_mbs} MB/s  ($TORCH_FIND_LINKS)"
-    awk "BEGIN{exit !(${_spd:-0} < 1048576)}" && {
-        echo "  under 1 MB/s -- the 1.16GB torch wheel will take >20 min." >&2
-        echo "  try another mirror, e.g. TORCH_FIND_LINKS=https://download.pytorch.org/whl/cu129" >&2
-    }
+# Race the candidate sources once and take the fastest, instead of assuming a
+# mainland box wants a mainland mirror. On this DSW box the proxy reaches GitHub at
+# ~25 MB/s while the Aliyun pypi mirror gives ~2.4 MB/s, so the assumption is
+# actively wrong here. Raced per source, not per package: the host is the
+# bottleneck, and probing each package would add a round trip per package.
+# SIMOPD_RACE=0 skips it; an explicit UV_DEFAULT_INDEX/TORCH_FIND_LINKS also wins.
+race_source() {   # race_source <label> <name;pick;probe>...
+    local label=$1; shift
+    local best="" best_name="" best_spd=0 spd name pick probe
+    for cand in "$@"; do
+        IFS=';' read -r name pick probe <<< "$cand"
+        spd=$(timeout 20 curl -s -o /dev/null -w '%{speed_download}' \
+                --max-time 15 -r 0-4194303 "$probe" 2>/dev/null || echo 0)
+        spd=${spd%%.*}; spd=${spd:-0}
+        printf '    %-10s %6.1f MB/s\n' "$name" "$(awk "BEGIN{print $spd/1048576}")" >&2
+        [ "$spd" -gt "$best_spd" ] && { best_spd=$spd; best=$pick; best_name=$name; }
+    done
+    [ -z "$best" ] && return 1
+    printf '  %s -> %s (%.1f MB/s)\n' "$label" "$best_name" "$(awk "BEGIN{print $best_spd/1048576}")" >&2
+    echo "$best"
+}
+
+if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command -v curl >/dev/null 2>&1; then
+    _tw=torch-2.11.0%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl
+    echo "racing package sources (a few seconds; SIMOPD_RACE=0 to skip)"
+    if [ -n "$_USER_WHEELS" ]; then
+        echo "  torch wheels: using your TORCH_FIND_LINKS, not racing"
+        _w=""
+    else
+    _w=$(race_source "torch wheels" \
+        "aliyun;https://mirrors.aliyun.com/pytorch-wheels/cu129/;https://mirrors.aliyun.com/pytorch-wheels/cu129/$_tw" \
+        "pytorch.org;https://download.pytorch.org/whl/cu129;https://download.pytorch.org/whl/cu129/$_tw")
+    fi
+    [ -n "$_w" ] && TORCH_FIND_LINKS=$_w
+    if [ -n "$_USER_INDEX" ]; then
+        echo "  pypi index: using your UV_DEFAULT_INDEX, not racing"
+        _i=""
+    else
+    _i=$(race_source "pypi index" \
+        "aliyun;https://mirrors.aliyun.com/pypi/simple/;https://mirrors.aliyun.com/pypi/simple/torch/" \
+        "tsinghua;https://pypi.tuna.tsinghua.edu.cn/simple/;https://pypi.tuna.tsinghua.edu.cn/simple/torch/" \
+        "pypi.org;https://pypi.org/simple/;https://pypi.org/simple/torch/")
+    fi
+    if [ -n "$_i" ]; then
+        export UV_DEFAULT_INDEX=$_i UV_INDEX=$_i PIP_INDEX_URL=$_i
+    fi
+    export PIP_FIND_LINKS=$TORCH_FIND_LINKS
+    echo "  using index=$PIP_INDEX_URL"
+    echo "        wheels=$TORCH_FIND_LINKS"
 fi
 
 echo "=== [1/6] third-party checkouts ==="
