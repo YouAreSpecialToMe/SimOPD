@@ -12,7 +12,15 @@ set -euo pipefail
 
 PROJ_DIR=$HOME/pythonProject/SimOPD
 cd "$PROJ_DIR"
-source .venv/bin/activate
+# The venv lives at ./simopd. An existing .venv is still honoured so the Cornell
+# box, which has one and is mid-campaign, keeps working; new installs get simopd.
+# SIMOPD_VENV overrides either way.
+VENV=${SIMOPD_VENV:-}
+if [ -z "$VENV" ]; then
+    for _c in simopd .venv; do [ -d "$_c" ] && { VENV=$_c; break; }; done
+fi
+VENV=${VENV:-simopd}
+source "$VENV/bin/activate"
 
 # node-local scratch for ray tmp + checkpoints (node /tmp is only 15G)
 export RAY_TMPDIR=/scratch/zz865/ray_tmp

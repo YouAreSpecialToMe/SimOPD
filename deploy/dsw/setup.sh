@@ -14,6 +14,14 @@ set -euo pipefail
 SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 DATA_ROOT=${DATA_ROOT:-$SIMOPD_ROOT/../simopd_data}
 cd "$SIMOPD_ROOT"
+# The venv lives at ./simopd. An existing .venv is still honoured so the Cornell
+# box, which has one and is mid-campaign, keeps working; new installs get simopd.
+# SIMOPD_VENV overrides either way.
+VENV=${SIMOPD_VENV:-}
+if [ -z "$VENV" ]; then
+    for _c in simopd .venv; do [ -d "$_c" ] && { VENV=$_c; break; }; done
+fi
+VENV=${VENV:-simopd}
 
 # ---------------------------------------------------------------------------
 # Mirrors. On by default because this targets a mainland instance; set
@@ -159,8 +167,8 @@ pipu() {   # pipu <package...>
 }
 
 # venv from the stdlib: one less moving part, and it is what pip expects.
-[ -d .venv ] || python3 -m venv .venv
-source .venv/bin/activate
+[ -d "$VENV" ] || python3 -m venv "$VENV"
+source "$VENV/bin/activate"
 
 # `uv venv` creates an environment with NO pip in it -- uv does not need one. A
 # .venv left over from an earlier uv-based attempt therefore has no pip, and the
@@ -170,7 +178,7 @@ if ! python -m pip --version >/dev/null 2>&1; then
     python -m ensurepip --upgrade >/dev/null 2>&1 \
         || curl -sS https://bootstrap.pypa.io/get-pip.py | python - \
         || { echo "FATAL: could not get pip into the venv." >&2
-             echo "  simplest fix: rm -rf .venv && bash deploy/dsw/setup.sh" >&2; exit 1; }
+             echo "  simplest fix: rm -rf "$VENV" && bash deploy/dsw/setup.sh" >&2; exit 1; }
 fi
 python -m pip install -q --upgrade pip -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" 2>/dev/null || true
 echo "python: $(command -v python)  pip: $(python -m pip --version 2>&1 | cut -d' ' -f2)"
@@ -342,7 +350,7 @@ cat <<EOF
 === setup done ===
 Put these in your shell (or ~/.bashrc) before running anything:
 
-  cd $SIMOPD_ROOT && source .venv/bin/activate
+  cd $SIMOPD_ROOT && source "$VENV/bin/activate"
   export PYTHONPATH=$SIMOPD_ROOT/src        # registers our arm losses in Ray workers
   export HF_ENDPOINT=$HF_ENDPOINT
   export HF_HOME=$HF_HOME

@@ -7,7 +7,15 @@ set -uo pipefail
 
 SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 cd "$SIMOPD_ROOT"
-source .venv/bin/activate
+# The venv lives at ./simopd. An existing .venv is still honoured so the Cornell
+# box, which has one and is mid-campaign, keeps working; new installs get simopd.
+# SIMOPD_VENV overrides either way.
+VENV=${SIMOPD_VENV:-}
+if [ -z "$VENV" ]; then
+    for _c in simopd .venv; do [ -d "$_c" ] && { VENV=$_c; break; }; done
+fi
+VENV=${VENV:-simopd}
+source "$VENV/bin/activate"
 export PYTHONPATH="$SNAP/src${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$RAY_TMPDIR"
 

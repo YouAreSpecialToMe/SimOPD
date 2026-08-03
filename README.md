@@ -33,7 +33,7 @@
 
 ```bash
 git clone git@github.com:YouAreSpecialToMe/SimOPD.git && cd SimOPD
-bash deploy/dsw/setup.sh                      # 环境 + 模型 + 数据,幂等可重跑(venv + pip,不需要 uv)
+bash deploy/dsw/setup.sh                      # 建 ./simopd 虚拟环境 + 装依赖 + 模型 + 数据(venv+pip,不需要 uv)
 bash deploy/dsw/doctor.sh                     # 体检:一屏看清哪里坏了、怎么修
 bash deploy/dsw/run_parallel.sh --rehearsal   # 每臂 3 步,先便宜地验一遍
 bash deploy/dsw/run_parallel.sh               # 正式 campaign
@@ -49,6 +49,12 @@ bash deploy/dsw/run_parallel.sh               # 正式 campaign
 ⚠ DSW 实例**停止**会丢掉进程(nohup 只扛掉线,扛不住停机)。checkpoint 每
 `SAVE_FREQ` 步落在 workspace 卷上,停机后是续跑而不是重跑 —— 这条纪律是
 2026-07-31 那次 24 GPU·时全损换来的(见 INFRA-NOTES 事故复盘)。
+
+虚拟环境是仓库内的 **`./simopd`**(`SIMOPD_VENV` 可改)。后续任何手动操作先激活它:
+
+```bash
+cd /mnt/workspace/SimOPD && source simopd/bin/activate
+```
 
 ## 监控实验
 

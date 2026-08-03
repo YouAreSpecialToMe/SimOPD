@@ -11,6 +11,14 @@ set -uo pipefail
 
 SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 cd "$SIMOPD_ROOT"
+# The venv lives at ./simopd. An existing .venv is still honoured so the Cornell
+# box, which has one and is mid-campaign, keeps working; new installs get simopd.
+# SIMOPD_VENV overrides either way.
+VENV=${SIMOPD_VENV:-}
+if [ -z "$VENV" ]; then
+    for _c in simopd .venv; do [ -d "$_c" ] && { VENV=$_c; break; }; done
+fi
+VENV=${VENV:-simopd}
 PROBLEMS=0
 ok()   { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; PROBLEMS=$((PROBLEMS + 1)); }
@@ -54,12 +62,12 @@ AVAIL=$(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9')
 [ "${AVAIL:-0}" -ge 150 ] && ok "${AVAIL}G free here" || warn "${AVAIL:-?}G free -- a 17-run campaign wants ~350G (MAX_CKPT_KEEP=1 to halve it)"
 
 echo; echo "[python]"
-if [ -d .venv ]; then
+if [ -d "$VENV" ]; then
     # shellcheck disable=SC1091
-    source .venv/bin/activate
+    source "$VENV/bin/activate"
     ok "venv activated: $(python -V 2>&1) at $(command -v python)"
 else
-    bad "no .venv here"; fix "bash deploy/dsw/setup.sh"
+    bad "no venv at ./$VENV"; fix "bash deploy/dsw/setup.sh"
 fi
 
 probe() {  # probe <label> <module> <attribute>
