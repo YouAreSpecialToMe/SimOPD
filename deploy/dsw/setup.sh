@@ -161,7 +161,19 @@ pipu() {   # pipu <package...>
 # venv from the stdlib: one less moving part, and it is what pip expects.
 [ -d .venv ] || python3 -m venv .venv
 source .venv/bin/activate
+
+# `uv venv` creates an environment with NO pip in it -- uv does not need one. A
+# .venv left over from an earlier uv-based attempt therefore has no pip, and the
+# pip path above would die on "No module named pip". Bootstrap it if absent.
+if ! python -m pip --version >/dev/null 2>&1; then
+    echo "venv has no pip (created by uv?) -- bootstrapping"
+    python -m ensurepip --upgrade >/dev/null 2>&1 \
+        || curl -sS https://bootstrap.pypa.io/get-pip.py | python - \
+        || { echo "FATAL: could not get pip into the venv." >&2
+             echo "  simplest fix: rm -rf .venv && bash deploy/dsw/setup.sh" >&2; exit 1; }
+fi
 python -m pip install -q --upgrade pip -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" 2>/dev/null || true
+echo "python: $(command -v python)  pip: $(python -m pip --version 2>&1 | cut -d' ' -f2)"
 
 echo "=== [3/6] torch + vLLM (cu129) ==="
 # cu129, not the cu130 PyPI default: cu130 needs driver >= 580, while cu129 runs on
