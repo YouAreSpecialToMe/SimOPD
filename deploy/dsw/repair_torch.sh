@@ -40,7 +40,9 @@ fetch_and_install() {   # fetch_and_install <url> <label>
     local url=$1 label=$2 tmp
     pipi --no-cache "$label @ $url" && return 0
     echo "  uv could not fetch it; retrying via curl (system CA store)" >&2
-    tmp=$(mktemp -d)/$(basename "${url%%\?*}")
+    # keep a valid five-part wheel filename, and decode %2B back to the '+' of the
+    # local version tag -- pip parses the name, so both matter
+    tmp=$(mktemp -d)/$(basename "${url%%\?*}" | sed 's/%2B/+/g; s/%2b/+/g')
     curl -fL --retry 3 --retry-delay 5 -o "$tmp" "$url" || {
         echo "  curl failed too. Download it on a machine that can reach GitHub and pass" >&2
         echo "    VLLM_WHEEL=/path/to/the.whl" >&2

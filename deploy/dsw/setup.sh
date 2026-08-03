@@ -41,6 +41,16 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     export PIP_INDEX_URL=${PIP_INDEX_URL:-$UV_DEFAULT_INDEX}
     export PIP_FIND_LINKS=${PIP_FIND_LINKS:-$TORCH_FIND_LINKS}
     export PIP_DISABLE_PIP_VERSION_CHECK=1
+    # This box sits behind a TLS-intercepting proxy: curl succeeds because the
+    # system trusts the proxy CA, while pip ships its own certifi bundle and fails
+    # with "self-signed certificate in certificate chain". Point pip at the system
+    # store so it trusts what curl trusts.
+    for _ca in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+        [ -r "$_ca" ] && { export PIP_CERT=${PIP_CERT:-$_ca}
+                           export SSL_CERT_FILE=${SSL_CERT_FILE:-$_ca}
+                           export REQUESTS_CA_BUNDLE=${REQUESTS_CA_BUNDLE:-$_ca}
+                           break; }
+    done
     # uv hardlinks from its cache by default. On DSW the cache sits on local disk
     # and the venv on the /mnt/workspace network volume; hardlinking across
     # filesystems is the kind of thing that half-succeeds and leaves a package
