@@ -83,6 +83,36 @@ campaign 期间工作区可以随便改,不影响在跑的 run;快照目录名�
 
 **纪律**:不要编辑正在被执行的 shell 脚本;要改就改工作区,run 用快照。
 
+## 版本矩阵(2026-08-03 实测可用组合)
+
+| | 版本 | 说明 |
+|---|---|---|
+| Python | **3.12.7** | |
+| torch | **2.11.0+cu129** | 钉死。cu129 而非 PyPI 默认的 cu130:cu130 要驱动 ≥580,cu129 在 ≥525 上都能跑 |
+| torchvision | **0.26.0+cu129** | 与 torch 严格配对 |
+| torchaudio | 2.11.0(+cu129 亦可) | 纯文本训练用不到,加载失败不影响 |
+| vLLM | **0.26.0+cu129** | 钉 torch==2.11.0 |
+| transformers | 5.10.4 | verl 主线要求 >=5.5.3,<5.11 |
+| **flash-attn** | **2.8.3.post1** | 无 torch2.11 预编译轮,必须源码编译 |
+| CUDA 工具链 | nvcc 主版本须与 torch 一致(12.x ↔ cu129) | 12.9 vs 12.8 只是小版本,torch 仅警告 |
+| GPU 架构 | **sm80**(A100)→ `TORCH_CUDA_ARCH_LIST=8.0` | A10=8.6 / L20=8.9 / H20·H800=9.0 |
+
+**flash-attn 必须 `--no-deps` 手装。** 它把 `torch` 声明成无上限依赖,直接 pip install
+会让 torch 被升到最新(实测:2.11.0+cu129 → 2.13.0+cu129),torchvision 与 vLLM 随之
+失配,刚编好的扩展也对着一个已不存在的 torch,报 undefined symbol。**症状像 flash-attn
+的问题,病因是它把 torch 换掉了。**
+
+```bash
+source simopd/bin/activate
+SITE=$(python -c 'import site;print(site.getsitepackages()[0])')
+rm -rf $SITE/flash_attn $SITE/flash_attn_2_cuda*.so $SITE/flash_attn-*.dist-info
+FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST=8.0 MAX_JOBS=32 \
+  pip install --no-deps --no-build-isolation --no-cache-dir flash-attn==2.8.3.post1
+python -c "import torch, flash_attn_2_cuda; print('ok', torch.__version__)"   # torch 必须先导入
+```
+
+没有 flash-attn 也能跑:`USE_REMOVE_PADDING=False`,慢一些,其余相同。
+
 ## verl 免费送的(对照我们的轴)
 
 - **teacher 服务全套**:独立 teacher 资源池,vLLM/SGLang 副本,`prompt_logprobs` 打分

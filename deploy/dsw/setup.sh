@@ -382,50 +382,35 @@ echo "=== [4/6] verl + extras ==="
 pipi -e ./verl
 pipi huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
 
-echo "=== [5/6] flash-attn ==="
-# LAST, deliberately. flash-attn compiles against whatever torch is installed at
-# build time, and installing verl/liger-kernel afterwards can re-resolve torch --
-# uv treats 2.11.0+cu129 and 2.11.0 as the same version with different local tags,
-# so a swap is silent. The compiled extension then fails at import with
-# "undefined symbol". Building it after everything else pins it to the final torch.
+echo "=== [5/6] flash-attn: NOT installed here, on purpose ==="
+# flash-attn declares `torch` as an unpinned dependency, so installing it lets pip
+# resolve torch to whatever is newest -- on this box that silently replaced
+# 2.11.0+cu129 with 2.13.0+cu129, breaking torchvision and vllm and leaving the
+# freshly built extension linked against a torch that no longer existed. The
+# symptom was an "undefined symbol" blamed on flash-attn; the cause was the
+# install moving torch underneath it.
 #
-# No prebuilt wheel exists for torch 2.11, so this compiles (~14 min for one arch).
-# A100 = sm80. Drop a prebuilt wheel in deploy/dsw/ to skip it -- but only one built
-# against this exact torch, or you get the same undefined symbol.
-pipi packaging ninja psutil setuptools wheel   # flash-attn build deps; --no-build-isolation means they must already be here
-# Probe the compiled extension, not the package: `import flash_attn` can succeed
-# while flash_attn_2_cuda is the one carrying the missing symbols. And uninstall
-# first -- a broken build of the same version makes `uv pip install` a no-op, so
-# a re-run would silently keep it.
-python -c "import torch, flash_attn_2_cuda" 2>/dev/null || {   # torch first: it loads libc10.so that the extension links against
-    pipu flash-attn >/dev/null 2>&1 || true
-    # flash-attn installs three things: the flash_attn/ package, its dist-info, and a
-    # TOP-LEVEL flash_attn_2_cuda*.so sitting beside them. Removing only the package
-    # directory leaves that .so behind, and a reinstall that uv considers satisfied
-    # will not replace it -- so the stale extension keeps being imported and keeps
-    # raising "undefined symbol: ...c10::impl::cow::materialize_cow_storage...".
-    _site=$(python -c 'import site;print(site.getsitepackages()[0])')
-    rm -rf "${_site:?}"/flash_attn "${_site:?}"/flash_attn_2_cuda*.so "${_site:?}"/flash_attn-*.dist-info 2>/dev/null || true
-    if ls deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
-        pipi --force-reinstall deploy/dsw/flash_attn-*.whl
-    else
-        # FORCE_BUILD stops flash-attn's setup.py from first trying to fetch a
-        # prebuilt wheel off GitHub -- a request that tends to hang rather than
-        # fail from the mainland, so the build never starts.
-        FLASH_ATTENTION_FORCE_BUILD=TRUE \
-        TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0}" \
-        FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-80}" \
-        MAX_JOBS="${MAX_JOBS:-32}" NVCC_THREADS=2 \
-        pipi --force-reinstall --no-cache flash-attn --no-build-isolation
-    fi
-}
+# So it is installed by hand, with --no-deps, after everything else. See
+# docs/INFRA-NOTES.md for the exact command and pinned versions.
+if python -c "import torch, flash_attn_2_cuda" 2>/dev/null; then
+    echo "  present and matching this torch"
+else
+    cat >&2 <<'FA'
+  not installed. verl only needs it for use_remove_padding=True; without it, run
+  arms with USE_REMOVE_PADDING=False (slower, otherwise identical).
 
-# Catch an ABI mismatch here, in ten seconds, instead of at the first training step.
-python - <<'PYCHK'
-import torch, flash_attn
-import flash_attn_2_cuda  # the extension whose symbols are the ones that go missing
-print(f"flash_attn {flash_attn.__version__} imports cleanly against torch {torch.__version__}")
-PYCHK
+  To install it, AFTER this script finishes, with --no-deps so it cannot move torch:
+
+    source simopd/bin/activate
+    SITE=$(python -c 'import site;print(site.getsitepackages()[0])')
+    rm -rf $SITE/flash_attn $SITE/flash_attn_2_cuda*.so $SITE/flash_attn-*.dist-info
+    FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST=8.0 MAX_JOBS=32 \
+      pip install --no-deps --no-build-isolation --no-cache-dir flash-attn==2.8.3.post1
+
+  Then check (torch first -- it loads the libc10.so the extension links against):
+    python -c "import torch, flash_attn_2_cuda; print('ok', torch.__version__)"
+FA
+fi
 
 echo "=== [6/6] models + data ==="
 export HF_HOME=${HF_HOME:-$DATA_ROOT/hf_cache}
