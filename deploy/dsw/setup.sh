@@ -138,49 +138,83 @@ echo "free space here: ${AVAIL_GB}G"
 # actively wrong here. Raced per source, not per package: the host is the
 # bottleneck, and probing each package would add a round trip per package.
 # SIMOPD_RACE=0 skips it; an explicit UV_DEFAULT_INDEX/TORCH_FIND_LINKS also wins.
-race_source() {   # race_source <label> <name;pick;probe>...
-    local label=$1; shift
-    local best="" best_name="" best_spd=0 spd name pick probe
+# Rank the candidates by measured throughput, then VERIFY the winner can actually
+# serve a package before committing to it. Throughput alone is not enough: Tsinghua
+# served its index page fast on this box and then returned 403 for the package
+# files behind it, which fails only after the real install has started.
+# SIMOPD_RACE=0 skips the whole thing; an explicit setting is never overridden.
+rank_sources() {   # rank_sources <name;pick;probe>... -> picks, fastest first, on stdout
+    local out="" spd name pick probe
     for cand in "$@"; do
         IFS=';' read -r name pick probe <<< "$cand"
         spd=$(timeout 20 curl -s -o /dev/null -w '%{speed_download}' \
                 --max-time 15 -r 0-4194303 "$probe" 2>/dev/null || echo 0)
         spd=${spd%%.*}; spd=${spd:-0}
-        printf '    %-10s %6.1f MB/s\n' "$name" "$(awk "BEGIN{print $spd/1048576}")" >&2
-        [ "$spd" -gt "$best_spd" ] && { best_spd=$spd; best=$pick; best_name=$name; }
+        printf '    %-12s %6.1f MB/s\n' "$name" "$(awk "BEGIN{print $spd/1048576}")" >&2
+        out="$out$spd $name $pick\n"
     done
-    [ -z "$best" ] && return 1
-    printf '  %s -> %s (%.1f MB/s)\n' "$label" "$best_name" "$(awk "BEGIN{print $best_spd/1048576}")" >&2
-    echo "$best"
+    printf "$out" | sort -rn | awk '{print $2";"$3}'
+}
+
+index_works() {   # index_works <index_url> -- will it actually hand over a wheel?
+    # curl, not `pip download`: this races before the venv exists, so there is no
+    # pip yet -- an earlier version used one and "failed" every candidate for that
+    # reason alone. Fetch the simple page, take a wheel link, and ask for one byte
+    # of it. That exercises the file-serving path, which is what returns 403 on a
+    # mirror whose index pages are perfectly fast.
+    local idx=${1%/} page url code
+    page=$(timeout 15 curl -sL "$idx/cachetools/" 2>/dev/null) || return 1
+    url=$(printf '%s' "$page" | grep -oE 'href="[^"]+\.whl[^"]*"' | tail -1 | sed 's/^href="//; s/"$//')
+    [ -z "$url" ] && return 1
+    case "$url" in
+        http*) : ;;
+        /*)    url="$(printf '%s' "$idx" | sed -E 's|(https?://[^/]+).*|\1|')$url" ;;
+        *)     url="$idx/cachetools/$url" ;;
+    esac
+    code=$(timeout 20 curl -s -o /dev/null -w '%{http_code}' -r 0-0 "${url%%#*}" 2>/dev/null)
+    [ "$code" = "200" ] || [ "$code" = "206" ]
 }
 
 if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command -v curl >/dev/null 2>&1; then
     _tw=torch-2.11.0%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl
-    echo "racing package sources (a few seconds; SIMOPD_RACE=0 to skip)"
+    echo "racing package sources (SIMOPD_RACE=0 to skip)"
+
     if [ -n "$_USER_WHEELS" ]; then
         echo "  torch wheels: using your TORCH_FIND_LINKS, not racing"
-        _w=""
     else
-    _w=$(race_source "torch wheels" \
-        "aliyun;https://mirrors.aliyun.com/pytorch-wheels/cu129/;https://mirrors.aliyun.com/pytorch-wheels/cu129/$_tw" \
-        "pytorch.org;https://download.pytorch.org/whl/cu129;https://download.pytorch.org/whl/cu129/$_tw")
+        echo "  torch wheels:"
+        _first=$(rank_sources \
+            "aliyun;https://mirrors.aliyun.com/pytorch-wheels/cu129/;https://mirrors.aliyun.com/pytorch-wheels/cu129/$_tw" \
+            "pytorch.org;https://download.pytorch.org/whl/cu129;https://download.pytorch.org/whl/cu129/$_tw" | head -1)
+        [ -n "$_first" ] && TORCH_FIND_LINKS=${_first#*;}
+        echo "    -> ${_first%%;*}"
     fi
-    [ -n "$_w" ] && TORCH_FIND_LINKS=$_w
+
     if [ -n "$_USER_INDEX" ]; then
         echo "  pypi index: using your UV_DEFAULT_INDEX, not racing"
-        _i=""
     else
-    _i=$(race_source "pypi index" \
-        "aliyun;https://mirrors.aliyun.com/pypi/simple/;https://mirrors.aliyun.com/pypi/simple/torch/" \
-        "tsinghua;https://pypi.tuna.tsinghua.edu.cn/simple/;https://pypi.tuna.tsinghua.edu.cn/simple/torch/" \
-        "pypi.org;https://pypi.org/simple/;https://pypi.org/simple/torch/")
-    fi
-    if [ -n "$_i" ]; then
-        export UV_DEFAULT_INDEX=$_i UV_INDEX=$_i PIP_INDEX_URL=$_i
+        echo "  pypi index:"
+        _ranked=$(rank_sources \
+            "aliyun;https://mirrors.aliyun.com/pypi/simple/;https://mirrors.aliyun.com/pypi/simple/torch/" \
+            "tsinghua;https://pypi.tuna.tsinghua.edu.cn/simple/;https://pypi.tuna.tsinghua.edu.cn/simple/torch/" \
+            "pypi.org;https://pypi.org/simple/;https://pypi.org/simple/torch/")
+        _chosen=""
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            if index_works "${line#*;}"; then
+                _chosen=${line#*;}; echo "    -> ${line%%;*} (serves packages)"; break
+            fi
+            echo "    x  ${line%%;*} is fast but will not serve packages (403 or similar); trying next" >&2
+        done <<< "$_ranked"
+        if [ -n "$_chosen" ]; then
+            export UV_DEFAULT_INDEX=$_chosen UV_INDEX=$_chosen PIP_INDEX_URL=$_chosen
+        else
+            echo "  no candidate index could serve a package; keeping $PIP_INDEX_URL" >&2
+        fi
     fi
     export PIP_FIND_LINKS=$TORCH_FIND_LINKS
-    echo "  using index=$PIP_INDEX_URL"
-    echo "        wheels=$TORCH_FIND_LINKS"
+    echo "  index=$PIP_INDEX_URL"
+    echo "  wheels=$TORCH_FIND_LINKS"
 fi
 
 echo "=== [1/6] third-party checkouts ==="
