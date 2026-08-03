@@ -240,26 +240,36 @@ def k1_verified_only(config, distillation_config, model_output, data):
 
     Discipline from the plan: the verifier only filters, its answer never enters
     the training input. Implemented as a rescaled loss mask rather than a batch
-    filter so it composes with the other axes in the greedy rounds; the rescale
-    in _reweight_kept makes the two equivalent in expectation.
+    filter so it composes with the other axes in the greedy rounds; the rescale in
+    _reweight_kept makes the two equivalent in expectation.
+
+    The gate reads `advantages` rather than the raw verifier score. verl's trainer
+    writes only advantages and returns back for the actor to consume -- the actual
+    keys present were confirmed by an earlier run of this arm, which raised with
+    the micro-batch's key list -- so token_level_scores never reaches a loss fn.
+    Under this protocol (adv_estimator=grpo, use_task_rewards=False) advantages are
+    derived from that verifier score alone, so a trajectory with positive total
+    advantage is exactly one the verifier accepted. The assumption is asserted
+    below: if the estimator ever changes, this fails loudly instead of quietly
+    gating on something else.
     """
     student, teacher, mask = _unpack(model_output, data)
     losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
 
-    for key in ("token_level_scores", "token_level_rewards"):
-        if key in data.keys():
-            seq_score = data[key].sum(dim=-1)
-            break
-    else:
+    if "advantages" not in data.keys():
         raise KeyError(
-            "k1_verified_only needs the verifier score in the actor micro-batch; "
-            f"found none of token_level_scores/token_level_rewards in {sorted(data.keys())}"
+            "k1_verified_only needs `advantages` (the verifier-derived signal) in the "
+            f"actor micro-batch; got {sorted(data.keys())}"
         )
-    keep_seq = seq_score > 0.5
+    adv = data["advantages"]
+    adv = adv.to_padded_tensor(0.0) if adv.is_nested else adv
+    keep_seq = (adv * mask).sum(dim=-1) > 0
     losses, keep = _reweight_kept(losses, mask, keep_seq)
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
     metrics.update(_delta_ell_metrics(losses, keep))
+    # A batch where nothing verified produces no update at all -- correct for this
+    # arm, but it has to be visible or it looks like a silently dead step.
     metrics["distillation/gate_keep_frac"] = Metric(
         aggregation=AggregationType.MEAN, value=keep_seq.float().mean()
     )

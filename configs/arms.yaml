@@ -181,7 +181,11 @@ arms:
     status: stock
     note: "src/simopd/losses.py as a rescaled loss mask, not a batch filter, so it
            composes with other axes in the greedy rounds; the rescale keeps token-mean
-           equivalent to filtering. Verifier answer never enters the training input"
+           equivalent to filtering. Verifier answer never enters the training input.
+           Gates on `advantages`: verl's trainer writes only advantages/returns back
+           for the actor, so token_level_scores never reaches a loss fn. Under this
+           protocol advantages derive from the verifier score alone, so positive total
+           advantage == verifier accepted; the arm asserts that rather than assuming it"
     env:
       DISTILLATION_LOSS_MODE: k1_verified_only
 
