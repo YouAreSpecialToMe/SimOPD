@@ -142,7 +142,10 @@ if python -c "import torch, flash_attn_2_cuda" 2>/tmp/fa.txt; then
 else
     bad "flash_attn_2_cuda fails: $(tail -1 /tmp/fa.txt)"
     fix "rebuild it AGAINST THE CURRENT torch -- it must be installed last:"
-    fix "  uv pip uninstall flash-attn && FLASH_ATTENTION_FORCE_BUILD=TRUE uv pip install --force-reinstall --no-cache flash-attn --no-build-isolation"
+    fix "  SITE=\$(python -c 'import site;print(site.getsitepackages()[0])')"
+    fix "  rm -rf \$SITE/flash_attn \$SITE/flash_attn_2_cuda*.so \$SITE/flash_attn-*.dist-info"
+    fix "  FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST=8.0 uv pip install --force-reinstall --no-cache flash-attn --no-build-isolation"
+    fix "  (the top-level .so is separate from the package dir -- removing only the dir leaves it)"
 fi
 
 echo; echo "[simopd arms]"

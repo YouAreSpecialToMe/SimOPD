@@ -64,7 +64,15 @@ for d in torch torchvision torchaudio vllm flash_attn; do
     # touch it. Delete by hand or the reinstall lands on top of the wreckage.
     [ -e "$SITE/$d" ] && { rm -rf "${SITE:?}/$d"; echo "  removed $SITE/$d"; }
 done
-rm -rf "$SITE"/torch-*.dist-info "$SITE"/vllm-*.dist-info 2>/dev/null || true
+    # flash-attn installs three things: the flash_attn/ package, its dist-info, and a
+    # TOP-LEVEL flash_attn_2_cuda*.so sitting beside them. Removing only the package
+    # directory leaves that .so behind, and a reinstall that uv considers satisfied
+    # will not replace it -- so the stale extension keeps being imported and keeps
+    # raising "undefined symbol: ...c10::impl::cow::materialize_cow_storage...".
+for f in "$SITE"/flash_attn_2_cuda*.so "$SITE"/flash_attn-*.dist-info \
+         "$SITE"/torch-*.dist-info "$SITE"/vllm-*.dist-info; do
+    [ -e "$f" ] && { rm -rf "$f"; echo "  removed $f"; }
+done
 
 echo
 echo "=== 2. free space (a full volume is how an install dies partway) ==="

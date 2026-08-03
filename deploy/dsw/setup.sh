@@ -271,6 +271,13 @@ $UV pip install packaging ninja psutil setuptools wheel   # flash-attn build dep
 # a re-run would silently keep it.
 python -c "import torch, flash_attn_2_cuda" 2>/dev/null || {   # torch first: it loads libc10.so that the extension links against
     $UV pip uninstall flash-attn >/dev/null 2>&1 || true
+    # flash-attn installs three things: the flash_attn/ package, its dist-info, and a
+    # TOP-LEVEL flash_attn_2_cuda*.so sitting beside them. Removing only the package
+    # directory leaves that .so behind, and a reinstall that uv considers satisfied
+    # will not replace it -- so the stale extension keeps being imported and keeps
+    # raising "undefined symbol: ...c10::impl::cow::materialize_cow_storage...".
+    _site=$(python -c 'import site;print(site.getsitepackages()[0])')
+    rm -rf "${_site:?}"/flash_attn "${_site:?}"/flash_attn_2_cuda*.so "${_site:?}"/flash_attn-*.dist-info 2>/dev/null || true
     if ls deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
         $UV pip install --force-reinstall deploy/dsw/flash_attn-*.whl
     else
