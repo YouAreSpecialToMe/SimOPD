@@ -426,6 +426,15 @@ echo "=== [4/6] verl + extras ==="
 pipi -e ./verl
 pipi huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
 
+# Cross-domain transfer column (METRICS §2). --no-deps on evalplus is not tidiness:
+# its dependency closure pulls google-generativeai, which drags protobuf back to 5.x
+# and breaks vllm/ray. We use evalplus for data + unit-test execution only, never its
+# own generation backends, so its real runtime deps are listed by hand.
+# IFEval's checker has no PyPI release and is vendored under third_party/ instead.
+pipi --no-deps "evalplus==0.3.1"
+pipi appdirs tempdir wget termcolor tree-sitter tree-sitter-python multipledispatch \
+     langdetect nltk immutabledict
+
 echo "=== [5/6] flash-attn ==="
 # Installed ONLY from a prebuilt wheel, never built here. Building it declares an
 # unpinned `torch` dependency, which is how this environment's torch silently went
@@ -474,6 +483,14 @@ export SIMOPD_ROOT="$SIMOPD_ROOT"
 export HF_HOME="$HF_HOME"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+
+# Must be False, and must be set rather than merely left unset -- Alibaba PAI images
+# export it, and verl acts on it at import time: it calls modelscope's patch_hub(),
+# which reroutes EVERY huggingface_hub call to ModelScope. ModelScope's default
+# branch is 'master', so transformers asking for the HF default 'main' dies with
+#   NotExistError('The model: Qwen/Qwen3-1.7B has no revision: main !')
+# on models that fetch_assets.py already downloaded and cached locally.
+export VERL_USE_MODELSCOPE=False
 export DATA_DIR="$DATA_ROOT/simopd_math"
 export CKPT_ROOT="$DATA_ROOT/ckpt"
 export WANDB_DIR="$DATA_ROOT/wandb"

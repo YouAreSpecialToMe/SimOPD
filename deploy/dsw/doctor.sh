@@ -34,6 +34,15 @@ if [ -n "${PYTHONPATH:-}" ]; then
 else
     ok "PYTHONPATH unset"
 fi
+# PAI images export this, and verl acts on it at import: modelscope's patch_hub()
+# reroutes every huggingface_hub call, and ModelScope's default branch is 'master',
+# so asking for HF's 'main' fails on models that are already downloaded. It kills the
+# run at rollout-worker startup, minutes in, with a traceback about a missing revision.
+case "$(printf '%s' "${VERL_USE_MODELSCOPE:-False}" | tr '[:upper:]' '[:lower:]')" in
+    true|1|yes) bad "VERL_USE_MODELSCOPE=$VERL_USE_MODELSCOPE -- verl will route HF downloads through ModelScope"
+                fix "export VERL_USE_MODELSCOPE=False   (setup.sh now writes this into simopd_env.sh)" ;;
+    *)          ok "VERL_USE_MODELSCOPE off -- hub calls stay on HF/\${HF_ENDPOINT}" ;;
+esac
 if command -v nvidia-smi >/dev/null 2>&1; then
     DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
     NGPU=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
@@ -177,12 +186,18 @@ done
 _dd=${_dd:-$SIMOPD_ROOT/../simopd_data/simopd_math}
 # One source of truth for what "the assets are present" means, shared with setup.
 if python "$SIMOPD_ROOT/scripts/fetch_assets.py" --check --data-dir "$_dd" >/tmp/assets.txt 2>&1; then
-    ok "$(grep -c cached /tmp/assets.txt) assets cached (models, eval sets, training data)"
+    ok "$(grep -c cached /tmp/assets.txt) assets cached (models, eval sets, transfer benches, training data)"
 else
     bad "missing assets:"
     grep -E "MISSING|FAILED" /tmp/assets.txt | sed 's/^/       /' >&2
     fix "bash deploy/dsw/setup.sh   # fetches only what is absent"
 fi
+# Deliberately not run here: the code harness self-check executes 542 canonical
+# solutions and takes minutes, which is not what a doctor is for.
+python - <<'PY' 2>/dev/null || fix "python scripts/transfer_eval.py --selfcheck   # verify the code sandbox on this machine"
+import importlib.util as u, sys
+sys.exit(0 if all(u.find_spec(m) for m in ("evalplus", "nltk", "langdetect", "immutabledict")) else 1)
+PY
 
 echo; echo "[mirrors]"
 for u in "${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}" "${HF_ENDPOINT:-https://hf-mirror.com}"; do
