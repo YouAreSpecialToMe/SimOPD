@@ -33,6 +33,13 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     export UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}
     export UV_INDEX=${UV_INDEX:-$UV_DEFAULT_INDEX}
     export HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
+    # HF moved large files to Xet-backed storage. A mirror can serve the metadata
+    # but file reconstruction still goes to cas-server.xethub.hf.co, which the
+    # mirror cannot proxy -- the result is
+    #   CAS Client Error: HTTP status client error (401 Unauthorized)
+    # partway through a download. Disabling Xet falls back to the plain HTTP path,
+    # which mirrors do serve.
+    export HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-1}
     # A flat wheel listing, not a PEP 503 index, so it goes through --find-links.
     # Verified 2026-08-01 to carry torch/torchvision/torchaudio 2.11.0+cu129 cp312
     # x86_64 -- the only mainland mirror of the three checked that does (Tsinghua

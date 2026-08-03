@@ -177,6 +177,15 @@ done
 DATA_DIR=${DATA_DIR:-$SIMOPD_ROOT/../simopd_data/simopd_math}
 [ -f "$DATA_DIR/train.parquet" ] && ok "train.parquet present ($DATA_DIR)" || { bad "no train.parquet at $DATA_DIR"; fix "python scripts/prep_nemotron_math.py --local_save_dir $DATA_DIR"; }
 [ -f "$DATA_DIR/math500.parquet" ] && ok "math500.parquet present" || bad "no math500.parquet"
+if [ "${HF_ENDPOINT:-}" != "" ] && [ "${HF_ENDPOINT}" != "https://huggingface.co" ]; then
+    if [ "${HF_HUB_DISABLE_XET:-0}" = "1" ]; then
+        ok "HF_HUB_DISABLE_XET=1 (required with a mirror: Xet CAS is not proxied)"
+    else
+        bad "using HF mirror $HF_ENDPOINT without HF_HUB_DISABLE_XET=1"
+        fix "downloads will 401 on cas-server.xethub.hf.co partway through"
+        fix "export HF_HUB_DISABLE_XET=1"
+    fi
+fi
 HF=${HF_HOME:-$HOME/.cache/huggingface}
 N=$(ls "$HF/hub" 2>/dev/null | grep -c "models--Qwen--Qwen3" || echo 0)
 [ "$N" -ge 3 ] && ok "$N Qwen3 models cached under $HF" || warn "only $N Qwen3 models cached under $HF"
