@@ -43,6 +43,24 @@ case "$(printf '%s' "${VERL_USE_MODELSCOPE:-False}" | tr '[:upper:]' '[:lower:]'
                 fix "export VERL_USE_MODELSCOPE=False   (setup.sh now writes this into simopd_env.sh)" ;;
     *)          ok "VERL_USE_MODELSCOPE off -- hub calls stay on HF/\${HF_ENDPOINT}" ;;
 esac
+# vLLM puts its worker IPC and NCCL buffers in shared memory. Containers default
+# /dev/shm to 64MB, which does not fail loudly: the rollout worker dies and Ray
+# reports it as `ActorUnavailableError ... rpc_code: 14`, which names neither shm
+# nor the worker's actual error.
+SHM=$(df -m /dev/shm 2>/dev/null | tail -1 | awk '{print $2}')
+if [ "${SHM:-0}" -ge 8192 ]; then ok "/dev/shm ${SHM}M"
+elif [ "${SHM:-0}" -gt 0 ]; then bad "/dev/shm is only ${SHM}M -- vLLM workers will die at startup"
+     fix "restart the container with --shm-size=32g (DSW: raise it in the instance spec)"
+else warn "could not read /dev/shm"; fi
+# A Ray head left behind by a crashed run is not inert: the next ray.init() attaches
+# to it, and its workers inherit the environment from when IT started -- so a variable
+# you have since fixed in your shell is still wrong inside them.
+if pgrep -f "raylet|gcs_server" >/dev/null 2>&1; then
+    warn "a Ray cluster is already running -- a new run will attach to it, stale env and all"
+    fix "ray stop --force   # single-lane machines only; on 4 lanes use the per-lane cleanup in _lane.sh"
+else
+    ok "no leftover Ray cluster"
+fi
 if command -v nvidia-smi >/dev/null 2>&1; then
     DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
     NGPU=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
