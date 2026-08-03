@@ -162,17 +162,22 @@ index_works() {   # index_works <index_url> -- will it actually hand over a whee
     # reason alone. Fetch the simple page, take a wheel link, and ask for one byte
     # of it. That exercises the file-serving path, which is what returns 403 on a
     # mirror whose index pages are perfectly fast.
-    local idx=${1%/} page url code
-    page=$(timeout 15 curl -sL "$idx/cachetools/" 2>/dev/null) || return 1
-    url=$(printf '%s' "$page" | grep -oE 'href="[^"]+\.whl[^"]*"' | tail -1 | sed 's/^href="//; s/"$//')
-    [ -z "$url" ] && return 1
-    case "$url" in
-        http*) : ;;
-        /*)    url="$(printf '%s' "$idx" | sed -E 's|(https?://[^/]+).*|\1|')$url" ;;
-        *)     url="$idx/cachetools/$url" ;;
-    esac
-    code=$(timeout 20 curl -s -o /dev/null -w '%{http_code}' -r 0-0 "${url%%#*}" 2>/dev/null)
-    [ "$code" = "200" ] || [ "$code" = "206" ]
+    local idx=${1%/} pkg page url code
+    # Several packages, not one: Tsinghua handed over cachetools and then 403'd on
+    # setuptools, so a single-package check happily certifies a broken mirror.
+    for pkg in setuptools cachetools numpy; do
+        page=$(timeout 15 curl -sL "$idx/$pkg/" 2>/dev/null) || return 1
+        url=$(printf '%s' "$page" | grep -oE 'href="[^"]+\.whl[^"]*"' | tail -1 | sed 's/^href="//; s/"$//')
+        [ -z "$url" ] && return 1
+        case "$url" in
+            http*) : ;;
+            /*)    url="$(printf '%s' "$idx" | sed -E 's|(https?://[^/]+).*|\1|')$url" ;;
+            *)     url="$idx/$pkg/$url" ;;
+        esac
+        code=$(timeout 20 curl -s -o /dev/null -w '%{http_code}' -r 0-0 "${url%%#*}" 2>/dev/null)
+        case "$code" in 200|206) ;; *) return 1 ;; esac
+    done
+    return 0
 }
 
 if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command -v curl >/dev/null 2>&1; then
@@ -196,7 +201,6 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command 
         echo "  pypi index:"
         _ranked=$(rank_sources \
             "aliyun;https://mirrors.aliyun.com/pypi/simple/;https://mirrors.aliyun.com/pypi/simple/torch/" \
-            "tsinghua;https://pypi.tuna.tsinghua.edu.cn/simple/;https://pypi.tuna.tsinghua.edu.cn/simple/torch/" \
             "pypi.org;https://pypi.org/simple/;https://pypi.org/simple/torch/")
         _chosen=""
         while IFS= read -r line; do
@@ -251,7 +255,22 @@ fi
 pipi() {   # pipi [flags...] <spec...>
     if [ -n "$UV" ]; then
         "$UV" pip install "$@"
-    else
+        return $?
+    fi
+    _pip_try "$PIP_INDEX_URL" "$@" && return 0
+    # A mirror that worked a minute ago can start refusing (403, rate limit) partway
+    # through a long install. Retry the same command against the other index rather
+    # than making you re-run the script.
+    for alt in https://pypi.org/simple/ https://mirrors.aliyun.com/pypi/simple/; do
+        [ "$alt" = "$PIP_INDEX_URL" ] && continue
+        echo "  index $PIP_INDEX_URL failed; retrying via $alt" >&2
+        _pip_try "$alt" "$@" && { export PIP_INDEX_URL=$alt UV_DEFAULT_INDEX=$alt; return 0; }
+    done
+    return 1
+}
+_pip_try() {   # _pip_try <index> [flags...] <spec...>
+    local idx=$1; shift
+    if true; then
         local args=()
         for a in "$@"; do
             case "$a" in
@@ -259,7 +278,7 @@ pipi() {   # pipi [flags...] <spec...>
                 *) args+=("$a") ;;
             esac
         done
-        python -m pip install -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" "${args[@]}"
+        python -m pip install -i "$idx" "${args[@]}"
     fi
 }
 pipu() {   # pipu <package...>
