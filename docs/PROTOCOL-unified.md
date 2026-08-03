@@ -23,6 +23,34 @@
 eval 从 greedy pass@1 到 avg@16@τ0.7 —— **没有任何两篇可逐行比**。这就是本项目存在的理由,
 也是统一协议必须一次钉死的原因。
 
+### 0.1 域维度(2026-08-03 补;上表只有超参,而"域"是我们要主张的那一维)
+
+| 论文 | 训练域 | 评测域 | 跨域形态 |
+|---|---|---|---|
+| **Demystifying**(锚点) | math | math | — |
+| **Rethinking**(锚点) | math | math | — |
+| TIP | math | math | — |
+| ESR | math | math(+HumanEval) | 迁移评测 |
+| LSM | math + agentic | math | — |
+| FiRe | math | math + **code** | **迁移评测** |
+| Teachability | math | math + **code/IFEval/GPQA** | **迁移评测** |
+| RG-OPD | UltraInteract(混合) | math + code + IFEval | 混合域训练 |
+| SelecTKD | IF/math/code/VLM(多域) | 多域 TAR | 混合域训练 |
+| EasyOPD | 4k 混合 | math + code | 混合域训练 |
+
+**结论(直接支撑我们的设计与主张)**:
+
+1. **训练只在 math:6/10;评测只在 math:5/10。两篇锚点(Demystifying/Rethinking)
+   训练与评测全在 math。** → 我们"筛选只在 math"不是妥协,是被审对象的主场。
+2. 跨域的四篇分两类,**都不是逐域对照**:迁移评测型(FiRe/Teachability)= math 训、
+   跨域评;混合域训练型(RG-OPD/SelecTKD/EasyOPD/LSM)= 多域搅在一个训练集里报总分,
+   **拆不出"同一 trick 在 math 与在 code 分别如何"**。
+3. 故:**逐臂迁移列**(统一协议)与 **code 域蒸馏内部量**(π(S̄))在本池内零先例。
+   前者已落地(METRICS §2,每臂 final ckpt);后者是 headline 预言的检验入口,未启动。
+
+⚠ 两处待复核(HTML 抽取所得,写进 paper 前必须核):Teachability 训练超参整行"未报";
+ESR 评测集在 BENCHMARKS §1(列了 HumanEval)与本表(MATH500 avg@4)口径不一致。
+
 ## 1. 锁定协议(所有臂共用)
 
 ### 模型

@@ -31,7 +31,12 @@
    空格,接受与所有被告完全相同的预注册协议" —— 防"既当裁判又当选手"之讥;
 3. **genre 差不豁免赛跑**:护城河 = 覆盖广度 + 方法论器物(台账/副作用面板/
    双向贪心/预注册)+ 速度。
-另:跨域鲁棒性列(math+code+IFEval)仍是没人有的一列,保留为审计的固有维度。
+另:跨域鲁棒性列(math+code+IFEval)保留为审计的固有维度。**措辞更正(2026-08-03,
+调研复核后)**:"没人有的一列"说得太满 —— 迁移评测(math 训→code/IF 评)已有先例,
+FiRe 报 code、Teachability 报 code/IFEval/GPQA。精确的空位是两处:
+(a)**统一协议下的逐臂**迁移列(他们各自只测自己那一两个 trick,互不可比);
+(b)**code 域蒸馏的内部量**(π(S̄) 等)—— 混合域训练的四篇(RG-OPD/SelecTKD/
+EasyOPD/LSM)把域搅在一个训练集里,拿不出"同一 trick 在 math 与在 code 分别如何"。
 
 **Headline 假设**(对话 Rethinking):
 "支撑大小无所谓 / overlap 够了" 只在 **student 尾质量小**时成立。
@@ -128,8 +133,20 @@ teacher 似然过滤 (FiRe-OPD 2606.02684)。
 
 ## 4. Phase 1–3 — 仲裁流程
 
-**Phase 1 单轴筛(只在 math 域)**:每臂 vs vanilla,单 seed + 配对检验;
+**Phase 1 单轴筛(选择只在 math 域)**:每臂 vs vanilla,单 seed + 配对检验;
 p<0.05 晋级,|Δ|<噪声底判平局。约 15–18 runs。
+
+**迁移列改为逐臂(2026-08-03 预注册修订)**:每臂 final checkpoint 加评
+HumanEval+/MBPP+/IFEval(math 训、跨域评,greedy),记入副作用面板。
+**只评测不训练,不参与晋级** —— 选择仍然纯在 math。
+理由:三分类判决里的"**有副作用**"此前只有 Phase 3 的配方级证据,对单个臂无据可依,
+只能从 math 域内的长度/熵/多样性去推。成本 ≈0.25 GPU·时/臂(训练是 18 GPU·时/臂),
+约 1.5% 开销。
+
+**门槛(先量后用)**:逐域噪声底由 W1 的 vanilla×3 seeds checkpoint 顺带评出
+(零额外训练 run)。**某域极差过宽 / 贴地板则预注册剔除该域**,并把实测数字写进 paper
+当理由 —— 0.6B-Base 在 IFEval 上尤其可疑(base 模型本就不擅遵循指令,再 math-only
+训 300 步)。宁可少一列,不要一列噪声。
 
 **Phase 2 双向贪心(只在 math 域)**:
 前向:vanilla 起,逐个加当前最优 trick,增益<噪声底即停;

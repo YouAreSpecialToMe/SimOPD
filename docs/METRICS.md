@@ -59,7 +59,7 @@
 | **逐 token advantage 均值曲线** | batch 内 Δℓ 的 token-mean | **Demystifying**(其 Mode 诊断的第三轴;锚点对表需要) | 每步 |
 | 熵曲线 | actor 熵(verl `actor/entropy`) | Rethinking Eq.8 族 | 每步 |
 | 重复率 | val 生成 3-gram 重复率 | 本文新增(退化循环 pass@1 不可见;成本≈0) | 每 25 步 |
-| 域间迁移损益 | 配方在 code/IFEval 的 Δ vs vanilla | 本文新增(跨域列是我们的固有维度) | Phase 3 |
+| **域间迁移损益** | **每臂**在 HumanEval+/MBPP+/IFEval 的 Δ vs vanilla(math 训、跨域评,greedy) | 迁移评测本身有先例(**FiRe**:math 训→code 评;**Teachability**:→code/IFEval/GPQA);**逐臂 + 统一协议**是本文新增 | **每臂 final ckpt**(2026-08-03 从 Phase 3 提前) |
 
 ## 3. 机理层 / 飞行记录仪
 
@@ -92,10 +92,10 @@ timing 分解(verl 现成)、相对 vanilla step 开销比、GPU·h、rollout/pr
 |---|---|
 | 每步 | Δℓ 分布+均值曲线、熵、长度+截断率、overlap(Eq.6/质量版)、π(S̄)、ℐ、timing |
 | 每 25 步(筛选 val) | MATH500 pass@1 + 重复率;逐题工件落盘 |
-| checkpoint 终评 | AMC23 avg@32、pass@8 面板(终审 k→64)、(1.7B)AIME avg@32、(锚点)Minerva |
+| checkpoint 终评 | AMC23 avg@32、pass@8 面板(终审 k→64)、(1.7B)AIME avg@32、(锚点)Minerva;**+ 迁移列 HumanEval+/MBPP+/IFEval(greedy,1083 题 ≈0.25 GPU·时)** |
 | W1 一次性 | 噪声底×3 seeds;**teacher 上限**(1.7B/4B-2507/8B 在 MATH500+AMC23,兼作 D6 输入)|
 | Phase 0 | D6 逐题矩阵、D1'/D2'/D3 静态版、D5 |
-| Phase 3 | code/IFEval + 迁移损益 |
+| Phase 3 | code/IFEval **重训**(shortlist 配方,非迁移评测)+ 三域主表 |
 
 ## 6. 实施清单(v1 六项 + 三个新件)
 

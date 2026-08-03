@@ -29,8 +29,12 @@ DATASETS = [
     ("HuggingFaceH4/aime_2024", "train"),
     ("math-ai/aime25", "test"),
     ("math-ai/minervamath", "test"),
-    ("google/IFEval", "train"),
+    ("google/IFEval", "train"),          # transfer column, general domain
 ]
+# The code half of the transfer column. Not on the hub: evalplus pulls these from
+# its own GitHub releases into ~/.cache/evalplus, so behind a firewall they need
+# GITHUB_PROXY like the vLLM wheel does.
+EVALPLUS = ["humanevalplus", "mbppplus"]
 IGNORE = ["*.pth", "*.msgpack", "*.h5"]   # torch-only; the flax/tf copies are dead weight
 
 
@@ -58,6 +62,56 @@ def dataset_cached(name, split):
             else:
                 os.environ["HF_DATASETS_OFFLINE"] = prev
     except Exception:
+        return False
+
+
+def evalplus_path(name):
+    """Where evalplus caches the plus dataset, without triggering a download."""
+    from evalplus.data.utils import CACHE_DIR
+    if name == "humanevalplus":
+        from evalplus.data.humaneval import HUMANEVAL_PLUS_VERSION as v
+        return os.path.join(CACHE_DIR, f"HumanEvalPlus-{v}.jsonl")
+    from evalplus.data.mbpp import MBPP_PLUS_VERSION as v
+    return os.path.join(CACHE_DIR, f"MbppPlus-{v}.jsonl")
+
+
+def groundtruth_path(name):
+    """The pickled expected outputs, keyed by dataset hash."""
+    from evalplus.data import get_human_eval_plus_hash, get_mbpp_plus_hash
+    from evalplus.data.utils import CACHE_DIR
+    h = get_human_eval_plus_hash() if name == "humanevalplus" else get_mbpp_plus_hash()
+    return os.path.join(CACHE_DIR, f"{h}.pkl")
+
+
+def fetch_evalplus(name):
+    """Download the dataset AND build the ground-truth cache.
+
+    The ground truth is computed by executing every canonical solution and recording
+    its runtime, which those runtimes then become the per-test time limits for. Doing
+    that here -- once, at setup -- keeps it off the critical path of a campaign, where
+    it would run on a node already saturated by training lanes. See the load-sensitivity
+    note in transfer_eval.py.
+    """
+    from evalplus.data import get_human_eval_plus, get_mbpp_plus
+    from evalplus.eval._special_oracle import MBPP_OUTPUT_NOT_NONE_TASKS
+    from evalplus.evaluate import get_groundtruth
+
+    if name == "humanevalplus":
+        probs, not_none = get_human_eval_plus(), []
+    else:
+        probs, not_none = get_mbpp_plus(), MBPP_OUTPUT_NOT_NONE_TASKS
+    get_groundtruth(probs, os.path.basename(groundtruth_path(name))[:-4], not_none)
+
+
+def nltk_punkt_cached():
+    # IFEval's sentence-count checkers need it. Imported here so the security-guard
+    # workaround stays local; see transfer_eval._score_ifeval for why it is needed.
+    os.environ.setdefault("NLTK_DISABLE_IMPORT_SECURITY", "1")
+    import nltk
+    try:
+        nltk.data.find("tokenizers/punkt")
+        return True
+    except LookupError:
         return False
 
 
@@ -104,6 +158,33 @@ def main():
         except Exception as e:
             print(f"  FAILED   {name}: {type(e).__name__}: {str(e)[:160]}", file=sys.stderr)
             missing += 1
+
+    print("\ntransfer benchmarks (code + IF):")
+    for name in EVALPLUS:
+        if os.path.exists(evalplus_path(name)) and os.path.exists(groundtruth_path(name)):
+            print(f"  cached   {name} (+ ground truth)")
+        elif args.check:
+            print(f"  MISSING  {name}")
+            missing += 1
+        else:
+            print(f"  fetching {name}")
+            try:
+                fetch_evalplus(name)
+                print(f"  ok       {name}")
+            except Exception as e:
+                print(f"  FAILED   {name}: {type(e).__name__}: {str(e)[:160]}", file=sys.stderr)
+                missing += 1
+    if nltk_punkt_cached():
+        print("  cached   nltk punkt (IFEval sentence checkers)")
+    elif args.check:
+        print("  MISSING  nltk punkt")
+        missing += 1
+    else:
+        print("  fetching nltk punkt")
+        import nltk
+        ok = nltk.download("punkt", quiet=True) and nltk.download("punkt_tab", quiet=True)
+        print(f"  {'ok      ' if ok else 'FAILED  '} nltk punkt")
+        missing += not ok
 
     print("\ntraining data:")
     train = os.path.join(os.path.expanduser(args.data_dir), "train.parquet")

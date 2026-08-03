@@ -30,7 +30,8 @@ code 共识 = HumanEval/MBPP(+ 变体);general 共识 = IFEval。与计划 §1 �
 | **筛选(0.6B,每 run)** | **MATH500 pass@1**(训练内 val,判决主指标)+ **AMC23 avg@32**(checkpoint 终评,判决副指标) | 500 题给 McNemar 检验力;AIME 对 0.6B 是地板噪声,不测(计划 §1 已裁) |
 | **锚点(1.7B←4B-2507)** | 上述 + **Minerva pass@1 + AIME24/25 avg@32** | 对齐 Demystifying 该格子的报表面(其 AIME26/HMMT25 列为可选,见 §5) |
 | **终验 1.7B 档** | MATH500 + AMC23 + AIME24/25 | 主表 |
-| **Phase 3 跨域** | **HumanEval+ / MBPP+**(pass@1,greedy)+ **IFEval**(strict,prompt-level 主报、instruction-level 附报) | 只验证不选择;跨域列 + 副作用面板的迁移损益 |
+| **迁移列(每臂,final ckpt)** | **HumanEval+ / MBPP+**(pass@1,greedy)+ **IFEval**(strict,prompt-level 主报、instruction-level 附报) | **只验证不选择**;副作用面板的迁移损益。2026-08-03 从 Phase 3 提前到逐臂:1083 题 greedy ≈0.25 GPU·时,对 18 GPU·时的训练是 1.5% 开销,换来"有副作用"这条判决第一次有逐臂证据 |
+| **Phase 3 跨域重训** | 同上 bench,但在 code/IF 域**重训** shortlist 配方(见 §4.5) | 迁移评测测不了"trick 在该域是否有效",只测"是否损坏";重训才测前者 |
 | 多样性面板 | MATH500 固定 100 题子集(pass@k) | 子集索引冻结进仓库,全项目同一份 |
 
 ## 3. 数据源与 harness(HF ID 已全部验证存在)
@@ -41,8 +42,21 @@ code 共识 = HumanEval/MBPP(+ 变体);general 共识 = IFEval。与计划 §1 �
 | AMC23 | `math-ai/amc23`(40) | 同上 |
 | AIME24/25 | **AIME24 用 `HuggingFaceH4/aime_2024`**(直接 answer 列;`math-ai/aime24` 无 answer 列、只有 \boxed 在 solution 里,弃用)/ AIME25 用 `math-ai/aime25`(各 30) | 同上 |
 | Minerva | `math-ai/minervamath`(272) | 同上 |
-| HumanEval+ / MBPP+ | `evalplus/humanevalplus` / `evalplus/mbppplus`,**evalplus 官方 harness** | 单测通过率 |
-| IFEval | `google/IFEval`,**官方 instruction_following_eval checker** | strict acc |
+| HumanEval+ / MBPP+ | evalplus 官方 release(`~/.cache/evalplus`,非 HF),**evalplus 0.3.1 官方 harness** | 单测通过率(plus 集主报,base 附报) |
+| IFEval | `google/IFEval`,**官方 instruction_following_eval checker**(仓库内 `third_party/`,无 PyPI 发行版;PyPI 上的 `ifeval` 是无关第三方上传,不可用) | strict acc |
+
+**代码题 prompt** 用 evalplus 官方 chat 模板(instruction prefix + ```` ```python ```` 预填),
+但经我们的 `enable_thinking=False` 走一遍 —— 官方那支不接受该参数,而空 think 前缀是
+全项目纪律(§1)。预填不是可选:没有它,base 档 student 的失败大头是"没吐出可解析的
+代码块",那这一列量的是 markdown 合规而不是代码能力。
+
+⚠ **代码题会因机器负载产生假失败**(2026-08-03 实测):同一批 canonical solution,
+load≈20 时 160/164、load≈6 时稳定 163/164。evalplus 的单测上限是
+`max(min_time_limit, 4×参考耗时)`,平凡函数落到 1.0s 地板,CPU 争抢就能击穿 ——
+而我们自己的四条训练泳道就是争抢源。故默认 `min_time_limit=4.0`
+(`SIMOPD_EVALPLUS_MIN_TIME_LIMIT` 可调),ground truth 在 `fetch_assets.py` 里预热。
+HumanEval/32(`find_zero`,牛顿法 tol 1e-5)在任何时限下都挂 —— **163/164 是 harness
+自身的参考天花板**,不是我们的缺陷。
 
 **统一 math 评分器(单点决定,全项目同一路径)**:boxed 抽取 + `math_verify` 等价判定
 —— 训练内 val(verl reward)与 `eval_offline.py` 用同一实现,版本号记入逐题工件;
@@ -74,6 +88,11 @@ Phase 3 的"三域验证"是**在 code/IFEval 域重训 shortlist 配方**(配�
 
 注意:code 域训练需要沙箱执行单测(verl 有 code reward 工具链;W3 落地时核验其
 沙箱在集群上可用 —— 无 docker 权限时用进程级隔离)。
+
+**eval 侧的沙箱已可自证**:`python scripts/transfer_eval.py --selfcheck` 拿两个数据集
+自己的 canonical solution 跑一遍,对上参考数字(HumanEval+ 163/164)才算通过。
+换机器(DSW / 新节点)先跑它 —— 不需要 GPU,不需要 checkpoint。训练侧沙箱是另一件事,
+仍未验。
 
 ## 5. 明确不选(判决书式理由,防审稿人问)
 

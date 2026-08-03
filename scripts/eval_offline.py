@@ -1,9 +1,15 @@
 """Offline benchmark evaluation for SimOPD (METRICS.md §6 item 1).
 
-Serves three pre-registered jobs with one code path:
+Serves four pre-registered jobs with one code path:
   - decision metrics on a checkpoint (MATH500 pass@1 greedy, AMC23/AIME avg@32)
   - the diversity side-effect panel (pass@k at tau=1.0 on the frozen 100-problem subset)
   - teacher ceilings / D6 ladder (same command, just point --model at a teacher)
+  - the cross-domain transfer column (HumanEval+ / MBPP+ / IFEval), per arm
+
+One script rather than two because `verdict.py` reads these parquets and every row
+must be stamped with the same run_id / step / seed / git_sha in the same schema; a
+separate transfer script would be a second place for that stamping to drift.
+Benchmark-specific loading and scoring live in `transfer_eval.py`.
 
 Scoring reuses verl's `default_compute_score` under the MATH data_source, i.e. the
 exact scorer the in-training validation uses. METRICS.md forbids a second
@@ -26,6 +32,11 @@ Examples
   # diversity panel
   python scripts/eval_offline.py --model ... --benchmarks math500_sub100 \
       --n 8 --temperature 1.0 --top-p 1.0 --run-id vanilla_s0 --step 300
+
+  # cross-domain transfer column (greedy; 1083 prompts, ~15 min on one A100)
+  python scripts/eval_offline.py --model /scratch/.../global_step_300/actor \
+      --benchmarks humanevalplus,mbppplus,ifeval --max-tokens 2048 \
+      --run-id vanilla_s0 --step 300
 """
 
 import argparse
@@ -36,6 +47,8 @@ from datetime import datetime, timezone
 
 import datasets
 import pandas as pd
+
+import transfer_eval   # sibling module; scripts/ is sys.path[0] when run as a script
 
 # data_source that routes to verl's MATH scorer (boxed extraction + equivalence).
 # Our training parquets carry this same string, which is what guarantees parity.
@@ -87,6 +100,8 @@ def main():
     p.add_argument("--max-tokens", type=int, default=8192, help="match the run's training cap")
     p.add_argument("--tp", type=int, default=1)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
+    p.add_argument("--parallel", type=int, default=None,
+                   help="evalplus unit-test workers (code benchmarks only); default = cpu count")
     p.add_argument("--out-dir", default="/scratch/zz865/simopd/evals")
     args = p.parse_args()
 
@@ -119,28 +134,55 @@ def main():
 
     for bench in args.benchmarks.split(","):
         bench = bench.strip()
-        problems, answers, pids = load_benchmark(bench)
+        is_transfer = bench in transfer_eval.TRANSFER
 
-        # Same non-thinking template as training; a mismatch here would make the
-        # offline number incomparable to the in-training val curve.
-        prompts = [
-            tok.apply_chat_template(
-                [{"role": "user", "content": q.strip() + " " + INSTRUCTION}],
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
-            )
-            for q in problems
-        ]
+        if is_transfer:
+            raws, metas, pids = transfer_eval.load(bench)
+            prompts = [
+                transfer_eval.build_prompt(bench, raw, meta, tok)
+                for raw, meta in zip(raws, metas, strict=True)
+            ]
+        else:
+            problems, answers, pids = load_benchmark(bench)
+            metas = [{"answer": a} for a in answers]
+            # Same non-thinking template as training; a mismatch here would make the
+            # offline number incomparable to the in-training val curve.
+            prompts = [
+                tok.apply_chat_template(
+                    [{"role": "user", "content": q.strip() + " " + INSTRUCTION}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+                for q in problems
+            ]
 
         outputs = llm.generate(prompts, sampling)
+        completions = [[c.text for c in out.outputs] for out in outputs]
+
+        if is_transfer:
+            # Batch-level on purpose: evalplus evaluates a whole samples file in one
+            # call, under its own process isolation.
+            extras = transfer_eval.score(
+                bench, pids, metas, completions,
+                workdir=os.path.join(args.out_dir, "_transfer"),
+                stamp=f"{args.run_id}__step{args.step}__seed{args.seed}__{stamp}",
+                parallel=args.parallel,
+            )
+        else:
+            extras = []
+            for meta, per_problem in zip(metas, completions, strict=True):
+                per = []
+                for text in per_problem:
+                    score = default_compute_score(MATH_SCORER_SOURCE, text, meta["answer"])
+                    if isinstance(score, dict):
+                        score = score.get("score", 0.0)
+                    per.append({"correct": int(float(score) > 0.5)})
+                extras.append(per)
 
         rows = []
-        for pid, gt, out in zip(pids, answers, outputs, strict=True):
-            for sample_idx, comp in enumerate(out.outputs):
-                score = default_compute_score(MATH_SCORER_SOURCE, comp.text, gt)
-                if isinstance(score, dict):
-                    score = score.get("score", 0.0)
+        for pid, out, per_problem in zip(pids, outputs, extras, strict=True):
+            for sample_idx, (comp, extra) in enumerate(zip(out.outputs, per_problem, strict=True)):
                 rows.append(
                     {
                         "run_id": args.run_id,
@@ -150,12 +192,12 @@ def main():
                         "benchmark": bench,
                         "problem_id": pid,
                         "sample_idx": sample_idx,
-                        "correct": int(float(score) > 0.5),
                         "resp_len": len(comp.token_ids),
                         "truncated": int(comp.finish_reason == "length"),
                         "finish_reason": str(comp.finish_reason),
                         "temperature": args.temperature,
                         "n": args.n,
+                        **extra,   # always carries `correct`; transfer adds its own columns
                     }
                 )
 
@@ -164,12 +206,20 @@ def main():
         df.to_parquet(path)
 
         per_problem = df.groupby("problem_id")["correct"].mean()
-        metric = "pass@1" if args.n == 1 else f"avg@{args.n}"
-        print(
+        if bench == "ifeval":
+            metric = "strict_prompt_acc"
+        else:
+            metric = "pass@1" if args.n == 1 else f"avg@{args.n}"
+        line = (
             f"[{bench}] {metric}={per_problem.mean():.4f}  "
             f"pass@{args.n}={df.groupby('problem_id')['correct'].max().mean():.4f}  "
-            f"trunc={df['truncated'].mean():.4f}  len_mean={df['resp_len'].mean():.0f}  -> {path}"
+            f"trunc={df['truncated'].mean():.4f}  len_mean={df['resp_len'].mean():.0f}"
         )
+        if "n_instructions" in df:   # IFEval's pre-registered secondary metric
+            line += f"  strict_instr_acc={df['n_instructions_followed'].sum() / df['n_instructions'].sum():.4f}"
+        if "base_correct" in df:     # HumanEval/MBPP without the extra evalplus tests
+            line += f"  base={df.groupby('problem_id')['base_correct'].mean().mean():.4f}"
+        print(f"{line}  -> {path}")
 
 
 if __name__ == "__main__":

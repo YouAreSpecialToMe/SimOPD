@@ -118,6 +118,48 @@ python -c "import torch, flash_attn_2_cuda; print('ok', torch.__version__)"   # 
 
 没有 flash-attn 也能跑:`USE_REMOVE_PADDING=False`,慢一些,其余相同。
 
+### 迁移列的依赖(2026-08-03 加)
+
+| 包 | 装法 | 为什么 |
+|---|---|---|
+| evalplus | **`--no-deps` 装 0.3.1** | 依赖闭包里有 `google-generativeai`,会把 **protobuf 6.33 拉回 5.29**,vllm/ray 随之失配。我们只用它的数据 + 单测执行,不用它的生成后端 |
+| appdirs / tempdir / wget / termcolor / tree-sitter(+python) / multipledispatch | 手写列全 | 上面 `--no-deps` 之后 evalplus 真正需要的运行时依赖 |
+| langdetect / nltk / immutabledict | 正常装 | IFEval checker 的依赖(absl 已有) |
+| instruction_following_eval | **仓库内 `third_party/`** | Google 官方 checker **没有 PyPI 发行版**;PyPI 上的 `ifeval`(0.0.1)是无关第三方上传 |
+
+`--dry-run --report` 先看清单再装,配一份把 torch/vllm/transformers/numpy/protobuf/ray
+钉死的 constraints —— 装完复验这六个没动。这条纪律是 flash-attn 那次换掉 torch 换来的。
+
+**nltk 3.10 的导入守卫会误伤我们**:它会拦截"源路径落在 CWD 内"的传递依赖导入,
+而我们的 venv 就在 `<repo>/simopd`,于是从仓库根目录跑时**每一个** site-package 都像
+CWD 导入,`import nltk` 直接炸在 `regex` 上。它自带的提示(用 `-P` / `PYTHONSAFEPATH`)
+在这个布局下**没用** —— 那是控制 CWD 搜不搜,而这里是 origin 落在 CWD 内。
+正解是官方开关 `NLTK_DISABLE_IMPORT_SECURITY=1`,且必须在首次 `import nltk` 之前设。
+代码里已在 `transfer_eval` / `fetch_assets` 内就地设好。
+
+**evalplus 的 ground truth 很大**:HumanEval+ 255MB、MBPP+ 793MB 的 pkl,
+`fetch_assets.py` 在 setup 阶段预热 —— 它是执行全部 canonical solution **并记录耗时**
+算出来的,而那些耗时随后就是单测时限的基准,放到 campaign 里现算等于让基准在满载节点上测。
+
+## 事故复盘 3:代码评测会因机器负载假失败(2026-08-03)
+
+同一批 HumanEval+ canonical solution,**load≈20 时 160/164,load≈6 时稳定 163/164** ——
+输入、代码、随机性都没变,三个失败是假的。
+
+病因:evalplus 每个单测的上限是 `max(min_time_limit, 4×参考耗时)`,平凡函数
+(`string_sequence` / `make_a_pile` / `tri`)配上 extreme 输入时,4×参考耗时远小于
+`min_time_limit`,于是落到 **1.0s 地板**;CPU 争抢单独就能击穿它。
+
+为什么这条对本项目致命:**争抢源就是我们自己** —— 四条训练泳道占满节点时评代码,
+某个臂会看起来"把代码能力搞坏了",而其实什么都没发生。这正是迁移列要防的那种假判决。
+
+处置:默认 `min_time_limit` 抬到 **4.0**(`SIMOPD_EVALPLUS_MIN_TIME_LIMIT` 可调);
+ground truth 预热到 setup;`transfer_eval.py --selfcheck` 换机器时自证。
+代价是超时用例本身变慢(地板抬高 4 倍),这个交换值得。
+
+**HumanEval/32(`find_zero`)在任何时限下都挂** —— 牛顿法 tol 1e-5 在更难的多项式上
+真的不收敛。**163/164 是 harness 自身的参考天花板**,不是我们的缺陷,别去"修"它。
+
 ## verl 免费送的(对照我们的轴)
 
 - **teacher 服务全套**:独立 teacher 资源池,vLLM/SGLang 副本,`prompt_logprobs` 打分

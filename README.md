@@ -23,7 +23,8 @@
 
 - **模型**:student Qwen3-0.6B-Base 主力;teachers Qwen3-1.7B / 4B 现货(零 GRPO 自训);
   终验档 + 复现锚点 = 1.7B-Base ← 4B(Demystifying 阶梯现成格)
-- **域**:math(MATH500 / AMC23)+ code(HumanEval+/MBPP+)+ IFEval;筛选在 math
+- **域**:math(MATH500 / AMC23)+ code(HumanEval+/MBPP+)+ IFEval。
+  **选择只在 math**(两篇锚点论文亦然);**迁移列逐臂**评三域,只报副作用不参与晋级
 - **硬件**:8–16 × A100-80G;2 卡/run(actor 1 + teacher 池 1),16 卡 8 路并行
 - **时间线**:实验 3–4 周冲刺 + 1 周 buffer,目标 ICLR 2027
 - **竞品边界**:Rethinking(2604.13016)/ Demystifying(2607.13399)是机理研究线;
@@ -82,6 +83,28 @@ python scripts/watch.py --run vanilla_s0   # 单个 run 的 val 轨迹 + 长度/
 
 `age` 和 `src` 两列用来分辨**作废的 run** —— 被取消的作业在日志里和活着的长得一模一样,
 拿作废数据下判断比没数据更糟。
+
+## 跨域迁移列(逐臂)
+
+```bash
+python scripts/transfer_eval.py --selfcheck    # 换机器先跑:验代码沙箱(不需要 GPU)
+bash scripts/eval_transfer.sh vanilla_s0       # 单臂 final ckpt
+bash scripts/eval_transfer.sh --all            # 所有已出 checkpoint 的臂
+```
+
+math 上训练、code/IF 上评测:量的是**副作用**(这个 trick 有没有把别的域弄坏),
+1083 题 greedy ≈ **0.25 GPU·时**,对 18 GPU·时的训练是 1.5% 开销。
+**只报告不晋级** —— 选择仍然纯在 math。
+
+它**测不了**"trick 在 code 域是否有效":那个问题的核心量是 student 尾质量 π(S̄),
+而迁移评测里没有 teacher、没有蒸馏,π(S̄) 根本不存在。见 plan §0。
+
+用各自的**官方 harness**(evalplus / Google `instruction_following_eval`),
+因为这一列的价值就在于能和已有迁移列的两篇(FiRe、Teachability)对得上。
+
+⚠ **代码题会因机器负载假失败**:同一批 canonical solution,load≈20 时 160/164、
+load≈6 时 163/164。默认已把单测时限地板从 1.0s 抬到 4.0s
+(`SIMOPD_EVALPLUS_MIN_TIME_LIMIT`),但**别在四条泳道满载时跑代码评测**。
 
 ## 第三方代码(不入库,本地 clone)
 
