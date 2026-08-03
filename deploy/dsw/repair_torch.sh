@@ -32,7 +32,7 @@ export UV_NATIVE_TLS=${UV_NATIVE_TLS:-1}
 
 fetch_and_install() {   # fetch_and_install <url> <label>
     local url=$1 label=$2 tmp
-    "$UV" pip install --no-cache "$label @ $url" && return 0
+    pipi --no-cache "$label @ $url" && return 0
     echo "  uv could not fetch it; retrying via curl (system CA store)" >&2
     tmp=$(mktemp -d)/$(basename "${url%%\?*}")
     curl -fL --retry 3 --retry-delay 5 -o "$tmp" "$url" || {
@@ -40,11 +40,24 @@ fetch_and_install() {   # fetch_and_install <url> <label>
         echo "    VLLM_WHEEL=/path/to/the.whl" >&2
         return 1
     }
-    "$UV" pip install --no-cache "$tmp"
+    pipi --no-cache "$tmp"
 }
 
-UV=$(command -v uv || echo "$HOME/.local/bin/uv")
-[ -x "$UV" ] || { echo "uv not found" >&2; exit 1; }
+# pip by default: the TLS-roots and hardlink problems that broke this box are both
+# uv-specific, and pip needs nothing installed first. SIMOPD_USE_UV=1 to force uv.
+UV=""
+if [ "${SIMOPD_USE_UV:-0}" = "1" ]; then
+    UV=$(command -v uv 2>/dev/null || true)
+    [ -z "$UV" ] && [ -x "$HOME/.local/bin/uv" ] && UV="$HOME/.local/bin/uv"
+fi
+pipi() {
+    if [ -n "$UV" ]; then pipi "$@"; else
+        local args=(); for a in "$@"; do case "$a" in --no-cache) args+=(--no-cache-dir);; *) args+=("$a");; esac; done
+        python -m pip install -i "${UV_DEFAULT_INDEX:-https://pypi.org/simple/}" "${args[@]}"
+    fi
+}
+pipu() { if [ -n "$UV" ]; then pipu "$@"; else python -m pip uninstall -y "$@"; fi; }
+echo "installer: ${UV:-python -m pip}"
 SITE=$(python -c 'import site; print(site.getsitepackages()[0])')
 echo "venv site-packages: $SITE"
 echo "uv link mode:       $UV_LINK_MODE"
@@ -58,7 +71,7 @@ echo "driver ${DRV:-unknown}, nvcc ${NVCC_VER:-none} -> $FLAVOR"
 
 echo
 echo "=== 1. removing the broken trees ==="
-"$UV" pip uninstall torch torchvision torchaudio vllm flash-attn >/dev/null 2>&1 || true
+pipu torch torchvision torchaudio vllm flash-attn >/dev/null 2>&1 || true
 for d in torch torchvision torchaudio vllm flash_attn; do
     # A namespace stub leaves a directory with no dist-info, so uninstall does not
     # touch it. Delete by hand or the reinstall lands on top of the wreckage.
@@ -81,10 +94,10 @@ df -h "$SITE" | tail -1
 echo
 echo "=== 3. reinstalling ($FLAVOR, no cache, copy mode) ==="
 if [ "$FLAVOR" = "cu130" ]; then
-    "$UV" pip install --no-cache --force-reinstall \
+    pipi --no-cache --force-reinstall \
         "torch==2.11.0" "torchvision==0.26.0" "torchaudio==2.11.0" || exit 1
 else
-    "$UV" pip install --no-cache --force-reinstall \
+    pipi --no-cache --force-reinstall \
         --find-links "${TORCH_FIND_LINKS:-https://mirrors.aliyun.com/pytorch-wheels/cu129/}" \
         "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129" || exit 1
 fi
@@ -101,11 +114,11 @@ PY
 echo
 echo "=== 5. vllm ==="
 if [ "$FLAVOR" = "cu130" ]; then
-    "$UV" pip install --no-cache "vllm==0.26.0" || exit 1
+    pipi --no-cache "vllm==0.26.0" || exit 1
 else
     VLLM_WHEEL=${VLLM_WHEEL:-${GITHUB_PROXY:-}https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl}
     case "$VLLM_WHEEL" in
-        /*|file://*) "$UV" pip install --no-cache "$VLLM_WHEEL" || exit 1 ;;
+        /*|file://*) pipi --no-cache "$VLLM_WHEEL" || exit 1 ;;
         *)           fetch_and_install "$VLLM_WHEEL" vllm || exit 1 ;;
     esac
 fi
