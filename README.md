@@ -50,7 +50,8 @@ bash deploy/dsw/run_parallel.sh               # 正式 campaign
 `SAVE_FREQ` 步落在 workspace 卷上,停机后是续跑而不是重跑 —— 这条纪律是
 2026-07-31 那次 24 GPU·时全损换来的(见 INFRA-NOTES 事故复盘)。
 
-虚拟环境是仓库内的 **`./simopd`**(`SIMOPD_VENV` 可改)。后续任何手动操作先激活它:
+虚拟环境统一是仓库内的 **`./simopd`**(`SIMOPD_VENV` 可改)。所有脚本自己会激活它;
+手动操作时先:
 
 ```bash
 cd /mnt/workspace/SimOPD && source simopd/bin/activate

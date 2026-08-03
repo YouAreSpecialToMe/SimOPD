@@ -14,14 +14,8 @@ set -euo pipefail
 SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 DATA_ROOT=${DATA_ROOT:-$SIMOPD_ROOT/../simopd_data}
 cd "$SIMOPD_ROOT"
-# The venv lives at ./simopd. An existing .venv is still honoured so the Cornell
-# box, which has one and is mid-campaign, keeps working; new installs get simopd.
-# SIMOPD_VENV overrides either way.
-VENV=${SIMOPD_VENV:-}
-if [ -z "$VENV" ]; then
-    for _c in simopd .venv; do [ -d "$_c" ] && { VENV=$_c; break; }; done
-fi
-VENV=${VENV:-simopd}
+# One venv, ./simopd, on every machine. SIMOPD_VENV overrides it.
+VENV=${SIMOPD_VENV:-simopd}
 
 # ---------------------------------------------------------------------------
 # Mirrors. On by default because this targets a mainland instance; set

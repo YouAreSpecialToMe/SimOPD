@@ -4,7 +4,7 @@
 
 set -uo pipefail
 cd "$HOME/pythonProject/SimOPD"
-source .venv/bin/activate
+source "${SIMOPD_VENV:-simopd}/bin/activate"
 
 echo "== [1/5] torch trio -> cu129 =="
 uv pip install "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" \
