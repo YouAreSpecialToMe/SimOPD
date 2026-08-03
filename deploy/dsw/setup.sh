@@ -34,6 +34,13 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     # x86_64 -- the only mainland mirror of the three checked that does (Tsinghua
     # 404s on cu129, SJTU redirects away).
     TORCH_FIND_LINKS=${TORCH_FIND_LINKS:-https://mirrors.aliyun.com/pytorch-wheels/cu129/}
+    # As environment variables, not just wrapper flags: pip reads these on every
+    # invocation, including the ones it spawns itself and any nested pip during a
+    # build. A flag only covers the call that carries it, which is how a mirror
+    # ends up applying to some downloads and not others.
+    export PIP_INDEX_URL=${PIP_INDEX_URL:-$UV_DEFAULT_INDEX}
+    export PIP_FIND_LINKS=${PIP_FIND_LINKS:-$TORCH_FIND_LINKS}
+    export PIP_DISABLE_PIP_VERSION_CHECK=1
     # uv hardlinks from its cache by default. On DSW the cache sits on local disk
     # and the venv on the /mnt/workspace network volume; hardlinking across
     # filesystems is the kind of thing that half-succeeds and leaves a package
@@ -110,6 +117,20 @@ echo "free space here: ${AVAIL_GB}G"
 # ~50G models + ~17G per run of checkpoints (MAX_CKPT_KEEP=2). A 17-run campaign
 # wants ~350G; below 150G you will run out mid-campaign, not at the start.
 [ "${AVAIL_GB:-0}" -lt 150 ] && echo "WARNING: under 150G free -- cap runs or raise MAX_CKPT_KEEP=1" >&2
+
+# The torch wheel alone is 1.16GB, so a slow index is worth knowing about in the
+# first ten seconds rather than twenty minutes in. Probes 8MB and reports the rate.
+if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && command -v curl >/dev/null 2>&1; then
+    _w=torch-2.11.0%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl
+    _spd=$(timeout 25 curl -s -o /dev/null -w '%{speed_download}' -r 0-8388607 \
+             "${TORCH_FIND_LINKS%/}/$_w" 2>/dev/null || echo 0)
+    _mbs=$(awk "BEGIN{printf \"%.1f\", ${_spd:-0}/1048576}")
+    echo "torch mirror throughput: ${_mbs} MB/s  ($TORCH_FIND_LINKS)"
+    awk "BEGIN{exit !(${_spd:-0} < 1048576)}" && {
+        echo "  under 1 MB/s -- the 1.16GB torch wheel will take >20 min." >&2
+        echo "  try another mirror, e.g. TORCH_FIND_LINKS=https://download.pytorch.org/whl/cu129" >&2
+    }
+fi
 
 echo "=== [1/6] third-party checkouts ==="
 [ -d verl ] || git clone --depth 1 "$(GH https://github.com/volcengine/verl.git)"

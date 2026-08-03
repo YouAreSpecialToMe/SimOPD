@@ -25,6 +25,10 @@ source "$VENV/bin/activate"
 export UV_LINK_MODE=${UV_LINK_MODE:-copy}
 export UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}
 export UV_INDEX=${UV_INDEX:-$UV_DEFAULT_INDEX}
+# Same reasoning as setup.sh: env vars cover every pip call, flags cover one.
+export PIP_INDEX_URL=${PIP_INDEX_URL:-$UV_DEFAULT_INDEX}
+export PIP_FIND_LINKS=${PIP_FIND_LINKS:-${TORCH_FIND_LINKS:-https://mirrors.aliyun.com/pytorch-wheels/cu129/}}
+export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # uv validates TLS against its own bundled roots, not the system store. Behind a
 # TLS-intercepting proxy that yields "invalid peer certificate: UnknownIssuer"
