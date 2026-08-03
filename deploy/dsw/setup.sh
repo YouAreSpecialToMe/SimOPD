@@ -419,34 +419,31 @@ echo "=== [4/6] verl + extras ==="
 pipi -e ./verl
 pipi huggingface_hub math-verify liger-kernel "TransferQueue==0.1.8" wandb pyyaml pandas
 
-echo "=== [5/6] flash-attn: NOT installed here, on purpose ==="
-# flash-attn declares `torch` as an unpinned dependency, so installing it lets pip
-# resolve torch to whatever is newest -- on this box that silently replaced
-# 2.11.0+cu129 with 2.13.0+cu129, breaking torchvision and vllm and leaving the
-# freshly built extension linked against a torch that no longer existed. The
-# symptom was an "undefined symbol" blamed on flash-attn; the cause was the
-# install moving torch underneath it.
+echo "=== [5/6] flash-attn ==="
+# Installed ONLY from a prebuilt wheel, never built here. Building it declares an
+# unpinned `torch` dependency, which is how this environment's torch silently went
+# 2.11.0 -> 2.13.0 and took vllm and torchvision down with it. --no-deps on a
+# prebuilt wheel cannot move anything.
 #
-# So it is installed by hand, with --no-deps, after everything else. See
-# docs/INFRA-NOTES.md for the exact command and pinned versions.
+# deploy/dsw/flash_attn-*.whl is the wheel built on the Cornell box against exactly
+# this stack -- torch 2.11.0+cu129, cp312, cxx11abi TRUE, sm80+sm86 -- so it drops
+# straight in on an A100. There is no official prebuilt wheel for torch 2.11
+# (Dao-AILab ships cp312 wheels only up to torch 2.10), which is why it is vendored.
 if python -c "import torch, flash_attn_2_cuda" 2>/dev/null; then
     echo "  present and matching this torch"
+elif ls "$SIMOPD_ROOT"/deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
+    _site=$(python -c 'import site;print(site.getsitepackages()[0])')
+    # A stale build leaves a top-level .so with no dist-info, which an install will
+    # not replace; clear all three pieces first.
+    rm -rf "${_site:?}"/flash_attn "${_site:?}"/flash_attn_2_cuda*.so "${_site:?}"/flash_attn-*.dist-info 2>/dev/null || true
+    pipi --no-deps "$SIMOPD_ROOT"/deploy/dsw/flash_attn-*.whl
+    if python -c "import torch, flash_attn_2_cuda" 2>/dev/null; then
+        echo "  installed from the vendored wheel"
+    else
+        echo "  vendored wheel does not match this torch -- run with USE_REMOVE_PADDING=False" >&2
+    fi
 else
-    cat >&2 <<'FA'
-  not installed. verl only needs it for use_remove_padding=True; without it, run
-  arms with USE_REMOVE_PADDING=False (slower, otherwise identical).
-
-  To install it, AFTER this script finishes, with --no-deps so it cannot move torch:
-
-    source simopd/bin/activate
-    SITE=$(python -c 'import site;print(site.getsitepackages()[0])')
-    rm -rf $SITE/flash_attn $SITE/flash_attn_2_cuda*.so $SITE/flash_attn-*.dist-info
-    FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST=8.0 MAX_JOBS=32 \
-      pip install --no-deps --no-build-isolation --no-cache-dir flash-attn==2.8.3.post1
-
-  Then check (torch first -- it loads the libc10.so the extension links against):
-    python -c "import torch, flash_attn_2_cuda; print('ok', torch.__version__)"
-FA
+    echo "  no wheel available; run arms with USE_REMOVE_PADDING=False (slower, same results)" >&2
 fi
 
 echo "=== [6/6] models + data ==="

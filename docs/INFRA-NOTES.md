@@ -97,7 +97,12 @@ campaign 期间工作区可以随便改,不影响在跑的 run;快照目录名�
 | CUDA 工具链 | nvcc 主版本须与 torch 一致(12.x ↔ cu129) | 12.9 vs 12.8 只是小版本,torch 仅警告 |
 | GPU 架构 | **sm80**(A100)→ `TORCH_CUDA_ARCH_LIST=8.0` | A10=8.6 / L20=8.9 / H20·H800=9.0 |
 
-**flash-attn 必须 `--no-deps` 手装。** 它把 `torch` 声明成无上限依赖,直接 pip install
+**仓库自带编好的 wheel**:`deploy/dsw/flash_attn-2.8.3.post1-cp312-cp312-linux_x86_64.whl`
+(54MB,在 Cornell 机器上对着 torch 2.11.0+cu129 / cp312 / cxx11abiTRUE 编的,含 sm80+sm86)。
+`setup.sh` 检测到就用 `--no-deps` 装,A100 直接可用。**之所以要自带,是因为官方没有 torch2.11
+的预编译轮** —— Dao-AILab 的 cp312 轮子只到 torch 2.10。
+
+**任何情况下都要 `--no-deps`。** 它把 `torch` 声明成无上限依赖,直接 pip install
 会让 torch 被升到最新(实测:2.11.0+cu129 → 2.13.0+cu129),torchvision 与 vLLM 随之
 失配,刚编好的扩展也对着一个已不存在的 torch,报 undefined symbol。**症状像 flash-attn
 的问题,病因是它把 torch 换掉了。**
