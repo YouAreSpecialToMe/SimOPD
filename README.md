@@ -51,12 +51,16 @@ bash deploy/dsw/run_parallel.sh               # 正式 campaign
 `SAVE_FREQ` 步落在 workspace 卷上,停机后是续跑而不是重跑 —— 这条纪律是
 2026-07-31 那次 24 GPU·时全损换来的(见 INFRA-NOTES 事故复盘)。
 
-虚拟环境统一是仓库内的 **`./simopd`**(`SIMOPD_VENV` 可改)。所有脚本自己会激活它;
-手动操作时先:
+`setup.sh` 结束时会生成 **`simopd_env.sh`** 并挂进 `~/.bashrc` —— **新开的 shell 自动激活
+venv 并带好全部变量**(HF_HOME / HF_ENDPOINT / HF_HUB_DISABLE_XET / DATA_DIR / CKPT_ROOT /
+WANDB_DIR / PYTHONPATH)。当前 shell 立刻生效:
 
 ```bash
-cd /mnt/workspace/SimOPD && source simopd/bin/activate
+source simopd_env.sh
 ```
+
+幂等:重复 source 不会叠加 PYTHONPATH,也不会顶掉已激活的其他 venv。
+想摘掉:`sed -i '/# >>> simopd >>>/,/# <<< simopd <<</d' ~/.bashrc`
 
 ## 监控实验
 
