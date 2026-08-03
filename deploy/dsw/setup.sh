@@ -302,6 +302,12 @@ vllm_install() {
     pipi "$tmp"
 }
 
+# The pinned matrix (docs/INFRA-NOTES.md). Single-sourced so the check below and
+# the installs below cannot drift apart.
+PIN_TORCH=2.11.0
+PIN_TV=0.26.0
+PIN_VLLM=0.26.0
+
 VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl)}
 
 # Probe an ATTRIBUTE, not just importability. An interrupted wheel install leaves
@@ -310,7 +316,19 @@ VLLM_WHEEL=${VLLM_WHEEL:-$(GH https://github.com/vllm-project/vllm/releases/down
 # `torch.__version__` raises "module has no attribute". A plain `import vllm`
 # guard therefore reports "already installed" and skips the whole step, leaving
 # torch absent. Touching __version__ is what tells a real package from a stub.
-if ! python -c "import torch, vllm; torch.__version__; vllm.__version__" 2>/dev/null; then
+# Check the VERSION, not just importability. A wrong-but-importable torch passes an
+# import test and the whole step gets skipped -- which is how a torch silently
+# upgraded to 2.13.0 by flash-attn would survive a re-run of this script and keep
+# vllm broken. Re-running now repairs that instead of stepping over it.
+if ! python - "$PIN_TORCH" "$PIN_VLLM" <<'PYCHK' 2>/dev/null; then
+import sys
+want_torch, want_vllm = sys.argv[1], sys.argv[2]
+import torch, vllm
+assert torch.__version__.startswith(want_torch), f"torch {torch.__version__} != {want_torch}"
+assert vllm.__version__.startswith(want_vllm), f"vllm {vllm.__version__} != {want_vllm}"
+PYCHK
+    _have=$(python -c "import torch;print(torch.__version__)" 2>/dev/null || echo none)
+    echo "  torch is '$_have', want ${PIN_TORCH}+cu129 -- reinstalling"
     # Clear any half-written tree first; installing over it keeps the stub.
     if python -c "import torch" 2>/dev/null && ! python -c "import torch; torch.__version__" 2>/dev/null; then
         echo "  partial torch detected (namespace stub) -- removing before reinstall"
@@ -323,15 +341,15 @@ if ! python -c "import torch, vllm; torch.__version__; vllm.__version__" 2>/dev/
 
     if [ "$CUDA_FLAVOR" = "cu130" ]; then
         # Plain PyPI builds, both mirrored: nothing here leaves the mainland.
-        pipi "torch==2.11.0" "torchvision==0.26.0" "torchaudio==2.11.0" "vllm==0.26.0"
+        pipi "torch==${PIN_TORCH}" "torchvision==${PIN_TV}" "torchaudio==${PIN_TORCH}" "vllm==${PIN_VLLM}"
     elif [ -n "$TORCH_FIND_LINKS" ]; then
         pipi --find-links "$TORCH_FIND_LINKS" \
-            "torch==2.11.0+cu129" "torchvision==0.26.0+cu129" "torchaudio==2.11.0+cu129"
+            "torch==${PIN_TORCH}+cu129" "torchvision==${PIN_TV}+cu129" "torchaudio==${PIN_TORCH}+cu129"
         vllm_install "$VLLM_WHEEL"
     else
         pipi --index-url https://download.pytorch.org/whl/cu129 \
-            "torch==2.11.0+cu129" "torchvision==0.26.0+cu129"
-        pipi "torchaudio==2.11.0"
+            "torch==${PIN_TORCH}+cu129" "torchvision==${PIN_TV}+cu129"
+        pipi "torchaudio==${PIN_TORCH}"
         vllm_install "$VLLM_WHEEL"
     fi
 fi
