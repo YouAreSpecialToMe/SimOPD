@@ -456,20 +456,13 @@ fi
 echo "=== [6/6] models + data ==="
 export HF_HOME=${HF_HOME:-$DATA_ROOT/hf_cache}
 mkdir -p "$HF_HOME" "$DATA_ROOT"
-for m in Qwen/Qwen3-0.6B-Base Qwen/Qwen3-1.7B Qwen/Qwen3-1.7B-Base \
-         Qwen/Qwen3-4B-Instruct-2507 Qwen/Qwen3-8B; do
-    hf download "$m" --exclude "*.pth" >/dev/null && echo "  ok $m"
-done
-[ -f "$DATA_ROOT/simopd_math/train.parquet" ] || \
-    python scripts/prep_nemotron_math.py --local_save_dir "$DATA_ROOT/simopd_math"
-python - <<'PY'
-import datasets
-for d, split in [("HuggingFaceH4/MATH-500","test"), ("math-ai/amc23","test"),
-                 ("HuggingFaceH4/aime_2024","train"), ("math-ai/aime25","test"),
-                 ("math-ai/minervamath","test"), ("google/IFEval","train")]:
-    datasets.load_dataset(d, split=split)
-print("eval benchmarks cached")
-PY
+# Resolves every asset offline first and only fetches what is genuinely absent.
+# `hf download` is incremental but still contacts the hub to compare each file --
+# which is exactly where a mirror + Xet setup 401s, on assets already fully
+# downloaded. Re-running this step on a complete machine now touches no network.
+python "$SIMOPD_ROOT/scripts/fetch_assets.py" --data-dir "$DATA_ROOT/simopd_math" || {
+    echo "  some assets are missing; see above. Re-run this script to retry." >&2
+}
 
 # Write the environment out and hook it into ~/.bashrc, so a fresh shell is ready
 # without anyone remembering six exports. Idempotent, and fenced by markers so it
