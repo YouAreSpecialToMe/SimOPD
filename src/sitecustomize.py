@@ -18,8 +18,8 @@ import sys
 from importlib.abc import MetaPathFinder
 
 
-class _BlockModelScopePatching(MetaPathFinder):
-    """Refuse to load ModelScope's `patch_hub` machinery unless it was asked for.
+class _NeuterModelScopePatching(MetaPathFinder):
+    """Let ModelScope's `patch_hub` module import, but make it do nothing.
 
     `modelscope.utils.hf_util.patch_hub()` replaces huggingface_hub and the
     transformers `from_pretrained` classmethods so every model resolves through
@@ -34,28 +34,88 @@ class _BlockModelScopePatching(MetaPathFinder):
         in that case corrupt, copy (UnicodeDecodeError at byte 22845308 of a
         tokenizer.json).
 
-    Blocking the import is what makes the flag actually mean something, in every
-    process rather than in the shell where it was exported. It is deliberately
-    narrow: only the module that does the patching, only when the flag is off, and
-    a normal ImportError names the cause instead of leaving a mystery.
+    An earlier version raised ImportError here instead. That did stop the patching,
+    and it also killed the run: something in the worker imports this module
+    unconditionally, so refusing turned a silent misroute into a hard crash. Denying
+    an import that somebody genuinely makes is not the same as declining the
+    behaviour it would have installed.
+
+    So the module is served as a stub whose `patch_hub` is a no-op and whose every
+    other attribute is a no-op callable. The importer succeeds, the patch never
+    applies, and models resolve through HuggingFace as the flag asks. It also prints
+    the importing frame once -- on a managed image the caller is the thing worth
+    knowing, and nothing else in the traceback names it.
+
+    Only when the flag is off. VERL_USE_MODELSCOPE=true and the real module loads.
     """
 
-    _BLOCKED = "modelscope.utils.hf_util"
+    _TARGET = "modelscope.utils.hf_util"
+    _reported = False
 
     def find_spec(self, fullname, path=None, target=None):
-        if fullname != self._BLOCKED:
+        if fullname != self._TARGET:
             return None
-        raise ImportError(
-            "simopd blocked modelscope.utils.hf_util: importing it patches "
-            "huggingface_hub and transformers to resolve every model through "
-            "ModelScope, while VERL_USE_MODELSCOPE is not true. Set "
-            "VERL_USE_MODELSCOPE=true if that is genuinely wanted; otherwise this "
-            "import is what makes models load from an unchecked cache."
-        )
+        from importlib.machinery import ModuleSpec
+
+        if not _NeuterModelScopePatching._reported:
+            _NeuterModelScopePatching._reported = True
+            import traceback
+
+            caller = "unknown"
+            for frame in reversed(traceback.extract_stack()[:-1]):
+                if "importlib" not in frame.filename and "sitecustomize" not in frame.filename:
+                    caller = f"{frame.filename}:{frame.lineno} in {frame.name}"
+                    break
+            print(
+                f"[simopd] neutralised modelscope.utils.hf_util (imported by {caller}). "
+                "It would have repointed huggingface_hub and transformers at ModelScope "
+                "while VERL_USE_MODELSCOPE is not true, which is how models end up "
+                "loading from a cache nothing checks. Set VERL_USE_MODELSCOPE=true to "
+                "use ModelScope properly instead.",
+                file=sys.stderr,
+            )
+        return ModuleSpec(fullname, _StubLoader())
+
+
+class _StubLoader:
+    """Produces a module where every attribute is a harmless no-op."""
+
+    def create_module(self, spec):
+        import types
+
+        mod = types.ModuleType(spec.name)
+
+        def _noop(*args, **kwargs):
+            return None
+
+        mod.patch_hub = _noop
+        mod.unpatch_hub = _noop
+        mod.__file__ = "<simopd stub for modelscope.utils.hf_util>"
+
+        def _missing(name):
+            # Dunders MUST raise. A blanket handler that answers them returns a
+            # function for __file__, and then anything walking the stack -- inspect,
+            # and through it torch.library's custom-op registration -- does
+            # filename.endswith(...) on a function and dies:
+            #   AttributeError: 'function' object has no attribute 'endswith'
+            # which surfaces as transformers failing to import AutoTokenizer. The
+            # stub then breaks far more than it fixes.
+            if name.startswith("__") and name.endswith("__"):
+                raise AttributeError(name)
+            # Ordinary names resolve to a no-op: we cannot know what a given image's
+            # caller reaches for, and an AttributeError there recreates the crash
+            # this stub exists to avoid.
+            return _noop
+
+        mod.__getattr__ = _missing
+        return mod
+
+    def exec_module(self, module):
+        return None
 
 
 if os.environ.get("VERL_USE_MODELSCOPE", "False").lower() not in ("true", "1", "yes"):
-    sys.meta_path.insert(0, _BlockModelScopePatching())
+    sys.meta_path.insert(0, _NeuterModelScopePatching())
 
 
 def _after_verl_losses():
