@@ -14,13 +14,22 @@ import argparse
 import os
 import sys
 
-MODELS = [
-    "Qwen/Qwen3-0.6B-Base",      # screening student
-    "Qwen/Qwen3-1.7B",           # sweet-spot teacher
-    "Qwen/Qwen3-1.7B-Base",      # final-tier student / anchor
-    "Qwen/Qwen3-4B-Instruct-2507",  # mismatch teacher, Demystifying's off-the-shelf slot
-    "Qwen/Qwen3-8B",             # D6 teacher ladder
+# Roles as of the 2026-08-04 tier change (PROTOCOL §1). The first two are what every
+# arm actually trains with; the rest are inference-only, for the D6 ladder and the
+# Gap Recovery Rate denominator, and a campaign can start before they finish.
+ESSENTIAL = [
+    "Qwen/Qwen3-1.7B-Base",         # STUDENT  (was 0.6B-Base: it converged to 0.468,
+                                    #           exactly where this one STARTS untrained)
+    "Qwen/Qwen3-4B-Instruct-2507",  # TEACHER  (non-thinking ceiling 0.896, the highest
+                                    #           measured; also Demystifying's own cell,
+                                    #           so screening and the anchor are one run)
 ]
+LADDER = [
+    "Qwen/Qwen3-8B",                # D6: bigger than the teacher but WEAKER without
+                                    #     thinking (0.792) -- the size/capability split
+    "Qwen/Qwen3-1.7B",              # D6: the same-size-as-student end (0.702)
+]
+MODELS = ESSENTIAL + LADDER
 # The evaluation suites BENCHMARKS.md pins. AIME24 comes from the H4 mirror:
 # math-ai/aime24 ships no answer column, only \boxed inside the solution.
 DATASETS = [
@@ -195,6 +204,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data-dir", default=os.path.expanduser("~/data/simopd_math"))
     p.add_argument("--check", action="store_true", help="report what is missing, download nothing")
+    p.add_argument("--essential", action="store_true",
+                   help="only the student and teacher a run needs; skip the D6 ladder")
     p.add_argument("--repair", action="store_true",
                    help="re-download even files that already exist; use when integrity fails")
     args = p.parse_args()
@@ -222,7 +233,7 @@ def main():
         print("  these are harmless themselves, but mean a download was cut short here.\n")
 
     print("models:")
-    for repo in MODELS:
+    for repo in (ESSENTIAL if args.essential else MODELS):
         if model_cached(repo):
             print(f"  cached   {repo}")
             continue
