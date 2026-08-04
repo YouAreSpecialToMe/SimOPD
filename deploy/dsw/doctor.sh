@@ -43,6 +43,28 @@ case "$(printf '%s' "${VERL_USE_MODELSCOPE:-False}" | tr '[:upper:]' '[:lower:]'
                 fix "export VERL_USE_MODELSCOPE=False   (setup.sh now writes this into simopd_env.sh)" ;;
     *)          ok "VERL_USE_MODELSCOPE off -- hub calls stay on HF/\${HF_ENDPOINT}" ;;
 esac
+# The flag alone was not enough on DSW: something patched hub anyway. src/sitecustomize.py
+# now blocks the patching module outright when the flag is off, which only works if
+# PYTHONPATH carries src into the Ray workers -- so check the guard is actually live.
+if python -c "
+import sys, os
+sys.path.insert(0, '$SIMOPD_ROOT/src')
+import sitecustomize  # noqa
+try:
+    import modelscope.utils.hf_util  # noqa
+except ImportError as e:
+    sys.exit(0 if 'simopd blocked' in str(e) else 1)
+except Exception:
+    sys.exit(1)
+sys.exit(1)
+" 2>/dev/null; then
+    ok "ModelScope hub-patching is blocked by sitecustomize"
+elif python -c "import modelscope" 2>/dev/null; then
+    bad "modelscope is installed and its hub patching is NOT blocked"
+    fix "check PYTHONPATH carries $SIMOPD_ROOT/src (verl forwards it to Ray workers)"
+else
+    ok "modelscope not installed -- nothing can patch the hub"
+fi
 # vLLM puts its worker IPC and NCCL buffers in shared memory. Containers default
 # /dev/shm to 64MB, which does not fail loudly: the rollout worker dies and Ray
 # reports it as `ActorUnavailableError ... rpc_code: 14`, which names neither shm

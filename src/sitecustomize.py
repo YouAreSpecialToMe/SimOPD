@@ -13,8 +13,49 @@ the specific verl modules we extend and act right after each one loads, so a
 process that never touches them pays nothing.
 """
 
+import os
 import sys
 from importlib.abc import MetaPathFinder
+
+
+class _BlockModelScopePatching(MetaPathFinder):
+    """Refuse to load ModelScope's `patch_hub` machinery unless it was asked for.
+
+    `modelscope.utils.hf_util.patch_hub()` replaces huggingface_hub and the
+    transformers `from_pretrained` classmethods so every model resolves through
+    ModelScope instead. verl calls it only when VERL_USE_MODELSCOPE is true -- but
+    on a DSW instance it was patched anyway, with the flag set to False, and the
+    consequences are not local:
+
+      * ModelScope's default branch is `master`, so asking for HuggingFace's default
+        `main` fails with NotExistError on a model that is sitting on disk;
+      * models then load from the ModelScope cache, which `fetch_assets.py` does not
+        check -- so it reports every asset present while verl reads a different, and
+        in that case corrupt, copy (UnicodeDecodeError at byte 22845308 of a
+        tokenizer.json).
+
+    Blocking the import is what makes the flag actually mean something, in every
+    process rather than in the shell where it was exported. It is deliberately
+    narrow: only the module that does the patching, only when the flag is off, and
+    a normal ImportError names the cause instead of leaving a mystery.
+    """
+
+    _BLOCKED = "modelscope.utils.hf_util"
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != self._BLOCKED:
+            return None
+        raise ImportError(
+            "simopd blocked modelscope.utils.hf_util: importing it patches "
+            "huggingface_hub and transformers to resolve every model through "
+            "ModelScope, while VERL_USE_MODELSCOPE is not true. Set "
+            "VERL_USE_MODELSCOPE=true if that is genuinely wanted; otherwise this "
+            "import is what makes models load from an unchecked cache."
+        )
+
+
+if os.environ.get("VERL_USE_MODELSCOPE", "False").lower() not in ("true", "1", "yes"):
+    sys.meta_path.insert(0, _BlockModelScopePatching())
 
 
 def _after_verl_losses():
