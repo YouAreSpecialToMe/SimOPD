@@ -37,7 +37,9 @@ git clone git@github.com:YouAreSpecialToMe/SimOPD.git && cd SimOPD
 bash deploy/dsw/setup.sh                      # 建 ./simopd 虚拟环境 + 装依赖 + 模型 + 数据(venv+pip,不需要 uv)
 #   装之前会给包源赛跑,挑实测最快的(SIMOPD_RACE=0 跳过;显式设 TORCH_FIND_LINKS/UV_DEFAULT_INDEX 则不赛)
 bash deploy/dsw/doctor.sh                     # 体检:一屏看清哪里坏了、怎么修
-bash deploy/dsw/run_parallel.sh --rehearsal   # 每臂 3 步,先便宜地验一遍
+bash deploy/dsw/envtest.sh                    # 单臂 3 步,失败自动 triage —— 换机器先跑这个
+LANES=1 bash deploy/dsw/run_parallel.sh --rehearsal "vanilla:0"   # 加泳道包装
+bash deploy/dsw/run_parallel.sh --rehearsal   # 加 4 路并发
 bash deploy/dsw/run_parallel.sh               # 正式 campaign
 ```
 
@@ -62,6 +64,26 @@ source simopd_env.sh
 
 幂等:重复 source 不会叠加 PYTHONPATH,也不会顶掉已激活的其他 venv。
 想摘掉:`sed -i '/# >>> simopd >>>/,/# <<< simopd <<</d' ~/.bashrc`
+
+## 出错了怎么看
+
+```bash
+python scripts/triage.py                # logs/ 里最新那个
+python scripts/triage.py /tmp/x.log --ray   # 顺带挖 Ray worker 日志
+```
+
+verl 的日志里真报错和几千行噪声混在一起。实测**健康日志 83%、失败日志 75% 是装饰**
+(`set -x` 回显、Ray 前缀、TransferQueue perf 块、tqdm 重绘)。triage 砍掉这些,
+并且内建两条这个栈的规矩:
+
+- **多 run 日志里第一个 traceback 通常不是病因** —— 真实 rehearsal 日志上,13 个臂 OK、
+  1 个 FAIL,而文件里第一个 traceback 属于一个**成功的** run(wandb 关闭竞态)。
+  所以按 `#### RUN: ####` 分段,**FAIL 段内的排最前,teardown 竞态排最后**。
+- **`rpc_code: 14` 意味着 actor 进程死了**,那段 traceback 既不说是哪个 worker、
+  也不说死因 —— `--ray` 直接去各泳道的 Ray temp dir 读 worker 日志。
+
+Ray/hydra/asyncio 的中转帧折叠成计数(把真正出错那行挤出屏幕的就是它们),
+并对本项目真撞过的四种症状给修法提示。
 
 ## 监控实验
 
