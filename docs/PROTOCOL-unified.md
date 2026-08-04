@@ -54,10 +54,31 @@ ESR 评测集在 BENCHMARKS §1(列了 HumanEval)与本表(MATH500 avg@4)口径�
 ## 1. 锁定协议(所有臂共用)
 
 ### 模型
-- student:**Qwen3-0.6B-Base**(筛选)/ **Qwen3-1.7B-Base**(终验档 + 复现锚点)
-- teacher:**Qwen3-1.7B**(甜档,2.8×,非思考模式)/ **Qwen3-4B-Instruct-2507**
-  (失配档,6.7×;Demystifying 现货格)。全现货,零自训。D6 诊断确认档位
-  (梯子:1.7B / 4B-Instruct-2507 / 8B,推理零训练)。
+- student:**Qwen3-1.7B-Base**(筛选 = 终验档 = 复现锚点,2026-08-04 起统一)
+- teacher:**Qwen3-4B-Instruct-2507**(主档,2.4×)。全现货,零自训。
+
+**师生档位重定(2026-08-04,依据实测;取代 v3.1 的 0.6B 提速版)**
+
+*学生*:0.6B-Base 收敛到 MATH500 **0.468**,而 **1.7B-Base 未训练就是 0.468** ——
+0.6B 整个 campaign 能测到的范围,全部位于真实学生的零点之下。且 0.6B 第 25 步即饱和、
+第 90 步进 Mode A,而 1.7B 到第 50 步仍在涨(0.468 → 0.604 → 0.636)。
+另:**Base 学生在受审池里只有两家,恰好就是两篇锚点**(Demystifying / Rethinking)。
+
+*老师*:非思考 MATH500 天花板实测(greedy,协议同款模板,2026-08-04):
+
+| teacher | pass@1 | 平均长度 | 备注 |
+|---|---|---|---|
+| **Qwen3-4B-Instruct-2507** | **0.896** | 1548 | 2507-Instruct 是 Qwen 的**非思考原生**线 |
+| Qwen3-8B | 0.792 | 1082 | hybrid,强在 thinking;`enable_thinking=False` 砍掉其主武器 |
+| Qwen3-1.7B | 0.702 | 982 | |
+
+**在非思考约束下,更大的老师不等于更强的老师。** 4B-Instruct-2507 以一半尺寸高 10.4 点,
+故取为主档;它同时是 Demystifying 的现货格,**筛选档与复现锚点合为同一个 run**。
+
+*为什么不自训*:4 篇用了自训 GRPO 老师(Demystifying/Rethinking/TIP/Teachability),
+但**每一篇都同时报了现货老师**,自训不是任何一篇的必要条件;而一个只有我们有的老师,
+会成为这份审计里**唯一别人无法复现**的部件。真需要更强老师时,走公开 RL 权重
+(Skywork-OR1 / JustRL / R1-7B,均在 Rethinking 的老师列表内),仍是零训练。
 - teacher bf16,禁量化(logprob 是被审对象)。
 
 ### 数据
@@ -104,21 +125,26 @@ ESR 评测集在 BENCHMARKS §1(列了 HumanEval)与本表(MATH500 avg@4)口径�
   IS/clip 混淆。步内 serving 异步(rollout.mode=async,continuous batching)保留。
   凭证:飞行记录仪 `trajectory_staleness` 恒为 0。墙钟压力走 run 级并行(rush 池),
   不走步内异步。
-- student FSDP bf16 混合精度(偏离 thunlp 的 fp32 actor —— 记录;0.6B/1.7B 下
+- student FSDP bf16 混合精度(偏离 thunlp 的 fp32 actor —— 记录;1.7B 下
   bf16 是 2026 事实标准)。gradient checkpointing 开。
 
 ### 训练长度与种子
-- 筛选(贪心 R1-R4):**300 步**,单 seed;判据 = MATH500 逐题配对 McNemar p<0.05,
-  |Δ|<噪声底判平。
-- 噪声底:vanilla 0.6B 配置以 3 个不同 seed 重跑,MATH500 pass@1 的极差即噪声底
-  (W1 交付)。
+- 筛选(贪心 R1-R4):**150 步上限 + 预注册早停**(plan §4;2026-08-04 从 300 步改),
+  单 seed;判据 = MATH500 逐题配对 McNemar p<0.05,|Δ|<噪声底判平。
+  跨臂比较取**最小公共步**,每臂的停步记入 `logs/early_stops.tsv`。
+  ⚠ 150 这个上限是在**已废弃的 0.6B 档**上标定的;1.7B 到第 50 步仍在涨、
+  clip 仅 0.27,**可能偏短而非偏长** —— 待第一个完整 1.7B vanilla run 后重定。
+- 噪声底:**vanilla 1.7B-Base ← 4B-Instruct-2507** 以 3 个不同 seed 重跑,
+  MATH500 pass@1 的极差即噪声底(W1 交付)。同一批 checkpoint 顺带产出**逐域**噪声底
+  (math/code/IFEval),决定迁移列里哪些域留得下(plan §4)。
 - 终审:配方/vanilla/全家桶 ×2 seeds 起步(最终配方行 3 seeds)× 16k × 三域。
 
 ### 评测(全部 run 统一)
 - 训练内 val:**MATH500 pass@1,greedy(τ=0)**,每 25 步(筛选)/ 每 5 步(锚点前期)。
 - checkpoint 终评:**AMC23 avg@32,τ=0.7/top-p=0.95**(thunlp 惯例;
   若 Demystifying 精读给出确切参数则改从其,改动记台账)。
-- AIME24/25 avg@32:仅 1.7B 档。code(HumanEval+/MBPP+ pass@1)与 IFEval:仅 Phase 3。
+- AIME24/25 avg@32:全档(学生统一为 1.7B 后不再有地板问题;这正是换档的收益之一)。
+- code(HumanEval+/MBPP+ pass@1)与 IFEval:**每臂 final ckpt 的迁移列**(METRICS §2)。
 - eval 用训练同款非思考模板。
 
 ### 飞行记录仪(每 run 必录)

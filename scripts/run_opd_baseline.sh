@@ -3,15 +3,18 @@
 #   loss: reverse-KL sampled-token (k1) as per-token advantage Delta-l_t, PG formulation
 #   data: nvidia/Nemotron-Cascade-RL-Math (verl parquet via scripts/prep_nemotron_math.py)
 #   val:  MATH500 pass@1 (greedy)
-# Screening default: 0.6B-Base <- 1.7B, 8k response cap, 150 steps (see below).
-# Anchor run:  STUDENT_MODEL=Qwen/Qwen3-1.7B-Base TEACHER_MODEL=Qwen/Qwen3-4B-Instruct-2507 \
-#              MAX_RESPONSE_LENGTH=16384 TOTAL_TRAINING_STEPS=-1 EXPERIMENT_NAME=anchor_1.7b_from_4b2507
+# Screening default: 1.7B-Base <- 4B-Instruct-2507, 8k response cap, 150 steps.
+# Anchor run:  MAX_RESPONSE_LENGTH=16384 TOTAL_TRAINING_STEPS=-1 \
+#              EXPERIMENT_NAME=anchor_1.7b_from_4b2507
+#              (same models as screening now -- the anchor cell IS the screening cell)
 #
-# The 150-step horizon is calibrated on the 0.6B SCREENING tier only, and the anchor
-# above must keep overriding it. Whether a 0.6B-Base student saturating by step 25 is
-# an OPD property or an artifact of a small student against a 2.8x teacher is exactly
-# what the anchor (1.7B-Base <- 4B) settles -- and no audited paper answers it, since
-# 8 of the 10 do not report a step count at all.
+# NOTE the 150-step horizon below was calibrated on the 0.6B tier, which this file no
+# longer uses. It is kept as an upper bound, not as a claim: the 50-step probe showed
+# 1.7B still improving at step 50 (0.468 -> 0.604 -> 0.636) with clip_ratio only 0.27,
+# so 1.7B reaches Mode A later than 0.6B did and 150 may be too short rather than too
+# long. What actually decides each run is watch.py's early-stop rule, which fires on
+# the run's own measured degeneration; the horizon is the ceiling it operates under.
+# Re-derive it once the first full 1.7B vanilla run exists.
 
 set -xeuo pipefail
 
@@ -24,8 +27,29 @@ set -xeuo pipefail
 # run whose numbers are the evidence for stopping it.
 export PYTHONUNBUFFERED=1
 
-STUDENT_MODEL=${STUDENT_MODEL:-Qwen/Qwen3-0.6B-Base}
-TEACHER_MODEL=${TEACHER_MODEL:-Qwen/Qwen3-1.7B}
+# Screening tier, decided 2026-08-04 on measurement rather than on the v3.1 plan's
+# speed argument. Both changed:
+#
+#   student 0.6B-Base -> 1.7B-Base.  0.6B converged to MATH500 0.468, which is exactly
+#     where 1.7B-Base STARTS untrained. Everything the 0.6B campaign would have
+#     measured sits below the real student's zero point, and 0.6B saturates by step 25
+#     while 1.7B is still climbing at 50 (0.468 -> 0.604 -> 0.636). 1.7B-Base is also
+#     the only student both anchor papers use.
+#
+#   teacher 1.7B -> 4B-Instruct-2507.  Measured non-thinking MATH500 ceilings:
+#     4B-Instruct-2507 0.896, 8B 0.792, 1.7B 0.702. The 2507 Instruct models are
+#     Qwen's non-thinking-native line; Qwen3-8B is a hybrid whose strength is its
+#     thinking mode, so our enable_thinking=False protocol costs it more than its
+#     extra parameters buy. Under that constraint a bigger teacher is not a stronger
+#     one. 1.7B-Base <- 4B-Instruct-2507 is also Demystifying's own off-the-shelf
+#     cell, so the screening tier and the replication anchor are the same run.
+#
+# Off-the-shelf on purpose: 4 audited papers train a GRPO teacher, but every one of
+# them also reports off-the-shelf teachers, so self-training is nobody's requirement
+# -- and a teacher only we possess would be the one component of this audit that
+# nobody else can reproduce.
+STUDENT_MODEL=${STUDENT_MODEL:-Qwen/Qwen3-1.7B-Base}
+TEACHER_MODEL=${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}
 
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-1}
 TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}
@@ -48,7 +72,10 @@ train_batch_size=${TRAIN_BATCH_SIZE:-128}
 ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}   # = train batch: single epoch per rollout batch
 max_prompt_length=${MAX_PROMPT_LENGTH:-1024}
 max_response_length=${MAX_RESPONSE_LENGTH:-8192}  # v3.1 screening cap; anchor/final: 16384
-ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-20480}
+# 12288, not 20480: at the 1.7B tier the actor shares its GPU with the vLLM engine,
+# and weights + fp32 AdamW moments + master weights + grads are ~27GB before a single
+# activation. Verified on the 50-step probe at this value with no OOM.
+ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-12288}
 
 actor_lr=${ACTOR_LR:-1e-6}
 # 150, not the v3.1 plan's 300 (pre-registration amended 2026-08-04 on measurement).
@@ -62,11 +89,12 @@ total_epochs=${TOTAL_EPOCHS:-3}
 test_freq=${TEST_FREQ:-25}
 save_freq=${SAVE_FREQ:--1}
 
-# verl keeps every checkpoint by default (max_actor_ckpt_to_keep: null). At ~8-9GB
-# per checkpoint for 0.6B (weights + fp32 optimizer moments + master weights), 300
-# steps at SAVE_FREQ=50 is ~50GB per run and ~850GB for a 17-run campaign, which
-# would fill a DSW workspace volume mid-flight. Keep the newest two: one to resume
-# from, one as a fallback if the newest is torn.
+# verl keeps every checkpoint by default (max_actor_ckpt_to_keep: null). A 1.7B
+# checkpoint is ~25GB (bf16 weights + fp32 optimizer moments + master weights), so
+# keeping everything at SAVE_FREQ=50 is ~75GB per run and well over 1TB across a
+# campaign -- it fills a DSW workspace volume mid-flight rather than at the start.
+# Keep the newest two: one to resume from, one if the newest is torn.
+# (The tier change from 0.6B roughly tripled this; MAX_CKPT_KEEP=1 halves it again.)
 max_ckpt_keep=${MAX_CKPT_KEEP:-2}
 
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
@@ -105,7 +133,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=${ROLLOUT_GPU_MEM_UTIL:-0.45} \
     actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \

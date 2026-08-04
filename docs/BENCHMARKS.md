@@ -27,8 +27,8 @@ code 共识 = HumanEval/MBPP(+ 变体);general 共识 = IFEval。与计划 §1 �
 
 | 档位 | bench 套件 | 用途 |
 |---|---|---|
-| **筛选(0.6B,每 run)** | **MATH500 pass@1**(训练内 val,判决主指标)+ **AMC23 avg@32**(checkpoint 终评,判决副指标) | 500 题给 McNemar 检验力;AIME 对 0.6B 是地板噪声,不测(计划 §1 已裁) |
-| **锚点(1.7B←4B-2507)** | 上述 + **Minerva pass@1 + AIME24/25 avg@32** | 对齐 Demystifying 该格子的报表面(其 AIME26/HMMT25 列为可选,见 §5) |
+| **筛选(1.7B-Base ← 4B-2507,每 run)** | **MATH500 pass@1**(训练内 val,判决主指标)+ **AMC23 avg@32**(checkpoint 终评,判决副指标)+ **AIME24/25 avg@32** | 500 题给 McNemar 检验力。**AIME 现在测得了** —— 2026-08-04 换档后地板效应消失,这是换档的收益之一 |
+| **锚点(= 同一格,不再是独立档)** | 上述 + **Minerva pass@1** | 对齐 Demystifying 该格子的报表面(其 AIME26/HMMT25 列为可选,见 §5) |
 | **终验 1.7B 档** | MATH500 + AMC23 + AIME24/25 | 主表 |
 | **迁移列(每臂,final ckpt)** | **HumanEval+ / MBPP+**(pass@1,greedy)+ **IFEval**(strict,prompt-level 主报、instruction-level 附报) | **只验证不选择**;副作用面板的迁移损益。2026-08-03 从 Phase 3 提前到逐臂:1083 题 greedy ≈0.25 GPU·时,对 18 GPU·时的训练是 1.5% 开销,换来"有副作用"这条判决第一次有逐臂证据 |
 | **Phase 3 跨域重训** | 同上 bench,但在 code/IF 域**重训** shortlist 配方(见 §4.5) | 迁移评测测不了"trick 在该域是否有效",只测"是否损坏";重训才测前者 |
@@ -63,7 +63,7 @@ HumanEval/32(`find_zero`,牛顿法 tol 1e-5)在任何时限下都挂 —— **16
 AMC/AIME 整数答案与 MATH 表达式等价都由 math_verify 兜底。**禁止**训练 val 与
 离线 eval 用不同评分器(pass@1 会漂移)。
 
-eval 生成长度:筛选档 8192 / 终验与锚点 16384(与训练帽一致),截断率必报。
+eval 生成长度:筛选 8192 / 终验 16384(与训练帽一致),截断率必报。
 模板:与训练同款非思考 chat template。
 
 ## 4. 卫生检查(W2 前完成)
@@ -72,7 +72,13 @@ eval 生成长度:筛选档 8192 / 终验与锚点 16384(与训练帽一致),截
   做 13-gram 重叠扫描(NVIDIA 声称已去污,自查一遍写进 paper 卫生表);
 - [x] MATH500 100 题子集已冻结(2026-07-31):`data/math500_subset100.json`,seed=42,
   按 unique_id 记录(防重排),难度分布 L1-L5 = 8/16/19/22/35(与全集比例相称);
-- [ ] teacher 上限:1.7B / 4B-2507 / 8B 在锁定套件上各测一次(GRR 分母 + D6 输入);
+- [x] **teacher 上限(2026-08-04 完成)**:非思考 MATH500 pass@1,greedy,协议同款模板 ——
+  **4B-Instruct-2507 = 0.896**(len 1548)/ **8B = 0.792**(1082)/ **1.7B = 0.702**(982)。
+  这是 GRR 的分母,也是 D6 的输入。**阶梯不单调**:尺寸序 1.7B<4B<8B,能力序
+  1.7B<8B<4B —— 在 `enable_thinking=False` 下 8B 被砍掉主武器。
+  由此改了两件事:主档 teacher 换成 4B-Instruct-2507(PROTOCOL §1),
+  D6 从"单调阶梯"改为"尺寸/能力解耦"(plan §3)。
+  ⚠ 仍欠:AMC23 上再各测一次(GRR 的副指标分母)。
 - [x] AIME/AMC 答案字段抽查(2026-07-31 完成):amc23/aime25 answer 列整数 ✓;
   **math-ai/aime24 无 answer 列 → 已换 HuggingFaceH4/aime_2024**(30 题,answer 列 ✓)。
 
@@ -100,7 +106,7 @@ Phase 3 的"三域验证"是**在 code/IFEval 域重训 shortlist 配方**(配�
 |---|---|
 | GSM8K | 已饱和,主流 OPD 文献(7/10)弃用;RG-OPD/EasyOPD 沿用是历史惯性 |
 | OlympiadBench | 难度带与 AMC/AIME 重叠,eval 预算不换信息量 |
-| GPQA-Diamond | 通用知识,三域管辖权外;0.6B 地板 |
+| GPQA-Diamond | 通用知识,三域管辖权外 |
 | HMMT25 / AIME26 | **预注册可选扩展**:仅当终审 1.7B 冲高分需要加表时启用(Demystifying 报了,加做零改动) |
 | LiveCodeBench | 时间窗管理重;HumanEval+/MBPP+ 已代表 code 域;审稿要求时再加 |
 | BFCL / tool 类 | agentic 已裁出范围(v2 范围决策) |

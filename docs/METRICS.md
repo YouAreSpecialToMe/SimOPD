@@ -40,10 +40,10 @@
 |---|---|---|---|
 | **MATH500 pass@1** | greedy(τ=0),逐题 0/1 | Demystifying/LSM 同款 | val 每 25 步(筛)/每 5 步(锚点前期) |
 | **AMC23 avg@32** | τ=0.7/top-p=0.95,40 题×32 样本逐格 0/1 | k=32 从 Demystifying;采样参数暂从 Rethinking(Demystifying Eq.9 精读后校正,含 M=10 trials 语义) | checkpoint 终评(离线) |
-| AIME24/25 avg@32(仅 1.7B 档) | 同上 | Demystifying(其含 AIME26/HMMT25,我们不扩,预注册可选) | 终审 |
+| AIME24/25 avg@32(全档) | 同上 | Demystifying(其含 AIME26/HMMT25,我们不扩,预注册可选) | 终审 |
 | Minerva pass@1(仅锚点) | greedy | **锚点专用**:Demystifying 报表含 Minerva,对表面加宽 | 锚点 run |
-| HumanEval+/MBPP+ pass@1、IFEval strict | 标准 harness | FiRe(+_+ 变体)/Teachability | Phase 3 |
-| **Gap Recovery Rate** | (Acc_配方−Acc_前)/(Acc_师−Acc_前);teacher 上限 W1 各 bench 测一次 | **Rethinking**;跨 teacher 档可比性 | 台账列(verdict.py 算) |
+| HumanEval+/MBPP+ pass@1、IFEval strict | 官方 harness(evalplus / instruction_following_eval) | FiRe(+ 变体)/Teachability | **每臂 final ckpt**(迁移列,§2);Phase 3 另有跨域**重训** |
+| **Gap Recovery Rate** | (Acc_配方−Acc_前)/(Acc_师−Acc_前);**分母已测(2026-08-04)**:MATH500 非思考 teacher 上限 4B-2507 **0.896** / 8B 0.792 / 1.7B 0.702;学生 1.7B-Base 起点 **0.468** → 主档可用差距 **0.428** | **Rethinking**;跨 teacher 档可比性 | 台账列(verdict.py 算) |
 | **噪声底** | vanilla×3 seeds 的 MATH500 pass@1 极差 | **本文新增**(文献无人做;判"平局"必需) | W1 一次 |
 
 统计装置与逐题工件 schema 不变(v1;`scripts/verdict.py`、parquet 落盘
@@ -92,8 +92,8 @@ timing 分解(verl 现成)、相对 vanilla step 开销比、GPU·h、rollout/pr
 |---|---|
 | 每步 | Δℓ 分布+均值曲线、熵、长度+截断率、overlap(Eq.6/质量版)、π(S̄)、ℐ、timing |
 | 每 25 步(筛选 val) | MATH500 pass@1 + 重复率;逐题工件落盘 |
-| checkpoint 终评 | AMC23 avg@32、pass@8 面板(终审 k→64)、(1.7B)AIME avg@32、(锚点)Minerva;**+ 迁移列 HumanEval+/MBPP+/IFEval(greedy,1083 题 ≈0.25 GPU·时)** |
-| W1 一次性 | 噪声底×3 seeds;**teacher 上限**(1.7B/4B-2507/8B 在 MATH500+AMC23,兼作 D6 输入)|
+| checkpoint 终评 | AMC23 avg@32、pass@8 面板(终审 k→64)、AIME avg@32、(锚点)Minerva;**+ 迁移列 HumanEval+/MBPP+/IFEval(greedy,1083 题 ≈0.25 GPU·时)** |
+| W1 一次性 | 噪声底×3 seeds(逐域);**teacher 上限** —— MATH500 ✅2026-08-04(0.896/0.792/0.702),AMC23 仍欠 |
 | Phase 0 | D6 逐题矩阵、D1'/D2'/D3 静态版、D5 |
 | Phase 3 | code/IFEval **重训**(shortlist 配方,非迁移评测)+ 三域主表 |
 
