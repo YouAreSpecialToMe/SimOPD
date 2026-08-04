@@ -50,7 +50,7 @@ echo "running from snapshot: $SNAP ($(git rev-parse --short HEAD 2>/dev/null || 
 export HF_HUB_OFFLINE=1
 export VLLM_LOGGING_LEVEL=WARNING
 
-STEPS=${STEPS:-300}
+STEPS=${STEPS:-150}   # see run_opd_baseline.sh: 300 was 19h/arm of Mode A
 TEST_FREQ=${TEST_FREQ:-25}
 SAVE_FREQ=${SAVE_FREQ:-50}
 TAG=${TAG:-}

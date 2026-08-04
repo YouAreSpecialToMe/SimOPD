@@ -36,7 +36,13 @@ max_response_length=${MAX_RESPONSE_LENGTH:-8192}  # v3.1 screening cap; anchor/f
 ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-20480}
 
 actor_lr=${ACTOR_LR:-1e-6}
-total_training_steps=${TOTAL_TRAINING_STEPS:-300}  # v3.1 early screen; -1 = run total_epochs
+# 150, not the v3.1 plan's 300 (pre-registration amended 2026-08-04 on measurement).
+# vanilla_s0 reached its final MATH500 pass@1 by step 25 and was in Mode A from ~90;
+# steps 150-300 cost 19 hours in which every rollout hits the length cap and pass@1
+# does not move. 150 still contains the whole story an arm can tell -- plateau (25),
+# entropy collapse (40), Mode A onset (90) and 60 steps of established Mode A --
+# which the F axis needs, since preventing Mode A is the thing it is judged on.
+total_training_steps=${TOTAL_TRAINING_STEPS:-150}  # -1 = run total_epochs
 total_epochs=${TOTAL_EPOCHS:-3}
 test_freq=${TEST_FREQ:-25}
 save_freq=${SAVE_FREQ:--1}

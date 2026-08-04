@@ -28,7 +28,7 @@ REHEARSAL=0
 
 LANES=${LANES:-4}
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
-STEPS=${STEPS:-300}
+STEPS=${STEPS:-150}   # see run_opd_baseline.sh: 300 was 19h/arm of Mode A
 TEST_FREQ=${TEST_FREQ:-25}
 SAVE_FREQ=${SAVE_FREQ:-50}
 TAG=${TAG:-}
