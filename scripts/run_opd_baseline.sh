@@ -3,11 +3,26 @@
 #   loss: reverse-KL sampled-token (k1) as per-token advantage Delta-l_t, PG formulation
 #   data: nvidia/Nemotron-Cascade-RL-Math (verl parquet via scripts/prep_nemotron_math.py)
 #   val:  MATH500 pass@1 (greedy)
-# Screening default: 0.6B-Base <- 1.7B, 8k response cap, 300 steps (plan v3.1).
+# Screening default: 0.6B-Base <- 1.7B, 8k response cap, 150 steps (see below).
 # Anchor run:  STUDENT_MODEL=Qwen/Qwen3-1.7B-Base TEACHER_MODEL=Qwen/Qwen3-4B-Instruct-2507 \
 #              MAX_RESPONSE_LENGTH=16384 TOTAL_TRAINING_STEPS=-1 EXPERIMENT_NAME=anchor_1.7b_from_4b2507
+#
+# The 150-step horizon is calibrated on the 0.6B SCREENING tier only, and the anchor
+# above must keep overriding it. Whether a 0.6B-Base student saturating by step 25 is
+# an OPD property or an artifact of a small student against a 2.8x teacher is exactly
+# what the anchor (1.7B-Base <- 4B) settles -- and no audited paper answers it, since
+# 8 of the 10 do not report a step count at all.
 
 set -xeuo pipefail
+
+# verl's console logger writes the per-step metric lines to stdout, which Python
+# block-buffers when it is a file rather than a tty. tqdm goes to stderr and shows up
+# immediately, so a run looks healthy while its metrics sit unflushed -- and anything
+# still in that buffer is lost if the process is killed. That is how the 2026-07-31
+# run produced 24 GPU-hours and zero metrics, and the early-stop rule added on
+# 2026-08-04 makes it far more likely to bite, since enforcing it means SIGTERM to a
+# run whose numbers are the evidence for stopping it.
+export PYTHONUNBUFFERED=1
 
 STUDENT_MODEL=${STUDENT_MODEL:-Qwen/Qwen3-0.6B-Base}
 TEACHER_MODEL=${TEACHER_MODEL:-Qwen/Qwen3-1.7B}
