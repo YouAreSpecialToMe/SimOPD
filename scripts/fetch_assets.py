@@ -78,10 +78,30 @@ def integrity(path):
     return None
 
 
-def model_cached(repo):
+def use_modelscope():
+    """Which hub verl will actually read from. The flag is the single source of truth.
+
+    Not a preference: for Qwen models ModelScope is a first-party source, and on an
+    Alibaba instance it is usually the faster one. What broke a DSW run was not
+    ModelScope, it was checking one cache while verl read the other -- so this file
+    follows the same flag verl does, and verifies whichever cache is really in use.
+    """
+    return os.environ.get("VERL_USE_MODELSCOPE", "False").lower() in ("true", "1", "yes")
+
+
+def _snapshot(repo, local_only):
+    if use_modelscope():
+        from modelscope import snapshot_download as ms_download
+        # ModelScope's default branch is `master`; passing HuggingFace's `main`
+        # is what produces NotExistError on a model that is present.
+        return ms_download(repo, local_files_only=local_only)
     from huggingface_hub import snapshot_download
+    return snapshot_download(repo, ignore_patterns=IGNORE, local_files_only=local_only)
+
+
+def model_cached(repo):
     try:
-        path = snapshot_download(repo, ignore_patterns=IGNORE, local_files_only=True)
+        path = _snapshot(repo, local_only=True)
     except Exception:
         return False
     bad = integrity(path)
@@ -174,16 +194,9 @@ def main():
     # opens. That is not hypothetical: a DSW run died on a corrupt tokenizer.json at
     # byte 22845308 whose traceback went through modelscope/utils/hf_util.py, while
     # this script reported all assets present.
-    if os.environ.get("VERL_USE_MODELSCOPE", "False").lower() in ("true", "1", "yes"):
-        print("WARNING: VERL_USE_MODELSCOPE is on, so verl will load from the ModelScope")
-        print("         cache, NOT the HuggingFace cache this script checks.")
-        print("         export VERL_USE_MODELSCOPE=False   (and `ray stop --force` first:")
-        print("         a running cluster's workers keep the value they started with)\n")
-    ms = os.path.expanduser(os.environ.get("MODELSCOPE_CACHE", "~/.cache/modelscope"))
-    if os.path.isdir(ms):
-        print(f"note: a ModelScope cache exists at {ms}.")
-        print("      Nothing here reads it. If a run fails inside modelscope/utils/hf_util.py,")
-        print("      that copy is what it loaded -- delete it and re-fetch from HF.\n")
+    hub_name = "ModelScope" if use_modelscope() else "HuggingFace"
+    print(f"hub: {hub_name}  (VERL_USE_MODELSCOPE={os.environ.get('VERL_USE_MODELSCOPE', 'False')})")
+    print("     verl reads the same flag, so this checks the cache it will actually use.\n")
 
     # A partially written blob is the signature of an interrupted download, and the
     # thing that produced it usually damaged something else too.
@@ -206,14 +219,18 @@ def main():
             missing += 1
             continue
         print(f"  fetching {repo}")
-        from huggingface_hub import snapshot_download
         try:
             # A corrupt file is already the right size and name, so a resume-style
-            # fetch will not replace it; force_download re-pulls it.
-            snapshot_download(repo, ignore_patterns=IGNORE,
-                              force_download=args.repair)
-            bad = integrity(snapshot_download(repo, ignore_patterns=IGNORE,
-                                              local_files_only=True))
+            # fetch will not replace it. Deleting the snapshot is the portable way to
+            # force a real re-pull -- force_download is HF-only.
+            if args.repair:
+                import shutil
+                try:
+                    shutil.rmtree(_snapshot(repo, local_only=True), ignore_errors=True)
+                except Exception:
+                    pass
+            _snapshot(repo, local_only=False)
+            bad = integrity(_snapshot(repo, local_only=True))
             if bad:
                 print(f"  STILL BAD {repo}: {bad}", file=sys.stderr)
                 print(f"            rm -rf $HF_HOME/hub/models--{repo.replace('/', '--')}",

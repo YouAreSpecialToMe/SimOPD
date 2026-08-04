@@ -484,13 +484,14 @@ export HF_HOME="$HF_HOME"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
-# Must be False, and must be set rather than merely left unset -- Alibaba PAI images
-# export it, and verl acts on it at import time: it calls modelscope's patch_hub(),
-# which reroutes EVERY huggingface_hub call to ModelScope. ModelScope's default
-# branch is 'master', so transformers asking for the HF default 'main' dies with
-#   NotExistError('The model: Qwen/Qwen3-1.7B has no revision: main !')
-# on models that fetch_assets.py already downloaded and cached locally.
-export VERL_USE_MODELSCOPE=False
+# One hub, chosen explicitly. Either value is legitimate -- for Qwen models
+# ModelScope is a first-party source and on an Alibaba instance usually the faster
+# one -- but it must be SET rather than left to the image, because verl and
+# fetch_assets.py both branch on it and the failure mode is that they disagree:
+# fetch_assets reports every asset present (HF cache) while verl reads a different,
+# corrupt copy (ModelScope cache). Both true, neither useful.
+#   VERL_USE_MODELSCOPE=true bash deploy/dsw/setup.sh   # to run on ModelScope
+export VERL_USE_MODELSCOPE=${VERL_USE_MODELSCOPE:-False}
 export DATA_DIR="$DATA_ROOT/simopd_math"
 export CKPT_ROOT="$DATA_ROOT/ckpt"
 export WANDB_DIR="$DATA_ROOT/wandb"
