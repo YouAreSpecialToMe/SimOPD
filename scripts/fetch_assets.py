@@ -169,6 +169,22 @@ def main():
 
     missing = 0
 
+    # If verl is routed through ModelScope it loads from a DIFFERENT cache, and every
+    # check below -- which reads the HF cache -- is then answering about files nobody
+    # opens. That is not hypothetical: a DSW run died on a corrupt tokenizer.json at
+    # byte 22845308 whose traceback went through modelscope/utils/hf_util.py, while
+    # this script reported all assets present.
+    if os.environ.get("VERL_USE_MODELSCOPE", "False").lower() in ("true", "1", "yes"):
+        print("WARNING: VERL_USE_MODELSCOPE is on, so verl will load from the ModelScope")
+        print("         cache, NOT the HuggingFace cache this script checks.")
+        print("         export VERL_USE_MODELSCOPE=False   (and `ray stop --force` first:")
+        print("         a running cluster's workers keep the value they started with)\n")
+    ms = os.path.expanduser(os.environ.get("MODELSCOPE_CACHE", "~/.cache/modelscope"))
+    if os.path.isdir(ms):
+        print(f"note: a ModelScope cache exists at {ms}.")
+        print("      Nothing here reads it. If a run fails inside modelscope/utils/hf_util.py,")
+        print("      that copy is what it loaded -- delete it and re-fetch from HF.\n")
+
     # A partially written blob is the signature of an interrupted download, and the
     # thing that produced it usually damaged something else too.
     import glob

@@ -103,6 +103,11 @@ SYMPTOM_HINTS = [
      "        actor_rollout_ref.actor.ppo_max_token_len_per_gpu."),
     (re.compile(r"No such file or directory.*parquet|FileNotFoundError.*parquet"),
      "training data missing: python scripts/fetch_assets.py --check"),
+    (re.compile(r"modelscope[/.]"),
+     "the model was loaded through ModelScope, not HuggingFace -- VERL_USE_MODELSCOPE\n"
+     "        is true in that worker. Note fetch_assets.py checks the HF cache, so it will\n"
+     "        report everything present while verl reads a different (possibly corrupt) copy.\n"
+     "        ray stop --force; export VERL_USE_MODELSCOPE=False; rm -rf ~/.cache/modelscope"),
     (re.compile(r"UnicodeDecodeError|invalid start byte|codec can't decode"),
      "a model file on disk is corrupt -- a download written half-way. The name and\n"
      "        size look right, which is why it surfaces here and not at fetch time.\n"
