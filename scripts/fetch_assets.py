@@ -38,13 +38,57 @@ EVALPLUS = ["humanevalplus", "mbppplus"]
 IGNORE = ["*.pth", "*.msgpack", "*.h5"]   # torch-only; the flax/tf copies are dead weight
 
 
+def integrity(path):
+    """Cheap corruption check on a resolved snapshot. Returns a complaint or None.
+
+    `snapshot_download(local_files_only=True)` only proves the files EXIST with the
+    right names. A download that was interrupted mid-write leaves a file of the right
+    name and the wrong contents, and the run then dies far away with
+
+        UnicodeDecodeError: 'utf-8' codec can't decode byte ... invalid start byte
+
+    22MB into a tokenizer, which reads like a code bug rather than a bad byte on disk.
+    So: every JSON in the snapshot must actually decode and parse, and every
+    safetensors file must have a sane header. Both are local and take milliseconds --
+    no need to load transformers, which costs tens of seconds per model.
+    """
+    import json as _json
+    import struct
+
+    for name in os.listdir(path):
+        f = os.path.join(path, name)
+        if not os.path.isfile(f):
+            continue
+        if name.endswith(".json"):
+            try:
+                with open(f, "rb") as fh:
+                    _json.loads(fh.read().decode("utf-8"))
+            except UnicodeDecodeError as e:
+                return f"{name} is not valid UTF-8 at byte {e.start} (truncated download)"
+            except Exception as e:
+                return f"{name} is unreadable: {type(e).__name__}"
+        elif name.endswith(".safetensors"):
+            try:
+                with open(f, "rb") as fh:
+                    (n,) = struct.unpack("<Q", fh.read(8))
+                    if n <= 0 or n > 100_000_000 or os.path.getsize(f) < 8 + n:
+                        return f"{name} has a truncated safetensors header"
+            except Exception as e:
+                return f"{name} is unreadable: {type(e).__name__}"
+    return None
+
+
 def model_cached(repo):
     from huggingface_hub import snapshot_download
     try:
-        snapshot_download(repo, ignore_patterns=IGNORE, local_files_only=True)
-        return True
+        path = snapshot_download(repo, ignore_patterns=IGNORE, local_files_only=True)
     except Exception:
         return False
+    bad = integrity(path)
+    if bad:
+        print(f"  CORRUPT  {repo}: {bad}", file=sys.stderr)
+        return False
+    return True
 
 
 def dataset_cached(name, split):
@@ -119,9 +163,22 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data-dir", default=os.path.expanduser("~/data/simopd_math"))
     p.add_argument("--check", action="store_true", help="report what is missing, download nothing")
+    p.add_argument("--repair", action="store_true",
+                   help="re-download even files that already exist; use when integrity fails")
     args = p.parse_args()
 
     missing = 0
+
+    # A partially written blob is the signature of an interrupted download, and the
+    # thing that produced it usually damaged something else too.
+    import glob
+    hub = os.path.join(os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub")
+    stale = glob.glob(os.path.join(hub, "**", "*.incomplete"), recursive=True)
+    if stale:
+        print(f"warning: {len(stale)} interrupted download(s) left in the cache:")
+        for p in stale[:5]:
+            print(f"  {p}")
+        print("  these are harmless themselves, but mean a download was cut short here.\n")
 
     print("models:")
     for repo in MODELS:
@@ -135,7 +192,18 @@ def main():
         print(f"  fetching {repo}")
         from huggingface_hub import snapshot_download
         try:
-            snapshot_download(repo, ignore_patterns=IGNORE)
+            # A corrupt file is already the right size and name, so a resume-style
+            # fetch will not replace it; force_download re-pulls it.
+            snapshot_download(repo, ignore_patterns=IGNORE,
+                              force_download=args.repair)
+            bad = integrity(snapshot_download(repo, ignore_patterns=IGNORE,
+                                              local_files_only=True))
+            if bad:
+                print(f"  STILL BAD {repo}: {bad}", file=sys.stderr)
+                print(f"            rm -rf $HF_HOME/hub/models--{repo.replace('/', '--')}",
+                      file=sys.stderr)
+                missing += 1
+                continue
             print(f"  ok       {repo}")
         except Exception as e:
             print(f"  FAILED   {repo}: {type(e).__name__}: {str(e)[:160]}", file=sys.stderr)
