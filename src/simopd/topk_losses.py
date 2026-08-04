@@ -119,13 +119,26 @@ def compute_reverse_kl_topk(
         overlap_count > 0, overlap_token_advantage, torch.zeros_like(overlap_token_advantage)
     )
 
-    return {
+    out = {
         "distillation_losses": distillation_losses,
         "student_mass": student_mass,
         "teacher_mass": teacher_mass,
         "overlap_count": overlap_count,
         "overlap_token_advantage": overlap_token_advantage,
     }
+    # This arm builds its diagnostics inline rather than through
+    # _overlap_diagnostics, so the two shared panels have to be added explicitly.
+    # It is the arm that most needs pi(S-bar): truncating to the teacher's top-k IS
+    # its method, and the headline theorem says the error that truncation incurs is
+    # governed by the student mass left outside.
+    probs_on_support = student_topk_log_probs.exp()
+    for width in PI_TAIL_WIDTHS:
+        if width <= teacher_topk_ids.shape[-1]:
+            out[f"pi_tail_k{width}"] = (1.0 - probs_on_support[..., :width].sum(dim=-1)).clamp(0.0, 1.0)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, teacher_topk_log_probs, teacher_topk_ids,
+                                 student_topk_log_probs, student_topk_ids))
+    return out
 
 
 TOPK_DISPATCH = {"lsm_topk_renorm": compute_reverse_kl_topk}
@@ -231,6 +244,15 @@ def _weighted_sampled_token_loss(student_log_probs, sampled_lp, sampled_id, weig
     return (stu_sampled - tch_sampled) * weight
 
 
+# Widths at which to report student tail mass. Only values <= the configured topk
+# are usable: the teacher's returned support is rank-ordered, so a narrower support
+# is its prefix, but a wider one is simply not there.
+# Shadow selection is a handful of elementwise ops on tensors the kernel already
+# holds, so it is on by default; SIMOPD_SHADOW=0 turns it off.
+SHADOW_ENABLED = os.environ.get("SIMOPD_SHADOW", "1") == "1"
+PI_TAIL_WIDTHS = tuple(int(x) for x in os.environ.get("SIMOPD_PI_TAIL_WIDTHS", "8,16,32").split(","))
+
+
 def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
     """Rethinking Eq.6/Eq.7 diagnostics, kept identical across every top-k arm."""
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
@@ -238,12 +260,65 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
     overlap_count = overlap_mask.sum(dim=-1)
     token_kl = t_lp.exp() * (t_lp - stu_at_teacher)
     adv = (-token_kl * overlap_mask).sum(dim=-1) / overlap_count.clamp_min(1)
-    return {
+    out = {
         "student_mass": stu_at_teacher.exp().sum(dim=-1),
         "teacher_mass": t_lp.exp().sum(dim=-1),
         "overlap_count": overlap_count,
         "overlap_token_advantage": torch.where(overlap_count > 0, adv, torch.zeros_like(adv)),
     }
+    # pi(S-bar): student mass OUTSIDE the teacher's support. This is the quantity the
+    # headline theorem is written in -- truncated reverse-KL error =
+    # pi(S-bar) * KL(pi||q | S-bar) -- and the literature reports only the intersection
+    # (overlap ratio), never the tail. Reported at several widths from one forward
+    # pass, since a narrower support is a prefix of the rank-ordered one we already
+    # have: that is the whole K sweep for free, and it answers whether two K values
+    # are even materially different before anyone spends a run finding out.
+    probs = stu_at_teacher.exp()
+    for width in PI_TAIL_WIDTHS:
+        if width <= t_id.shape[-1]:
+            out[f"pi_tail_k{width}"] = (1.0 - probs[..., :width].sum(dim=-1)).clamp(0.0, 1.0)
+    return out
+
+
+def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+    """What the OTHER D-axis selectors would have picked, inside this run.
+
+    Redundancy prediction #4 (plan §4) says TIP, Teachability and SelecTKD select
+    largely the same tokens. Testing that with three training runs answers it three
+    times over; the selectors are pure functions of tensors this kernel already holds,
+    so every run can carry all three masks for the cost of evaluating them.
+
+    Jaccard is not emitted directly -- the metric plumbing reports means over the
+    response mask, and mean(A&B)/mean(A|B) IS |A∩B|/|A∪B| because the token count
+    cancels. So the intersection and union indicators go out separately and the
+    ledger divides them.
+
+    This is also how a combination gets screened before it costs a run: two settings
+    whose shadow masks agree almost everywhere are one arm wearing two names.
+    """
+    masks = {}
+    out = {}
+    for name, fn in (("tip", _tip_score), ("teach", _teachability_score),
+                     ("selectkd", _selectkd_score)):
+        keep, _ = fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
+        masks[name] = keep
+        out[f"shadow_{name}"] = keep.float()
+    names = list(masks)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = masks[names[i]], masks[names[j]]
+            out[f"shadow_and_{names[i]}_{names[j]}"] = (a & b).float()
+            out[f"shadow_or_{names[i]}_{names[j]}"] = (a | b).float()
+    return out
+
+
+SHADOW_KEYS = (
+    "shadow_tip", "shadow_teach", "shadow_selectkd",
+    "shadow_and_tip_teach", "shadow_or_tip_teach",
+    "shadow_and_tip_selectkd", "shadow_or_tip_selectkd",
+    "shadow_and_teach_selectkd", "shadow_or_teach_selectkd",
+)
+PI_TAIL_KEYS = tuple(f"pi_tail_k{w}" for w in PI_TAIL_WIDTHS)
 
 
 # Shared retention for every D-axis selector, so the three arms are supervision-budget
@@ -310,7 +385,12 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
     losses = kl_divergence(log_q=tch_n, log_p=stu_n)
 
     stu_topk_ids = torch.topk(student_log_probs, k=k, dim=-1).indices
+    if SHADOW_ENABLED:
+        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
+                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(out_shadow)
     out["distillation_losses"] = losses
     out["qb_budget"] = keep.sum(dim=-1).float()
     out["qb_captured_mass"] = (q * keep).sum(dim=-1)
@@ -350,7 +430,12 @@ def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     losses = rank_loss + PL_ANCHOR_COEF * value_anchor
 
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    if SHADOW_ENABLED:
+        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
+                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(out_shadow)
     out["distillation_losses"] = losses
     out["pl_rank_loss"] = rank_loss
     out["pl_value_anchor"] = value_anchor
@@ -391,6 +476,8 @@ def _d_axis_kernel(score_fn, extra_fn=None):
         losses = _rescale_selection(raw, keep)
 
         out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+        if SHADOW_ENABLED:
+            out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
         out["distillation_losses"] = losses
         out["d_selected_frac"] = keep.float()
         out["d_sampled_missing"] = (~finite).float()

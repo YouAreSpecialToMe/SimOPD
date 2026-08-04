@@ -16,7 +16,6 @@ import math
 import os
 
 import torch
-import verl.trainer.distillation.losses as _vl
 from verl.trainer.distillation.losses import (
     DistillationLossSettings,
     register_distillation_loss,
@@ -204,20 +203,6 @@ def k1_soft_log_compression(config, distillation_config, model_output, data):
     return compressed, metrics
 
 
-@register_distillation_loss(
-    DistillationLossSettings(names=["lsm_topk_renorm"], use_topk=True)
-)  # type: ignore[arg-type]
-def lsm_truncated_reverse_kl(config, distillation_config, model_output, data):
-    """C axis: truncated reverse KL on the teacher's top-k support (LSM 2603.25562).
-
-    The kernel runs in the logits processor (simopd.topk_losses) and emits exactly
-    the keys verl's top-k post-processor expects, so this delegates to it and
-    inherits the overlap-ratio / mass diagnostics unchanged -- those are the
-    Rethinking Eq.6/Eq.7 metrics the flight recorder already promises.
-    """
-    return _vl.compute_forward_kl_topk(config, distillation_config, model_output, data)
-
-
 def _reweight_kept(losses, mask, keep_seq):
     """Zero out dropped trajectories and rescale so token-mean matches a real filter.
 
@@ -346,13 +331,30 @@ def _topk_registry_fn(*extra_keys, signal="loss"):
     return fn
 
 
+from simopd.topk_losses import PI_TAIL_KEYS, SHADOW_KEYS
+
+# Every top-k arm reports the same two panels on top of its own keys: the shadow
+# masks (what the other D-axis selectors would have chosen -- redundancy prediction
+# #4, and the cheap way to tell whether two settings are actually different) and
+# pi(S-bar) at several support widths (the headline theorem's quantity, and the K
+# sweep for free). Both are pure functions of tensors the kernels already compute.
+_PANELS = SHADOW_KEYS + PI_TAIL_KEYS
+
 for _name, _extras in [
+    # C axis. Was delegating to verl's compute_forward_kl_topk post-processor, which
+    # reports the Eq.6/Eq.7 metrics but silently ignores any key it does not know --
+    # so this arm, the one whose whole method is truncating to the teacher's top-k,
+    # was the only one not reporting pi(S-bar), the quantity the headline theorem
+    # says governs that truncation's error. _topk_registry_fn reports the same
+    # Eq.6/Eq.7 metrics and the panels.
+    ("lsm_topk_renorm", ()),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),
     ("selectkd_verify", ("d_selected_frac", "d_sampled_missing", "selectkd_tar")),
     ("teachability_select", ("d_selected_frac", "d_sampled_missing", "teach_compatibility")),
 ]:
+    _extras = _extras + _PANELS
     # D-axis arms keep vanilla's k1 base loss, so -loss really is Delta-ell for them;
     # the C/E arms optimise a divergence or a rank loss and must not claim otherwise.
     _signal = "delta_ell" if _name in ("tip_select", "selectkd_verify", "teachability_select") else "loss"
