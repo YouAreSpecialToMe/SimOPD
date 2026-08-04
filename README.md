@@ -21,8 +21,10 @@
 
 ## 快速事实
 
-- **模型**:student Qwen3-0.6B-Base 主力;teachers Qwen3-1.7B / 4B 现货(零 GRPO 自训);
-  终验档 + 复现锚点 = 1.7B-Base ← 4B(Demystifying 阶梯现成格)
+- **模型**(2026-08-04 依实测重定):**Qwen3-1.7B-Base ← Qwen3-4B-Instruct-2507**,
+  全现货、零 GRPO 自训。**筛选档 = 终验档 = 复现锚点,合为同一格**(Demystifying 现成格)。
+  非思考天花板实测 4B-2507 **0.896** > 8B 0.792 > 1.7B 0.702 —— **关掉 thinking 之后,
+  更大的老师不等于更强的老师**
 - **域**:math(MATH500 / AMC23)+ code(HumanEval+/MBPP+)+ IFEval。
   **选择只在 math**(两篇锚点论文亦然);**迁移列逐臂**评三域,只报副作用不参与晋级
 - **硬件**:8–16 × A100-80G;2 卡/run(actor 1 + teacher 池 1),16 卡 8 路并行
@@ -93,13 +95,14 @@ python scripts/watch.py --watch 60   # 每 60 秒刷新
 python scripts/watch.py --run vanilla_s0   # 单个 run 的 val 轨迹 + 长度/步时
 ```
 
-读的是**日志里 verl 的 step 行**而不是 wandb —— 两个集群格式一致,wandb 离线或被墙也照常работа。
+读的是**日志里 verl 的 step 行**而不是 wandb —— 两个集群格式一致,wandb 离线或被墙也照常工作。
 四个健康告警都是这个项目真实踩过的坑,不是通用模板:
 
 | 告警 | 含义 | 来历 |
 |---|---|---|
 | `STALLED` | 久无新 step | 一次 18 分钟静默启动,实为每进程 14.5s 的导入税 |
 | `MODE-A` | 长度上涨 + 步时恶化 | 300 步跑成 >24h、在第 229 步被杀 |
+| `EARLY-STOP-DUE` | 预注册早停规则触发 | 实测 85% 机时买不到 pass@1;`--enforce` 执行并记账 |
 | `NO-CKPT` | 过了 SAVE_FREQ 仍无 checkpoint | 同一次:24 GPU·时零产出 |
 | `DISK` | checkpoint 逼近容量 | verl 默认全留,17 run ≈850GB |
 
@@ -143,5 +146,5 @@ git clone --depth 1 https://github.com/lds-ustc/EasyOPD.git     # 采石场(hook
 - [x] 案卷:普查 + 8 轴参赛名单
 - [x] infra 勘察与基座裁定(verl 主线)
 - [ ] W1:环境 + verl OPD 示例跑通 + 复现锚点(进度闸门)
-- [ ] W2–W3:贪心 R1–R4(300 步早筛)
+- [ ] W2–W3:贪心 R1–R4(150 步上限 + 预注册早停)
 - [ ] W4:Phase 3 三域终审 + 配方消融,结果冻结
