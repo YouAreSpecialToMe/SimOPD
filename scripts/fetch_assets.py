@@ -64,7 +64,19 @@ def integrity(path):
                 with open(f, "rb") as fh:
                     _json.loads(fh.read().decode("utf-8"))
             except UnicodeDecodeError as e:
-                return f"{name} is not valid UTF-8 at byte {e.start} (truncated download)"
+                size = os.path.getsize(os.path.realpath(f))
+                hint = ""
+                # A resume that appends instead of replacing leaves the file an exact
+                # multiple of itself, and the byte offset gives that away: a DSW
+                # failure sat at 22845308, which is 2 x 11422654, Qwen3's real
+                # tokenizer.json. Deleting the snapshot does not fix it -- the data
+                # lives in blobs/ and the snapshot is only symlinks, so the next
+                # resume appends to the same oversized blob and fails identically.
+                if size > 0 and e.start >= size // 2:
+                    hint = (f" [file is {size:,}B; if that is a multiple of the real size "
+                            f"the download APPENDED. Delete the whole repo dir including "
+                            f"blobs/, not just the snapshot]")
+                return f"{name} is not valid UTF-8 at byte {e.start} of {size:,} (bad download){hint}"
             except Exception as e:
                 return f"{name} is unreadable: {type(e).__name__}"
         elif name.endswith(".safetensors"):
