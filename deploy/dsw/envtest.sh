@@ -27,6 +27,7 @@ STEPS=${STEPS:-3}
 # reroutes every huggingface_hub call, and ModelScope's default branch is 'master',
 # so asking for HF's 'main' fails on models already on disk.
 export VERL_USE_MODELSCOPE=False
+export VLLM_USE_MODELSCOPE=False   # vLLM has its own; setting one is not enough
 export PYTHONUNBUFFERED=1
 
 echo "=== pre-flight ==="

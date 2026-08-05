@@ -40,13 +40,15 @@ class _NeuterModelScopePatching(MetaPathFinder):
     an import that somebody genuinely makes is not the same as declining the
     behaviour it would have installed.
 
-    So the module is served as a stub whose `patch_hub` is a no-op and whose every
-    other attribute is a no-op callable. The importer succeeds, the patch never
+    So the module is served as a stub whose `patch_hub` is a no-op; every other
+    attribute raises with an explanation. The importer succeeds, the patch never
     applies, and models resolve through HuggingFace as the flag asks. It also prints
     the importing frame once -- on a managed image the caller is the thing worth
     knowing, and nothing else in the traceback names it.
 
-    Only when the flag is off. VERL_USE_MODELSCOPE=true and the real module loads.
+    Applies only when NEITHER flag is on. verl reads VERL_USE_MODELSCOPE, and vLLM
+    reads its own VLLM_USE_MODELSCOPE in vllm/transformers_utils/__init__.py -- which
+    is what was actually routing DSW through ModelScope while verl's was False.
     """
 
     _TARGET = "modelscope.utils.hf_util"
@@ -102,10 +104,19 @@ class _StubLoader:
             # stub then breaks far more than it fixes.
             if name.startswith("__") and name.endswith("__"):
                 raise AttributeError(name)
-            # Ordinary names resolve to a no-op: we cannot know what a given image's
-            # caller reaches for, and an AttributeError there recreates the crash
-            # this stub exists to avoid.
-            return _noop
+            # Everything else raises too, and the message says why. Answering with
+            # a no-op looked safer and is worse: vLLM's ModelScope branch imports
+            # AutoConfig from this module, so a no-op silently became the config
+            # class and the failure surfaced 200 frames away as
+            #   AttributeError: 'function' object has no attribute 'from_pretrained'
+            # A stub may decline to patch. It must not impersonate a class.
+            raise AttributeError(
+                f"{name!r} is not provided by simopd's stub for "
+                "modelscope.utils.hf_util. The stub exists to stop patch_hub() "
+                "repointing this process at ModelScope. If ModelScope is wanted, set "
+                "VLLM_USE_MODELSCOPE=true and VERL_USE_MODELSCOPE=true; if it is not, "
+                "the caller above should not be reaching for ModelScope at all."
+            )
 
         mod.__getattr__ = _missing
         return mod
@@ -114,7 +125,21 @@ class _StubLoader:
         return None
 
 
-if os.environ.get("VERL_USE_MODELSCOPE", "False").lower() not in ("true", "1", "yes"):
+def _modelscope_wanted():
+    """True if EITHER package was asked to use ModelScope.
+
+    Two flags, two packages, one effect. verl reads VERL_USE_MODELSCOPE at import and
+    calls patch_hub(); vllm.transformers_utils reads VLLM_USE_MODELSCOPE at import and
+    calls the same function. Neutering while one of them is on would break that
+    package's own ModelScope paths, so the stub only applies when neither asked.
+    """
+    return any(
+        os.environ.get(v, "False").lower() in ("true", "1", "yes")
+        for v in ("VERL_USE_MODELSCOPE", "VLLM_USE_MODELSCOPE")
+    )
+
+
+if not _modelscope_wanted():
     sys.meta_path.insert(0, _NeuterModelScopePatching())
 
 

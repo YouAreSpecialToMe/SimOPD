@@ -492,6 +492,12 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 # corrupt copy (ModelScope cache). Both true, neither useful.
 #   VERL_USE_MODELSCOPE=true bash deploy/dsw/setup.sh   # to run on ModelScope
 export VERL_USE_MODELSCOPE=${VERL_USE_MODELSCOPE:-False}
+# vLLM has its OWN flag, read at import of vllm.transformers_utils, which calls
+# modelscope's patch_hub() before anything else happens. Setting only verl's leaves
+# this one live -- which is what actually routed a DSW run through ModelScope while
+# VERL_USE_MODELSCOPE was False, and produced 400s against modelscope.cn/api/v1/login
+# followed by a config class that was not a class.
+export VLLM_USE_MODELSCOPE=${VLLM_USE_MODELSCOPE:-False}
 export DATA_DIR="$DATA_ROOT/simopd_math"
 export CKPT_ROOT="$DATA_ROOT/ckpt"
 export WANDB_DIR="$DATA_ROOT/wandb"

@@ -38,11 +38,17 @@ fi
 # reroutes every huggingface_hub call, and ModelScope's default branch is 'master',
 # so asking for HF's 'main' fails on models that are already downloaded. It kills the
 # run at rollout-worker startup, minutes in, with a traceback about a missing revision.
-case "$(printf '%s' "${VERL_USE_MODELSCOPE:-False}" | tr '[:upper:]' '[:lower:]')" in
-    true|1|yes) bad "VERL_USE_MODELSCOPE=$VERL_USE_MODELSCOPE -- verl will route HF downloads through ModelScope"
-                fix "export VERL_USE_MODELSCOPE=False   (setup.sh now writes this into simopd_env.sh)" ;;
-    *)          ok "VERL_USE_MODELSCOPE off -- hub calls stay on HF/\${HF_ENDPOINT}" ;;
-esac
+# TWO flags, read by two different packages. verl checks its own at import and calls
+# patch_hub(); vllm.transformers_utils checks VLLM_USE_MODELSCOPE at import and calls
+# the same thing. Setting only one leaves the other routing every model lookup at
+# ModelScope -- which is exactly what happened on DSW.
+for _v in VERL_USE_MODELSCOPE VLLM_USE_MODELSCOPE; do
+    case "$(printf '%s' "$(eval echo \"\${$_v:-False}\")" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes) bad "$_v is on -- models will resolve through ModelScope"
+                    fix "export $_v=False   (setup.sh writes both into simopd_env.sh)" ;;
+        *)          ok "$_v off" ;;
+    esac
+done
 # The flag alone was not enough on DSW: something patched hub anyway. src/sitecustomize.py
 # now blocks the patching module outright when the flag is off, which only works if
 # PYTHONPATH carries src into the Ray workers -- so check the guard is actually live.
