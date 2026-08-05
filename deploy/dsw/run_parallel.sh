@@ -201,6 +201,7 @@ for lane in $(seq 0 $((LANES - 1))); do
     echo "            log: $log"
 
     CUDA_VISIBLE_DEVICES="$devices" \
+    SIMOPD_LANE_TAG="${RAY_TMPDIR_TAG:-}${lane}" \
     RAY_TMPDIR="${RAY_TMPDIR:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}${lane}" \
     LANE_RUNS="$lane_runs" LANE_STEPS="$STEPS" LANE_TEST_FREQ="$TEST_FREQ" \
     LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" SNAP="$SNAP" \
