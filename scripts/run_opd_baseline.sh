@@ -134,6 +134,11 @@ max_num_tokens=$(( max_prompt_length + max_response_length + 1 ))
 # extending a horizon is a legitimate resume, and the noise floor may well ask for it.
 ckpt_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name}
 resume_mode=auto
+# On a fresh run this is the step-0 anchor of the arm's curve and a wiring check
+# worth 75 minutes before committing 14 hours: 0.474 says the student and the
+# chat template loaded correctly, 0.05 says they did not. The resume branch below
+# turns it off, where it buys neither.
+val_before_train=${VAL_BEFORE_TRAIN:-True}
 fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
@@ -164,7 +169,15 @@ if [ -f "$latest_file" ]; then
         [ "${RESUME:-}" = force ] || exit 1
         echo "       RESUME=force given -- continuing, and recording the new fingerprint." >&2
     fi
+    # verl runs val_before_train AFTER _load_checkpoint, unconditionally (ray_trainer
+    # 1404 then 1413), so every resume pays a full MATH500 pass@1 -- ~75 minutes -- to
+    # re-measure a step it has just measured. save_freq is a multiple of test_freq here,
+    # so the resumed step always already has a validation logged against it. Set
+    # VAL_BEFORE_TRAIN=True to force it back if a resume is ever in doubt.
+    val_before_train=${VAL_BEFORE_TRAIN:-False}
     echo "=== resuming $experiment_name from step $_at (fingerprint $fingerprint)"
+    [ "$val_before_train" = False ] && echo "    skipping val_before_train (step $_at was" \
+        "validated when it was reached; ~75 min saved). VAL_BEFORE_TRAIN=True overrides."
     [ -f "$fp_file" ] || echo "    NOTE: no fingerprint on disk (checkpoint predates this check)." \
         "Cannot verify the config matches; verify by hand if this arm is going in the paper."
 else
@@ -209,7 +222,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=${experiment_name} \
     trainer.n_gpus_per_node=${NGPUS_PER_NODE} \
     trainer.nnodes=1 \
-    trainer.val_before_train=True \
+    trainer.val_before_train=${val_before_train} \
     trainer.save_freq=${save_freq} \
     trainer.test_freq=${test_freq} \
     trainer.total_epochs=${total_epochs} \
