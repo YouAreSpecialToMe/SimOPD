@@ -76,8 +76,8 @@
 | **clip 命中率** | \|signal\| > clamp 的 token 占比(F 轴开启时) | METRICS 预注册项 | ✅ `_clip_metrics`;否则 f2 的机制不可见 —— 它的 Δℓ 面板是**裁剪前**分布,和 vanilla 一模一样 |
 | **熵差** | \|H(q)−H(p)\|(Eq.8 原式)。student 侧**精确**(全词表);teacher 侧只能在返回的 top-k 上算,**系统性低估**它看不见的尾巴。两侧**分开发**而不是只发差值,近似程度就不会被埋进减法里 —— `teacher_mass` 低于 1.0 的部分正好是缺失的量 | Rethinking | ✅ `entropy_student` / `entropy_teacher_topk` / `entropy_gap_abs` |
 | **逐位置类别分解** | 所有上述 × {boxed span, 高熵 fork, 其他}(math);AST 类(code,Phase 3);约束 token(IFEval) | Rethinking Fig13 只按绝对位置;**按语义类别是我们的加强** | 要写(~80 行) |
-| **Informativeness ℐ** | Demystifying **Eq.4 原式**:teacher 概率在 correct vs incorrect rollout 上的差 | Demystifying | 要写(~15 行;reward 标签现成) |
-| **teacher 似然 AUROC** | 序列均值 teacher logprob 判别 correct/incorrect 的 AUROC | Rethinking(0.73-0.75 基准值可直接对表)+ FiRe s(y) 同族 | 要写(~10 行) |
+| **Informativeness ℐ** | Demystifying **Eq.4 原式**:teacher 概率在 correct vs incorrect rollout 上的差。**近零就意味着 teacher 分不出对错**,那么下游所有 token 级 trick 都在重新加权一个不含正确性信息的信号 | Demystifying | ✅ `scripts/informativeness.py`(**离线**,读 checkpoint) |
+| **teacher 似然 AUROC** | 同一个量当判别器用。Rethinking 报 **0.73–0.75**,是本文献里少数能**直接对表**而非靠叙述比较的数字。**FiRe 的 s(y) 轨迹过滤就是拿它当闸门**,所以这条同时是 `g2_fire_likelihood` 的前提检验 —— AUROC 低就说明那个臂在过滤噪声,**不训练它就得到了关于它的判决** | Rethinking + FiRe | ✅ 同上 |
 | **D 轴影子掩码** | TIP/Teachability/SelecTKD 三掩码影子计算:选中率 + 两两 Jaccard + **TAR**。Jaccard 不直接发,而发交/并两个逐 token 指示量 —— 指标管道报的是掩码内均值,而 **mean(A∧B)/mean(A∨B) 恰等于 \|A∩B\|/\|A∪B\|**(token 数约掉) | 冗余预测 #4 检验(本文新增);TAR 从 SelecTKD;**兼作组合筛选** —— 影子几乎一致的两个设置是同一个臂的两个名字,不值得各花一个 run | ✅ `shadow_*`,`SIMOPD_SHADOW=0` 可关 |
 | G 轴通过率 | verifier 通过率 / 似然过滤阈线位置 | FiRe(bottom-20% 阈线同款) | verl reward + ~10 行 |
 | **Gap Recovery 曲线** | GRR vs steps(终审档) | Rethinking | verdict.py |
