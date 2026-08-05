@@ -2,7 +2,8 @@
 # Run the SimOPD campaign across the 8 GPUs of a DSW instance as 4 concurrent lanes.
 #
 #   bash deploy/dsw/run_parallel.sh --rehearsal          # 3 steps/arm, ~30 min/lane
-#   bash deploy/dsw/run_parallel.sh                      # 300 steps/arm, the real campaign
+#   bash deploy/dsw/run_parallel.sh                      # the real campaign (STEPS default)
+#   STEPS=250 bash deploy/dsw/run_parallel.sh "vanilla:0 vanilla:1 vanilla:2 f1_soft_log:0"
 #   LANES=2 bash deploy/dsw/run_parallel.sh "vanilla:0 vanilla:1"
 #
 # One run = 2 GPUs (actor + teacher pool); verl registers the teacher pool as a
@@ -22,6 +23,21 @@ cd "$SIMOPD_ROOT"
 VENV=${SIMOPD_VENV:-simopd}
 source "$VENV/bin/activate"
 export PYTHONPATH="$SIMOPD_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+
+# Everything below used to be inherited from whatever shell launched this, which is
+# a silent dependency on someone having sourced simopd_env.sh in THIS terminal. Under
+# nohup, a campaign started from a fresh shell would run for days with the image's
+# defaults -- straight back through ModelScope -- and nobody would know until the end.
+# envtest.sh sets these itself, so a green envtest was never evidence about this path.
+[ -f simopd_env.sh ] && source simopd_env.sh
+# Two flags, two packages: verl reads its own at import and calls modelscope's
+# patch_hub(); vllm.transformers_utils reads VLLM_USE_MODELSCOPE and calls the same
+# thing. Setting one leaves the other routing every model lookup at ModelScope.
+export VERL_USE_MODELSCOPE=${VERL_USE_MODELSCOPE:-False}
+export VLLM_USE_MODELSCOPE=${VLLM_USE_MODELSCOPE:-False}
+# verl's console logger block-buffers to a file; anything unflushed dies with the
+# process, which is how a 24 GPU-hour run once produced no metrics at all.
+export PYTHONUNBUFFERED=1
 
 REHEARSAL=0
 [ "${1:-}" = "--rehearsal" ] && { REHEARSAL=1; shift; }
@@ -49,6 +65,58 @@ if [ -z "$RUNS" ]; then
         RUNS="$RUNS ${a}:0"
     done
 fi
+
+# ---------------------------------------------------------------------------
+# Pre-flight. Every one of these has cost this project real time, and each is
+# cheaper to check now than to discover on lane 3 of wave 4.
+# ---------------------------------------------------------------------------
+_fail=0
+[ "${GPUS_PER_RUN:-0}" -ge 1 ] || { echo "FATAL: GPUS_PER_RUN must be >=1 (a run needs an actor GPU and a teacher GPU)" >&2; exit 1; }
+[ "${LANES:-0}" -ge 1 ] || { echo "FATAL: LANES must be >=1" >&2; exit 1; }
+_need_gpus=$((LANES * GPUS_PER_RUN))
+_have_gpus=$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | wc -l)
+if [ "$_have_gpus" -lt "$_need_gpus" ]; then
+    echo "FATAL: $LANES lanes x $GPUS_PER_RUN GPUs needs $_need_gpus, found $_have_gpus" >&2
+    echo "       LANES=$((_have_gpus / GPUS_PER_RUN)) bash $0 ..." >&2
+    _fail=1
+fi
+# A 1.7B checkpoint is ~25GB and MAX_CKPT_KEEP defaults to 2. Filling the workspace
+# volume mid-campaign loses the runs that were writing at the time, not just the space.
+_runs=$(set -- $RUNS; echo $#)
+_need_gb=$(( _runs * ${MAX_CKPT_KEEP:-2} * 25 ))
+_free_gb=$(df -BG --output=avail "${CKPT_ROOT:-.}" 2>/dev/null | tail -1 | tr -dc '0-9')
+_free_gb=${_free_gb:-$(df -BG --output=avail . | tail -1 | tr -dc '0-9')}
+if [ "${_free_gb:-0}" -lt "$_need_gb" ]; then
+    echo "WARNING: $_runs runs x ${MAX_CKPT_KEEP:-2} checkpoints x ~25GB = ${_need_gb}G needed, ${_free_gb}G free" >&2
+    echo "         MAX_CKPT_KEEP=1 bash $0 ...   # halves it" >&2
+fi
+for _v in VERL_USE_MODELSCOPE VLLM_USE_MODELSCOPE; do
+    case "$(eval echo \"\${$_v}\" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes) echo "note: $_v is ON -- models resolve through ModelScope, and" >&2
+                    echo "      fetch_assets.py checks that cache too. Consistent, just be sure." >&2 ;;
+    esac
+done
+# A Ray head from a crashed run is not inert: a new ray.init() attaches to it and
+# inherits the environment IT started with, so everything set above is bypassed.
+if pgrep -f "raylet|gcs_server" >/dev/null 2>&1; then
+    echo "FATAL: a Ray cluster is already running. Lanes would attach to it and" >&2
+    echo "       inherit its environment, silently undoing the settings above." >&2
+    echo "       ray stop --force" >&2
+    _fail=1
+fi
+python scripts/fetch_assets.py --check --essential >/dev/null 2>&1 || {
+    echo "FATAL: student/teacher assets missing or corrupt." >&2
+    echo "       python scripts/fetch_assets.py --check --essential   # what is wrong" >&2
+    echo "       python scripts/fetch_assets.py --repair              # refetch" >&2
+    _fail=1
+}
+python scripts/arm.py check >/dev/null 2>&1 || {
+    echo "FATAL: the arm registry does not load; every lane would fail identically." >&2
+    echo "       PYTHONPATH=$SIMOPD_ROOT/src python scripts/arm.py check" >&2
+    _fail=1
+}
+[ "$_fail" = 0 ] || { echo "pre-flight failed; nothing launched." >&2; exit 1; }
+echo "pre-flight ok: ${_have_gpus} GPUs, ${_free_gb}G free (need ~${_need_gb}G), assets present, no stale Ray"
 
 # One immutable snapshot shared by every lane; see the note in slurm/campaign.sbatch.
 SNAP="${SNAP_ROOT:-$SIMOPD_ROOT/../simopd_data/snapshots}/$(date +%Y%m%d_%H%M%S)_$$"
