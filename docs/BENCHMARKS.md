@@ -68,8 +68,24 @@ eval 生成长度:筛选 8192 / 终验 16384(与训练帽一致),截断率必报
 
 ## 4. 卫生检查(W2 前完成)
 
-- [ ] 去污染:Nemotron-Cascade-RL-Math 对 {MATH500, AMC23, AIME24/25, Minerva}
-  做 13-gram 重叠扫描(NVIDIA 声称已去污,自查一遍写进 paper 卫生表);
+- [x] **去污染(2026-08-06 完成)**:`scripts/decontaminate.py`,13-gram,大小写/标点/
+  空白全折叠。**判据是重叠比例而非"有没有共享 gram"** —— 竞赛题满是套话,
+  "can be written as m/n where m and n are relatively prime positive integers"
+  本身就是 13 个 token,按"有共享即算"会让 AIME 显示 30% 污染而其实一题都没漏。
+
+  | bench | 重复(≥80%) | 部分(40–80%) | 有共享 gram | 总数 | 判定 |
+  |---|---|---|---|---|---|
+  | **MATH500** | **7** | 1 | 17 | 500 | ⚠ **有重复** |
+  | AMC23 | 0 | 0 | 11 | 40 | CLEAN(最高 23.7%,套话)|
+  | AIME24 | 0 | 0 | 9 | 30 | CLEAN(最高 29.3%,套话)|
+  | AIME25 | 0 | 0 | 9 | 30 | CLEAN |
+  | Minerva | 0 | 0 | 0 | 272 | CLEAN |
+
+  **MATH500 有 7 题(1.4%)与训练集实质重复**,ID 冻结在 `data/contaminated_ids.json`。
+  影响面要说准:污染**对每个臂和 vanilla 一视同仁地抬高**,所以**判决(逐题配对比较)
+  不受影响** —— 那 7 题在 McNemar 里是一致对,本来就不贡献检验量,只损失一点点检验力。
+  受影响的是**报表里那个绝对 pass@1**,主表需同时给"全 500 题"和"剔除 7 题"两个数。
+  NVIDIA 声称已去污 —— 大体成立(其余四个 bench 全干净),但 MATH500 这 7 题是漏网的。
 - [x] MATH500 100 题子集已冻结(2026-07-31):`data/math500_subset100.json`,seed=42,
   按 unique_id 记录(防重排),难度分布 L1-L5 = 8/16/19/22/35(与全集比例相称);
 - [x] **teacher 上限(2026-08-04 完成)**:非思考 MATH500 pass@1,greedy,协议同款模板 ——
