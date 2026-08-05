@@ -16,10 +16,30 @@ SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
 [ $# -ge 1 ] || { sed -n '2,8p' "$0"; exit 2; }
 
+# Both must mirror run_parallel.sh exactly, or this reclaims the wrong lane. When a
+# relaunch used RAY_TMPDIR_TAG=r2_ and GPU_LIST="2,3 6,7", lane 0 means /tmp/ray_laner2_0
+# on GPUs 2,3 -- while the defaults here would compute /tmp/ray_lane0 on GPUs 0,1,
+# which is a DIFFERENT, healthy lane. Reclaiming a stuck lane by killing a running one
+# is the exact accident this script exists to prevent.
+#   RAY_TMPDIR_TAG=r2_ GPU_LIST="2,3 6,7" bash deploy/dsw/sweep_lane.sh 0 1
 for lane in "$@"; do
-    tmp="${RAY_TMPDIR_BASE:-/tmp}/ray_lane${lane}"
-    first=$((lane * GPUS_PER_RUN))
-    gpus=$(seq -s, "$first" $((first + GPUS_PER_RUN - 1)))
+    tmp="${RAY_TMPDIR_BASE:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}${lane}"
+    if [ -n "${GPU_LIST:-}" ]; then
+        gpus=$(set -- $GPU_LIST; eval echo "\${$((lane + 1))}")
+        [ -n "$gpus" ] || { echo "GPU_LIST has no entry for lane $lane" >&2; continue; }
+    else
+        first=$((lane * GPUS_PER_RUN))
+        gpus=$(seq -s, "$first" $((first + GPUS_PER_RUN - 1)))
+    fi
+    # Refuse to act on a lane whose temp dir does not exist: that means the tag or the
+    # number is wrong, and the GPUs computed alongside it are then someone else's.
+    if [ ! -d "$tmp" ]; then
+        echo "=== lane $lane: no $tmp -- wrong RAY_TMPDIR_TAG or lane number?" >&2
+        echo "    existing lane temp dirs:" >&2
+        ls -d "${RAY_TMPDIR_BASE:-/tmp}"/ray_lane* 2>/dev/null | sed 's/^/      /' >&2
+        echo "    refusing, because the GPUs computed for it belong to another lane" >&2
+        continue
+    fi
     echo "=== lane $lane: GPUs [$gpus], $tmp"
 
     before=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader -i "$gpus" 2>/dev/null | wc -l)
