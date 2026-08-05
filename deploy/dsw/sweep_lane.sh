@@ -40,8 +40,20 @@ for lane in "$@"; do
         [ "$sig" = TERM ] && sleep 5
     done
 
-    # the lane worker itself, matched by the runs it was given
-    pkill -f "LANE_RUNS.*" 2>/dev/null
+    # The lane worker itself. It cannot be matched by command line -- every lane runs
+    # the identical `bash deploy/dsw/_lane.sh` -- and `pkill -f LANE_RUNS` (what this
+    # first did) is worse than useless: env assignments are not part of argv so it
+    # matches nothing, and were it ever to match it is not lane-scoped and would take
+    # the healthy lanes too. The lane worker is plain bash, never renamed by
+    # setproctitle, so unlike a Ray worker its environment IS readable -- and that is
+    # what says which lane it belongs to.
+    for pid in $(pgrep -u "$(id -u)" -f "[_]lane\.sh" 2>/dev/null); do
+        if { tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null |
+                grep -qxF "RAY_TMPDIR=$tmp"; then
+            echo "  lane worker pid $pid belongs to lane $lane -- stopping it"
+            kill -TERM "$pid" 2>/dev/null
+        fi
+    done
     after=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader -i "$gpus" 2>/dev/null | wc -l)
     echo "  now $after"
     [ "$after" -gt 0 ] && { echo "  still occupied:" >&2
