@@ -23,6 +23,9 @@ had, and each cost real GPU hours:
              unless capped, and it fills the volume mid-flight rather than at the start.
   EARLY-STOP-DUE
              the pre-registered stop rule (below) fires. `--enforce` acts on it.
+  VAL-0      initialised, inside val_before_train, which is silent until its 500
+             problems finish. Healthy. Reported because the first version called this
+             STALLED and two working lanes were nearly reclaimed on that basis.
 """
 
 import argparse
@@ -37,11 +40,20 @@ from datetime import datetime, timezone
 STEP_RE = re.compile(r"step:(\d+) - (.*)")
 KV_RE = re.compile(r"([\w/@\-.]+):(?:np\.float64\()?(-?[\d.eE+]+)\)?")
 RUN_RE = re.compile(r"#+ RUN: (\S+) #+")
+# verl prints this once initialisation is done. What follows, with val_before_train
+# on, is a full MATH500 validation that emits nothing until it finishes -- 500
+# problems at the length cap, ~40 minutes when other lanes are competing. Silence
+# there is the job working, not the job hung.
+READY_RE = re.compile(r"all initialize finished, ready to fit")
 DONE_RE = re.compile(r"#+ (\S+) -> (OK|FAIL) #+")
 TQDM_RE = re.compile(r"\|\s*(\d+)/(\d+) \[([\d:]+)<([\d:?]+),\s*([\d.]+)s/it\]")
 
 STALL_MIN = 25          # startup is legitimately ~5 min; 25 means something is wrong
 MODE_A_GROWTH = 1.5     # response length this many times its early value
+# val_before_train: 500 MATH500 problems, untrained base running to the cap, no output
+# until done. Measured ~37 min at 4.4 s/problem while two other lanes train, so the
+# patience before step 1 has to be far longer than the between-steps one.
+VAL0_MIN = float(os.environ.get("SIMOPD_VAL0_MIN", "75"))
 
 # ---------------------------------------------------------------- early stop
 # Pre-registered 2026-08-04 from vanilla_s0 (job 719188), measured on our own stack:
@@ -112,7 +124,8 @@ def parse_log(path):
                 if m:
                     current = m.group(1)
                     runs.setdefault(current, {"name": current, "log": path, "steps": [],
-                                              "val": [], "status": "running", "tqdm": None})
+                                              "val": [], "status": "running", "tqdm": None,
+                                              "ready": False})
                     continue
                 m = DONE_RE.search(line)
                 if m and m.group(1) in runs:
@@ -121,6 +134,8 @@ def parse_log(path):
                 if current is None:
                     continue
                 r = runs[current]
+                if READY_RE.search(line):
+                    r["ready"] = True
                 m = TQDM_RE.search(line)
                 if m:
                     r["tqdm"] = (int(m.group(1)), int(m.group(2)), m.group(4), float(m.group(5)))
@@ -168,7 +183,14 @@ def checkpoints(ckpt_root, run):
 def flags(r, ckpt_step, save_freq, live_jobs=None, ckpt_root=None):
     out = []
     idle_min = (time.time() - r["mtime"]) / 60
-    if r["status"] == "running" and idle_min > STALL_MIN:
+    # A run that has initialised but has no steps yet is inside val_before_train,
+    # which is silent for as long as 500 problems at the length cap take. Calling that
+    # STALLED cried wolf on two perfectly healthy lanes and nearly had them reclaimed.
+    warming = r.get("ready") and not r["steps"]
+    limit = VAL0_MIN if warming else STALL_MIN
+    if warming and idle_min <= limit:
+        out.append(f"VAL-0({idle_min:.0f}m)")
+    if r["status"] == "running" and idle_min > limit:
         # A run whose job is gone is abandoned, not stuck: nothing to wait for and
         # its numbers are void. Distinguishing them decides whether you debug or re-queue.
         job = re.search(r"-(\d{5,})\.out$", r["log"])
