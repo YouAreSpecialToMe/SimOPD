@@ -54,6 +54,29 @@ MODE_A_GROWTH = 1.5     # response length this many times its early value
 # until done. Measured ~37 min at 4.4 s/problem while two other lanes train, so the
 # patience before step 1 has to be far longer than the between-steps one.
 VAL0_MIN = float(os.environ.get("SIMOPD_VAL0_MIN", "75"))
+# Log silence has now been wrong twice in both directions: it called a working
+# val_before_train a stall, and it called a genuine deadlock "still validating". GPU
+# utilisation is not ambiguous. A run holding tens of GB across its GPUs at 0% util is
+# deadlocked -- the case seen was verl's actor_rollout_update_weights, every engine
+# resident, all four devices idle -- whereas a slow run always has one device busy.
+IDLE_GPU_MIN_MB = int(os.environ.get("SIMOPD_IDLE_GPU_MB", "8000"))
+
+
+def idle_gpus():
+    """GPU indices holding real memory at 0% utilisation. Empty if nvidia-smi is absent."""
+    try:
+        q = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,utilization.gpu,memory.used",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10)
+        out = []
+        for line in q.stdout.strip().splitlines():
+            idx, util, mem = (x.strip() for x in line.split(","))
+            if int(util) == 0 and int(mem) >= IDLE_GPU_MIN_MB:
+                out.append(int(idx))
+        return out
+    except Exception:
+        return []
 
 # ---------------------------------------------------------------- early stop
 # Pre-registered 2026-08-04 from vanilla_s0 (job 719188), measured on our own stack:
@@ -371,6 +394,11 @@ def main():
                       f"{s['t'] or 0:>6.1f}  {s['entropy'] or 0:>5.2f}")
         else:
             render(runs, args.ckpt_root)
+            _idle = idle_gpus()
+            if _idle:
+                print(f"\nGPU {','.join(map(str, _idle))} hold >={IDLE_GPU_MIN_MB//1000}GB at 0% "
+                      f"utilisation. A slow run keeps one device busy; a deadlocked one does not.")
+                print("  nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name --format=csv")
             if args.stale_hours > 0 and hidden:
                 print(f"\n({len(hidden)} finished run(s) older than {args.stale_hours:g}h hidden; "
                       f"--stale-hours 0 to show them)")
