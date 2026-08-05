@@ -126,11 +126,28 @@ for _v in VERL_USE_MODELSCOPE VLLM_USE_MODELSCOPE; do
 done
 # A Ray head from a crashed run is not inert: a new ray.init() attaches to it and
 # inherits the environment IT started with, so everything set above is bypassed.
-if pgrep -f "raylet|gcs_server" >/dev/null 2>&1; then
-    echo "FATAL: a Ray cluster is already running. Lanes would attach to it and" >&2
-    echo "       inherit its environment, silently undoing the settings above." >&2
-    echo "       ray stop --force" >&2
+#
+# But that is only true of a cluster under a tmpdir THIS launch will use. Lanes each
+# get their own RAY_TMPDIR and never share a cluster, so a healthy lane running
+# elsewhere is not a reason to refuse -- and the earlier version refused anyway,
+# telling the operator to `ray stop --force`, which would have killed two runs at
+# step 126 with their checkpoints on disk. A check that blocks the legitimate case and
+# recommends destroying live work is worse than no check.
+_busy=""
+for _lane in $(seq 0 $((LANES - 1))); do
+    _t="${RAY_TMPDIR:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}${_lane}"
+    pgrep -f "${_t}(/|$)" >/dev/null 2>&1 && _busy="$_busy $_lane"
+done
+if [ -n "$_busy" ]; then
+    echo "FATAL: lane(s)$_busy already have a live Ray cluster under" >&2
+    echo "       ${RAY_TMPDIR:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}<n>; new lanes would attach to it" >&2
+    echo "       and inherit its environment." >&2
+    echo "       bash deploy/dsw/sweep_lane.sh$_busy    # reclaims those only" >&2
+    echo "       (NOT ray stop --force -- that is machine-wide and kills healthy lanes)" >&2
     _fail=1
+elif pgrep -f "raylet|gcs_server" >/dev/null 2>&1; then
+    echo "note: other Ray cluster(s) are running -- expected if lanes are already going." >&2
+    echo "      They use different temp dirs, so these lanes will not attach to them." >&2
 fi
 python scripts/fetch_assets.py --check --essential >/dev/null 2>&1 || {
     echo "FATAL: student/teacher assets missing or corrupt." >&2
