@@ -68,13 +68,13 @@
 | 指标 | 定义 | 出处 | 来源 |
 |---|---|---|---|
 | **overlap ratio** | Rethinking **Eq.6 原式**:top-k 交集比例(k=64 主报,k=16 副报) | Rethinking | verl 现成(移到估计器路径) |
-| **overlap 质量版** | 交集 token 携带的双侧概率质量(97-99% 甜区对话用) | Rethinking App B.1 | 要写(~15 行) |
+| **overlap 质量版** | 交集 token 携带的**双侧**概率质量。计数版(Eq.6)说共享了几个 token,质量版说那几个 token **携带多少概率** —— 他们那句「交集持 97-99% 质量」正是「支撑大小无所谓」的承重步,而**只有质量版能证实或推翻它**:一大堆可忽略 token 的交集,在计数上一模一样 | Rethinking App B.1 | ✅ `overlap_teacher_mass` / `overlap_student_mass` |
 | **overlap-token advantage** | Rethinking Eq.7 原式 | Rethinking | verl 现成 |
 | **π_stu(S̄) 尾质量** | student 在 teacher top-k 外的质量,**在 K∈{8,16,32} 三个宽度同时报**(teacher 支撑是秩序的,窄支撑是它的前缀 → 一次前向拿到整条 K 扫描) | **本文 headline**(定理直接量;文献只看交集,没人看尾) | ✅ `pi_tail_k*`,所有 top-k 臂 |
 | **Δℓ 分布分位数** | p5/25/50/75/95 + mean\|Δℓ\| | Demystifying(其只报均值;分位数是我们加密度) | ✅ `_signal_quantiles` |
 | **命名纪律(重要)** | **只有 k1 族的 loss 等于 −Δℓ**,才可用 `delta_ell_*`;C/E 轴优化的是散度或排序损失,一律报 `loss_*` | 本文新增 | ✅ 两个面板 key 不相交,防止三种不同量被画到同一张跨臂对比图上 |
 | **clip 命中率** | \|signal\| > clamp 的 token 占比(F 轴开启时) | METRICS 预注册项 | ✅ `_clip_metrics`;否则 f2 的机制不可见 —— 它的 Δℓ 面板是**裁剪前**分布,和 vanilla 一模一样 |
-| **熵差** | \|H(q)−H(p)\|(Rethinking Eq.8 原式;teacher 熵用 top-64 截断近似,近似误差随 recorder 报) | Rethinking | 要写 |
+| **熵差** | \|H(q)−H(p)\|(Eq.8 原式)。student 侧**精确**(全词表);teacher 侧只能在返回的 top-k 上算,**系统性低估**它看不见的尾巴。两侧**分开发**而不是只发差值,近似程度就不会被埋进减法里 —— `teacher_mass` 低于 1.0 的部分正好是缺失的量 | Rethinking | ✅ `entropy_student` / `entropy_teacher_topk` / `entropy_gap_abs` |
 | **逐位置类别分解** | 所有上述 × {boxed span, 高熵 fork, 其他}(math);AST 类(code,Phase 3);约束 token(IFEval) | Rethinking Fig13 只按绝对位置;**按语义类别是我们的加强** | 要写(~80 行) |
 | **Informativeness ℐ** | Demystifying **Eq.4 原式**:teacher 概率在 correct vs incorrect rollout 上的差 | Demystifying | 要写(~15 行;reward 标签现成) |
 | **teacher 似然 AUROC** | 序列均值 teacher logprob 判别 correct/incorrect 的 AUROC | Rethinking(0.73-0.75 基准值可直接对表)+ FiRe s(y) 同族 | 要写(~10 行) |
