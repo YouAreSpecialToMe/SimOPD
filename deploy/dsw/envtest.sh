@@ -26,8 +26,17 @@ STEPS=${STEPS:-3}
 # The image exports this and verl acts on it at import: modelscope's patch_hub()
 # reroutes every huggingface_hub call, and ModelScope's default branch is 'master',
 # so asking for HF's 'main' fails on models already on disk.
-export VERL_USE_MODELSCOPE=False
-export VLLM_USE_MODELSCOPE=False   # vLLM has its own; setting one is not enough
+# ONE project-level knob. The two package flags are DERIVED from it and set
+# unconditionally -- never `${VAR:-False}`, which is a default and not an override, so
+# a value the image exported survives it. That is precisely how ModelScope came back
+# after being fixed twice: envtest.sh assigned False outright and passed, while this
+# path defaulted and inherited the image's true.
+#   SIMOPD_USE_MODELSCOPE=1  to genuinely run on ModelScope (fetch_assets follows too)
+if [ "${SIMOPD_USE_MODELSCOPE:-0}" = "1" ]; then
+    export VERL_USE_MODELSCOPE=True VLLM_USE_MODELSCOPE=True
+else
+    export VERL_USE_MODELSCOPE=False VLLM_USE_MODELSCOPE=False
+fi
 export PYTHONUNBUFFERED=1
 # wandb: default to offline unless there are real credentials. Lanes run under nohup
 # with no tty, so an un-authenticated wandb.init() cannot prompt -- it fails, and it

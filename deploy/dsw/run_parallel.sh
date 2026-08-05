@@ -30,11 +30,17 @@ export PYTHONPATH="$SIMOPD_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 # defaults -- straight back through ModelScope -- and nobody would know until the end.
 # envtest.sh sets these itself, so a green envtest was never evidence about this path.
 [ -f simopd_env.sh ] && source simopd_env.sh
-# Two flags, two packages: verl reads its own at import and calls modelscope's
-# patch_hub(); vllm.transformers_utils reads VLLM_USE_MODELSCOPE and calls the same
-# thing. Setting one leaves the other routing every model lookup at ModelScope.
-export VERL_USE_MODELSCOPE=${VERL_USE_MODELSCOPE:-False}
-export VLLM_USE_MODELSCOPE=${VLLM_USE_MODELSCOPE:-False}
+# ONE project-level knob. The two package flags are DERIVED from it and set
+# unconditionally -- never `${VAR:-False}`, which is a default and not an override, so
+# a value the image exported survives it. That is precisely how ModelScope came back
+# after being fixed twice: envtest.sh assigned False outright and passed, while this
+# path defaulted and inherited the image's true.
+#   SIMOPD_USE_MODELSCOPE=1  to genuinely run on ModelScope (fetch_assets follows too)
+if [ "${SIMOPD_USE_MODELSCOPE:-0}" = "1" ]; then
+    export VERL_USE_MODELSCOPE=True VLLM_USE_MODELSCOPE=True
+else
+    export VERL_USE_MODELSCOPE=False VLLM_USE_MODELSCOPE=False
+fi
 # verl's console logger block-buffers to a file; anything unflushed dies with the
 # process, which is how a 24 GPU-hour run once produced no metrics at all.
 export PYTHONUNBUFFERED=1
