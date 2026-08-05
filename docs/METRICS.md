@@ -93,7 +93,7 @@ timing 分解(verl 现成)、相对 vanilla step 开销比、GPU·h、rollout/pr
 | 每步 | Δℓ 分布+均值曲线、熵、长度+截断率、overlap(Eq.6/质量版)、π(S̄)、ℐ、timing |
 | 每 25 步(筛选 val) | MATH500 pass@1 + 重复率;逐题工件落盘 |
 | checkpoint 终评 | AMC23 avg@32、pass@8 面板(终审 k→64)、AIME avg@32、(锚点)Minerva;**+ 迁移列 HumanEval+/MBPP+/IFEval(greedy,1083 题 ≈0.25 GPU·时)** |
-| W1 一次性 | 噪声底×3 seeds(逐域);**teacher 上限** —— MATH500 ✅2026-08-04(0.896/0.792/0.702),AMC23 仍欠 |
+| W1 一次性 | 噪声底×3 seeds(逐域);**teacher 上限** ✅ 两个都齐了 —— MATH500(0.896/0.792/0.702)、AMC23 avg@32(0.913/0.683/0.434)|
 | Phase 0 | D6 逐题矩阵、D1'/D2'/D3 静态版、D5 |
 | Phase 3 | code/IFEval **重训**(shortlist 配方,非迁移评测)+ 三域主表 |
 
