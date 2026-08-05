@@ -75,10 +75,23 @@ fi
 # /dev/shm to 64MB, which does not fail loudly: the rollout worker dies and Ray
 # reports it as `ActorUnavailableError ... rpc_code: 14`, which names neither shm
 # nor the worker's actual error.
+# Two things share /dev/shm and neither fails loudly when it runs out: Ray's object
+# store lives there, and NCCL uses it for intra-node transport. A full /dev/shm makes
+# NCCL HANG rather than error -- observed as verl's actor_rollout_update_weights
+# sitting with every engine resident and 0% utilisation on all four of a lane's GPUs,
+# no traceback, nothing in the log. Host RAM being plentiful is not reassurance:
+# /dev/shm is a fixed-size tmpfs set when the container started and does not grow.
 SHM=$(df -m /dev/shm 2>/dev/null | tail -1 | awk '{print $2}')
-if [ "${SHM:-0}" -ge 8192 ]; then ok "/dev/shm ${SHM}M"
-elif [ "${SHM:-0}" -gt 0 ]; then bad "/dev/shm is only ${SHM}M -- vLLM workers will die at startup"
-     fix "restart the container with --shm-size=32g (DSW: raise it in the instance spec)"
+SHM_USED=$(df -m /dev/shm 2>/dev/null | tail -1 | awk '{print $5}')
+_lanes=${LANES:-4}
+_shm_want=$(( _lanes * 24 * 1024 ))     # ~24G per lane: object store plus NCCL buffers
+if [ "${SHM:-0}" -ge "$_shm_want" ]; then ok "/dev/shm $((SHM/1024))G used ${SHM_USED:-?} (>= ~$((_shm_want/1024))G for $_lanes lanes)"
+elif [ "${SHM:-0}" -ge 8192 ]; then
+     warn "/dev/shm is $((SHM/1024))G, used ${SHM_USED:-?}; $_lanes lanes want ~$((_shm_want/1024))G"
+     fix "mount -o remount,size=$((_shm_want/1024))G /dev/shm   # root in the container can do this live"
+     fix "or run fewer lanes: LANES=$(( SHM / 1024 / 24 ))"
+elif [ "${SHM:-0}" -gt 0 ]; then bad "/dev/shm is only ${SHM}M -- vLLM workers die at startup"
+     fix "mount -o remount,size=32G /dev/shm"
 else warn "could not read /dev/shm"; fi
 # A Ray head left behind by a crashed run is not inert: the next ray.init() attaches
 # to it, and its workers inherit the environment from when IT started -- so a variable
