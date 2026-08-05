@@ -148,9 +148,10 @@ def _after_verl_losses():
 
 
 def _after_vllm_server():
-    from simopd import teacher_patch
+    from simopd import teacher_patch, zmq_lane
 
     teacher_patch.install()
+    zmq_lane.install_server()
 
 
 def _after_vllm_rollout():
@@ -159,20 +160,15 @@ def _after_vllm_rollout():
     zmq_lane.install_sender()
 
 
-def _after_vllm_rollout_utils():
-    from simopd import zmq_lane
-
-    zmq_lane.install_receiver()
-
-
 # verl module -> what to run once it has finished executing
 _TARGETS = {
     "verl.trainer.distillation.losses": _after_verl_losses,
     "verl.workers.rollout.vllm_rollout.vllm_async_server": _after_vllm_server,
-    # Both ends of the weight-transfer socket, whose path collides across lanes
-    # because Ray job ids restart at 01000000 in every cluster. See simopd.zmq_lane.
+    # Both writers of the weight-transfer job id, which collides across lanes because
+    # Ray hands every lane's own cluster the same 01000000. The receiver needs no hook:
+    # it reads VERL_RAY_JOB_ID, which _after_vllm_server has already lane-stamped.
+    # See simopd.zmq_lane.
     "verl.workers.rollout.vllm_rollout.vllm_rollout": _after_vllm_rollout,
-    "verl.workers.rollout.vllm_rollout.utils": _after_vllm_rollout_utils,
 }
 
 
