@@ -160,6 +160,12 @@ def _after_vllm_rollout():
     zmq_lane.install_sender()
 
 
+def _after_vllm_rollout_utils():
+    from simopd import zmq_lane
+
+    zmq_lane.install_receiver_logging()
+
+
 # verl module -> what to run once it has finished executing
 _TARGETS = {
     "verl.trainer.distillation.losses": _after_verl_losses,
@@ -169,6 +175,9 @@ _TARGETS = {
     # it reads VERL_RAY_JOB_ID, which _after_vllm_server has already lane-stamped.
     # See simopd.zmq_lane.
     "verl.workers.rollout.vllm_rollout.vllm_rollout": _after_vllm_rollout,
+    # Read-only: the receiver's path is already correct via the lane-stamped job id.
+    # It logs so a disagreement between the two ends is a grep, not a 30-minute stall.
+    "verl.workers.rollout.vllm_rollout.utils": _after_vllm_rollout_utils,
 }
 
 
