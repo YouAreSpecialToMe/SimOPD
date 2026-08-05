@@ -169,14 +169,22 @@ for lane in $(seq 0 $((LANES - 1))); do
     done
     [ -z "$lane_runs" ] && continue
 
-    first=$((lane * GPUS_PER_RUN))
-    devices=$(seq -s, "$first" $((first + GPUS_PER_RUN - 1)))
+    # Contiguous by default. GPU_LIST overrides with one space-separated group per
+    # lane -- needed when a half-dead campaign frees non-adjacent GPUs and the healthy
+    # lanes must not be disturbed:  GPU_LIST="2,3 6,7"
+    if [ -n "${GPU_LIST:-}" ]; then
+        devices=$(set -- $GPU_LIST; eval echo "\${$((lane + 1))}")
+        [ -n "$devices" ] || { echo "GPU_LIST has no entry for lane $lane" >&2; continue; }
+    else
+        first=$((lane * GPUS_PER_RUN))
+        devices=$(seq -s, "$first" $((first + GPUS_PER_RUN - 1)))
+    fi
     log="$LOG_DIR/lane${lane}_${STAMP}.log"
     echo "  lane $lane  GPUs [$devices] ->$lane_runs"
     echo "            log: $log"
 
     CUDA_VISIBLE_DEVICES="$devices" \
-    RAY_TMPDIR="${RAY_TMPDIR:-/tmp}/ray_lane${lane}" \
+    RAY_TMPDIR="${RAY_TMPDIR:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}${lane}" \
     LANE_RUNS="$lane_runs" LANE_STEPS="$STEPS" LANE_TEST_FREQ="$TEST_FREQ" \
     LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" SNAP="$SNAP" \
     nohup bash deploy/dsw/_lane.sh > "$log" 2>&1 &
