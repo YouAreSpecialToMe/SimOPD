@@ -97,6 +97,16 @@ save_freq=${SAVE_FREQ:--1}
 # (The tier change from 0.6B roughly tripled this; MAX_CKPT_KEEP=1 halves it again.)
 max_ckpt_keep=${MAX_CKPT_KEEP:-2}
 
+# 'hf_model' is added to save_contents below. Without it verl writes only FSDP shards
+# (model_world_size_*.pt) plus a huggingface/ directory holding the config and
+# tokenizer but NO weights -- which nothing can load. Every downstream metric reads a
+# checkpoint: AMC23 avg@32, the per-arm transfer column, the diversity panel, and the
+# per-problem MATH500 artifact McNemar is computed on. Discovering this after a
+# campaign means the training is done and not one verdict can be issued.
+# Costs ~3.4GB per checkpoint at 1.7B bf16, against ~25GB of shards and optimizer
+# state already being written -- about 14%, for the difference between a checkpoint
+# and an artifact.
+
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 
 project_name=${PROJECT_NAME:-simopd}
@@ -152,6 +162,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_epochs=${total_epochs} \
     trainer.total_training_steps=${total_training_steps} \
     trainer.max_actor_ckpt_to_keep=${max_ckpt_keep} \
+    actor_rollout_ref.actor.checkpoint.save_contents="['model','optimizer','extra','hf_model']" \
     trainer.default_local_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name} \
     distillation.enabled=True \
     distillation.n_gpus_per_node=${TEACHER_WORLD_SIZE} \

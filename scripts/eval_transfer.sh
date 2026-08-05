@@ -5,6 +5,8 @@
 #   bash scripts/eval_transfer.sh vanilla_s0 300        # a specific step
 #   bash scripts/eval_transfer.sh --all                 # every run that has one
 #
+# The checkpoint path is the verl actor dir; eval_offline.py resolves it to the
+# huggingface/ subdir that actually holds loadable weights.
 # math-trained model, evaluated on code/IF: a SIDE-EFFECT measurement (METRICS §2,
 # "域间迁移损益"), reported as Delta vs vanilla. It does not select -- selection stays
 # in math (plan §4) -- and it says nothing about whether a trick works when distilling

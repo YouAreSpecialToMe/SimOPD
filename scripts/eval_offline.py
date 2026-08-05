@@ -40,6 +40,7 @@ Examples
 """
 
 import argparse
+import glob
 import json
 import os
 import subprocess
@@ -66,6 +67,37 @@ BENCHMARKS = {
     "minerva": ("math-ai/minervamath", "test", "question", "answer"),
 }
 SUBSET_FILE = "data/math500_subset100.json"
+
+
+def resolve_model(path):
+    """Point at loadable weights, given a verl checkpoint directory.
+
+    verl writes `<step>/actor/` as FSDP shards (model_world_size_*.pt) with the config
+    and tokenizer in a `huggingface/` subdirectory beside them. Passing the actor dir
+    to vLLM fails on the tokenizer first, which reads as a broken checkpoint rather
+    than as the wrong path -- and if `hf_model` was not in save_contents there are no
+    HF weights anywhere, which is a different problem with the same symptom. Separate
+    the two, because one is a typo and the other means the run must be repeated.
+    """
+    if not os.path.isdir(path):
+        return path                       # a hub id
+    hf = os.path.join(path, "huggingface")
+    if os.path.isdir(hf):
+        weights = glob.glob(os.path.join(hf, "*.safetensors")) + glob.glob(os.path.join(hf, "*.bin"))
+        if weights:
+            print(f"[eval] verl checkpoint -> {hf}")
+            return hf
+        shards = glob.glob(os.path.join(path, "model_world_size_*.pt"))
+        raise SystemExit(
+            f"{path} holds FSDP shards ({len(shards)} found) and a huggingface/ dir with "
+            "config and tokenizer but NO weights, so nothing can load it.\n"
+            "  That run was trained without 'hf_model' in "
+            "actor_rollout_ref.actor.checkpoint.save_contents (fixed in "
+            "run_opd_baseline.sh 2026-08-05).\n"
+            "  Recover this one with:  python -m verl.model_merger merge "
+            f"--backend fsdp --local_dir {path} --target_dir {hf}"
+        )
+    return path
 
 
 def load_benchmark(name):
@@ -108,6 +140,8 @@ def main():
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
     from verl.utils.reward_score import default_compute_score
+
+    args.model = resolve_model(args.model)
 
     tok = AutoTokenizer.from_pretrained(args.model)
     llm = LLM(
