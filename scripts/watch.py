@@ -317,12 +317,22 @@ def main():
     p.add_argument("--save-freq", type=int, default=int(os.environ.get("SAVE_FREQ", "50")))
     p.add_argument("--watch", type=int, metavar="SEC", help="refresh every SEC seconds")
     p.add_argument("--run", help="show one run's validation trajectory")
+    p.add_argument("--stale-hours", type=float, default=12.0,
+                   help="hide finished runs whose log has not moved in this long "
+                        "(0 = show everything). Dead rehearsals from days ago crowd out "
+                        "the four rows that are actually live.")
     p.add_argument("--enforce", action="store_true",
                    help="scancel runs the pre-registered stop rule fires on (use with --watch)")
     args = p.parse_args()
 
     while True:
         runs = collect(args.log_dir, args.ckpt_root, args.save_freq)
+        if args.stale_hours > 0:
+            cutoff = time.time() - args.stale_hours * 3600
+            hidden = [n for n, r in runs.items()
+                      if r["status"] != "running" and r["mtime"] < cutoff]
+            for n in hidden:
+                del runs[n]
         if args.enforce:
             enforce(runs)
         if args.run:
@@ -339,6 +349,9 @@ def main():
                       f"{s['t'] or 0:>6.1f}  {s['entropy'] or 0:>5.2f}")
         else:
             render(runs, args.ckpt_root)
+            if args.stale_hours > 0 and hidden:
+                print(f"\n({len(hidden)} finished run(s) older than {args.stale_hours:g}h hidden; "
+                      f"--stale-hours 0 to show them)")
         if not args.watch:
             return
         time.sleep(args.watch)
