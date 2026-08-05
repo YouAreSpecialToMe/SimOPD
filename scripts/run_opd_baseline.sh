@@ -119,6 +119,59 @@ val_files="['$data_dir/math500.parquet']"
 
 max_num_tokens=$(( max_prompt_length + max_response_length + 1 ))
 
+# ---- resume ---------------------------------------------------------------
+# We have no resume code of our own; verl's resume_mode defaults to "auto", which
+# silently continues from the newest checkpoint in default_local_dir. That is right
+# for preemption -- a requeued DLC or slurm job must resume without a human -- and
+# wrong for everything else, because it cannot tell a preempted run from a relaunch
+# with a changed config. The second case splices two configs into one curve and says
+# nothing, which for a pre-registered audit is a contaminated arm that still looks
+# like an arm. StatefulDataLoader restores the data order, so a legitimate resume is
+# faithful; the risk is entirely about resuming the wrong thing.
+#
+# So: record what defines the run, and refuse when the record contradicts it. Only
+# the fields that make two runs incomparable go in. total_training_steps does not --
+# extending a horizon is a legitimate resume, and the noise floor may well ask for it.
+ckpt_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name}
+resume_mode=auto
+fingerprint=$(printf '%s\n' \
+    "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
+    "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
+    "arm=${ARM_ARGS[*]-}" "seed=${SEED:-}" \
+    "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
+    "prompt=$max_prompt_length" "resp=$max_response_length" \
+    "data=$train_files" "pad=$use_remove_padding" | sha1sum | cut -c1-12)
+fp_file="$ckpt_dir/simopd_fingerprint.txt"
+latest_file="$ckpt_dir/latest_checkpointed_iteration.txt"
+
+if [ -f "$latest_file" ]; then
+    _at=$(cat "$latest_file" 2>/dev/null)
+    if [ "${RESUME:-}" = fresh ]; then
+        echo "FATAL: RESUME=fresh, but $ckpt_dir already holds a checkpoint at step $_at." >&2
+        echo "       Starting over while it sits there leaves old and new checkpoints in one" >&2
+        echo "       directory, and the next auto-resume would pick whichever number is" >&2
+        echo "       larger -- possibly the run you meant to discard. Move it aside first:" >&2
+        echo "         mv $ckpt_dir ${ckpt_dir}.superseded" >&2
+        exit 1
+    fi
+    if [ -f "$fp_file" ] && [ "$(cat "$fp_file")" != "$fingerprint" ]; then
+        echo "FATAL: $ckpt_dir holds a checkpoint at step $_at from a DIFFERENT config." >&2
+        echo "         on disk $(cat "$fp_file")   now $fingerprint" >&2
+        echo "       Resuming would splice two configs into one curve with nothing in the" >&2
+        echo "       logs to say so. Pick one:" >&2
+        echo "         mv $ckpt_dir ${ckpt_dir}.superseded    # start this config cleanly" >&2
+        echo "         RESUME=force ...                        # you know they are compatible" >&2
+        [ "${RESUME:-}" = force ] || exit 1
+        echo "       RESUME=force given -- continuing, and recording the new fingerprint." >&2
+    fi
+    echo "=== resuming $experiment_name from step $_at (fingerprint $fingerprint)"
+    [ -f "$fp_file" ] || echo "    NOTE: no fingerprint on disk (checkpoint predates this check)." \
+        "Cannot verify the config matches; verify by hand if this arm is going in the paper."
+else
+    echo "=== fresh start: $experiment_name (fingerprint $fingerprint)"
+fi
+mkdir -p "$ckpt_dir" && printf '%s\n' "$fingerprint" > "$fp_file"
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
@@ -163,7 +216,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_training_steps=${total_training_steps} \
     trainer.max_actor_ckpt_to_keep=${max_ckpt_keep} \
     actor_rollout_ref.actor.checkpoint.save_contents="['model','optimizer','extra','hf_model']" \
-    trainer.default_local_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name} \
+    trainer.default_local_dir=${ckpt_dir} \
+    trainer.resume_mode=${resume_mode} \
     distillation.enabled=True \
     distillation.n_gpus_per_node=${TEACHER_WORLD_SIZE} \
     distillation.nnodes=1 \
