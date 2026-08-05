@@ -44,6 +44,11 @@ HEARTBEAT = re.compile(
     r"|UserWarning|FutureWarning|DeprecationWarning"
     r"|torch\.cuda\.memory\._set_allocator_settings"
     r"|<frozen importlib"
+    # transformers emits this on every healthy bf16 run, and its own condition is
+    # wrong: it names bfloat16 as supported and then complains the dtype is bfloat16.
+    r"|Flash Attention 2 only supports"
+    r"|torch_dtype` is deprecated"
+    r"|Online softmax is disabled"
 )
 # Progress bars for dataset mapping look exactly like training progress; only the
 # labelled one tells you how far the RUN got.
@@ -220,6 +225,8 @@ def main():
     p.add_argument("log", nargs="?", help="log file; default = newest under logs/")
     p.add_argument("-n", type=int, default=1, help="how many errors to show (default 1)")
     p.add_argument("--ray", action="store_true", help="also search Ray worker logs")
+    p.add_argument("--tail", action="store_true",
+                   help="print the last lines even when nothing failed (they are warnings)")
     p.add_argument("--ray-tmp", action="append", default=[],
                    help="Ray temp dir to search (repeatable); default /tmp/ray and /tmp/ray_lane*")
     p.add_argument("--context", type=int, default=6,
@@ -258,11 +265,26 @@ def main():
 
     found = rank(list(errors(lines)), segs)
     if not found:
-        print("\nno traceback in this log.")
-        tail = [l for l in lines[-15:]]
-        print("last 15 meaningful lines:")
-        for l in tail:
-            print("   ", l[:200])
+        # Do NOT dump the tail here. A healthy verl log ends in deprecation notices and
+        # a transformers warning that contradicts itself ("Flash Attention 2 only
+        # supports ... bfloat16, but the current dype ... is bfloat16"), and printing
+        # fifteen of those under a heading reads as a failure report. This tool exists
+        # to prevent exactly that misreading, so say the state plainly instead.
+        running = [n for n, st, _, _ in segs if st is None]
+        if steps:
+            state = f"still running, at step {max(steps)}" if running else f"finished, reached step {max(steps)}"
+        else:
+            state = "no training steps yet (still starting up)"
+        print(f"\nno failure in this log -- {state}.")
+        if running:
+            print(f"  {', '.join(running)} has not printed its -> OK/FAIL marker yet, which is")
+            print("  what 'unfinished' means. Progress belongs to watch.py, not here:")
+            print(f"     python scripts/watch.py --run {running[0]}")
+        print("  (--tail to see the last lines anyway; they are warnings, not errors)")
+        if a.tail:
+            print("\nlast 15 meaningful lines:")
+            for l in lines[-15:]:
+                print("   ", l[:200])
         return 0
 
     # A run that succeeded still emits teardown tracebacks -- wandb closing, atexit
