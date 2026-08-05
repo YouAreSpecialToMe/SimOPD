@@ -501,6 +501,12 @@ export VLLM_USE_MODELSCOPE=${VLLM_USE_MODELSCOPE:-False}
 export DATA_DIR="$DATA_ROOT/simopd_math"
 export CKPT_ROOT="$DATA_ROOT/ckpt"
 export WANDB_DIR="$DATA_ROOT/wandb"
+# Offline unless credentials exist. A lane under nohup cannot answer wandb's login
+# prompt, and an instance behind the GFW may not reach wandb.ai at all; offline
+# records everything locally for `wandb sync` later.
+if [ -z "\${WANDB_API_KEY:-}" ] && ! grep -qs "api.wandb.ai" "\$HOME/.netrc"; then
+    export WANDB_MODE=\${WANDB_MODE:-offline}
+fi
 
 # Our arm losses register through sitecustomize on PYTHONPATH. Guarded so repeated
 # sourcing does not stack duplicates onto the path.

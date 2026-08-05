@@ -293,11 +293,20 @@ def enforce(runs, ledger="logs/early_stops.tsv"):
         with open(ledger, "a") as f:
             f.write(line)
         print(f"EARLY STOP {r['name']} at step {step}: {why}")
-        if job:
+        if job and shutil.which("scancel"):
             subprocess.run(["scancel", job.group(1)], timeout=20)
             print(f"  scancelled job {job.group(1)}; recorded in {ledger}")
         else:
-            print("  could not identify the slurm job from the log name; not cancelled")
+            # DSW has no scheduler: runs are lane subprocesses, and killing one from
+            # outside is the same problem _lane.sh's sweep exists to solve -- doing it
+            # halfway would leave the Ray cluster for the lane's NEXT run to attach to.
+            # The ledger entry is what the verdict layer actually needs (arms are
+            # compared at their minimum common step), so recording without stopping is
+            # correct rather than a half-measure.
+            print(f"  recorded in {ledger}; not stopped (no scheduler here).")
+            print("  To stop it: the lane will move on at its own STEPS. To cut it now,")
+            print("  kill that lane's log-named process group -- do NOT `ray stop --force`,")
+            print("  which is machine-wide and takes the other three lanes with it.")
 
 
 def main():

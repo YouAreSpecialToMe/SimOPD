@@ -51,9 +51,20 @@ sweep_lane() {   # sweep_lane [pgid-of-the-run]
         #    put them in their own session. They cannot hide holding memory on a GPU,
         #    and lanes own disjoint GPUs, so this stays lane-private. Best-effort:
         #    inside some containers nvidia-smi reports no PIDs at all.
+        #    Verified 2026-08-05 on an A100 node: nvidia-smi ignores
+        #    CUDA_VISIBLE_DEVICES, so `-i "$LANE_GPUS"` really does mean this lane's
+        #    physical GPUs. But inside a container nvidia-smi can report HOST pids,
+        #    which either do not exist here or -- worse -- name an unrelated local
+        #    process. So each pid is confirmed to be ours and to look like a
+        #    training process before it is signalled.
         if [ -n "$LANE_GPUS" ]; then
             for pid in $(nvidia-smi --query-compute-apps=pid --format=csv,noheader \
                              -i "$LANE_GPUS" 2>/dev/null); do
+                [ -r "/proc/$pid/cmdline" ] || continue
+                case "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" in
+                    *python*|*ray::*|*vllm*|*VLLM*|*raylet*) ;;
+                    *) continue ;;
+                esac
                 kill -"$sig" "$pid" 2>/dev/null
             done
         fi

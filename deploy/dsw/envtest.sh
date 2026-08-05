@@ -29,6 +29,14 @@ STEPS=${STEPS:-3}
 export VERL_USE_MODELSCOPE=False
 export VLLM_USE_MODELSCOPE=False   # vLLM has its own; setting one is not enough
 export PYTHONUNBUFFERED=1
+# wandb: default to offline unless there are real credentials. Lanes run under nohup
+# with no tty, so an un-authenticated wandb.init() cannot prompt -- it fails, and it
+# fails in every lane at once. Offline still records everything for a later
+# `wandb sync`, and watch.py reads the console logger rather than wandb anyway.
+if [ -z "${WANDB_API_KEY:-}" ] && ! grep -qs "api.wandb.ai" "$HOME/.netrc"; then
+    export WANDB_MODE=${WANDB_MODE:-offline}
+    echo "wandb: no credentials found -> WANDB_MODE=offline (sync later with: wandb sync $WANDB_DIR)"
+fi
 
 echo "=== pre-flight ==="
 python scripts/fetch_assets.py --check 2>&1 | tail -5 || {

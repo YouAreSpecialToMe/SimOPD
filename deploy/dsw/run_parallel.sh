@@ -39,6 +39,15 @@ export VLLM_USE_MODELSCOPE=${VLLM_USE_MODELSCOPE:-False}
 # process, which is how a 24 GPU-hour run once produced no metrics at all.
 export PYTHONUNBUFFERED=1
 
+# wandb: default to offline unless there are real credentials. Lanes run under nohup
+# with no tty, so an un-authenticated wandb.init() cannot prompt -- it fails, and it
+# fails in every lane at once. Offline still records everything for a later
+# `wandb sync`, and watch.py reads the console logger rather than wandb anyway.
+if [ -z "${WANDB_API_KEY:-}" ] && ! grep -qs "api.wandb.ai" "$HOME/.netrc"; then
+    export WANDB_MODE=${WANDB_MODE:-offline}
+    echo "wandb: no credentials found -> WANDB_MODE=offline (sync later with: wandb sync $WANDB_DIR)"
+fi
+
 REHEARSAL=0
 [ "${1:-}" = "--rehearsal" ] && { REHEARSAL=1; shift; }
 

@@ -205,7 +205,9 @@ def main():
     p.add_argument("--data-dir", default=os.path.expanduser("~/data/simopd_math"))
     p.add_argument("--check", action="store_true", help="report what is missing, download nothing")
     p.add_argument("--essential", action="store_true",
-                   help="only the student and teacher a run needs; skip the D6 ladder")
+                   help="only what a TRAINING run needs: student, teacher, train/val parquet. "
+                        "Skips the D6 ladder and the transfer-column assets, which a campaign "
+                        "must not be blocked on -- they are needed at eval time, not at launch.")
     p.add_argument("--repair", action="store_true",
                    help="re-download even files that already exist; use when integrity fails")
     args = p.parse_args()
@@ -266,7 +268,7 @@ def main():
             missing += 1
 
     print("\neval datasets:")
-    for name, split in DATASETS:
+    for name, split in ([] if args.essential else DATASETS):
         if dataset_cached(name, split):
             print(f"  cached   {name}")
             continue
@@ -284,7 +286,7 @@ def main():
             missing += 1
 
     print("\ntransfer benchmarks (code + IF):")
-    for name in EVALPLUS:
+    for name in ([] if args.essential else EVALPLUS):
         if os.path.exists(evalplus_path(name)) and os.path.exists(groundtruth_path(name)):
             print(f"  cached   {name} (+ ground truth)")
         elif args.check:
@@ -298,7 +300,9 @@ def main():
             except Exception as e:
                 print(f"  FAILED   {name}: {type(e).__name__}: {str(e)[:160]}", file=sys.stderr)
                 missing += 1
-    if nltk_punkt_cached():
+    if args.essential:
+        print("  (skipped with --essential)")
+    elif nltk_punkt_cached():
         print("  cached   nltk punkt (IFEval sentence checkers)")
     elif args.check:
         print("  MISSING  nltk punkt")
