@@ -194,8 +194,11 @@ DSW 上 `setup.sh` 会**按驱动版本自动选 CUDA 家族**:驱动 ≥580 走
 pytorch-wheels,vLLM 轮子只有 GitHub release 一处,需 GITHUB_PROXY)。
 
 **torch 与 vLLM 的版本号两条路完全相同(2.11.0 / 0.26.0),只是 CUDA runtime 不同。**
-数值差异应落在 run-to-run 噪声内(噪声底本来就在量这个),但**这是一条跨集群偏离,
-必须记进台账**:vanilla 双跑校验的 pass@1 差值若超噪声底,CUDA 家族是第一嫌疑。
+
+**该偏离已消除(2026-08-05)**:campaign 全部在 DSW 单集群跑,不再跨集群拆分,
+因此原先要求的 **vanilla 双跑校验作废** —— 没有两个集群要对齐,再跑一次就只是重复。
+Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 teacher 天花板)。
+若将来又把臂分到两个集群上跑,这条偏离和它的校验一并复活。
 
 ## 3. 与文献 setup 的显式偏离(防审稿人问)
 
