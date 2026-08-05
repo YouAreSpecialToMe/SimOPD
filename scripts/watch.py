@@ -394,10 +394,19 @@ def main():
                       f"{s['t'] or 0:>6.1f}  {s['entropy'] or 0:>5.2f}")
         else:
             render(runs, args.ckpt_root)
-            _idle = idle_gpus()
+            # Idle GPUs alone mean nothing: every lane's TEACHER is a vLLM engine that
+            # holds ~70GB and sits at 0% between scoring calls, which at 500 s/it is
+            # most of the time. Reporting that flagged three healthy teachers. The
+            # deadlock had a second half -- no run was advancing either -- so require
+            # both, and then it is unambiguous.
+            _stuck = [r for r in runs.values() if r["status"] == "running"
+                      and (time.time() - r["mtime"]) / 60 > STALL_MIN]
+            _idle = idle_gpus() if _stuck else []
             if _idle:
                 print(f"\nGPU {','.join(map(str, _idle))} hold >={IDLE_GPU_MIN_MB//1000}GB at 0% "
-                      f"utilisation. A slow run keeps one device busy; a deadlocked one does not.")
+                      f"utilisation while {len(_stuck)} run(s) have stopped advancing.")
+                print("  A slow run keeps one device busy; a deadlocked one does not.")
+                print("  py-spy dump --pid <pid>    # names the blocking line directly")
                 print("  nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name --format=csv")
             if args.stale_hours > 0 and hidden:
                 print(f"\n({len(hidden)} finished run(s) older than {args.stale_hours:g}h hidden; "
