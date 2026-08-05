@@ -218,3 +218,23 @@ Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 
 - [ ] SelecTKD 代码库定位 + 其 on-policy 变体的确切掩码规则
 - [ ] LSM 是否公开代码(论文 verl 系;fetch 未见 repo 链接)
 - [ ] 各臂论文 arXiv 编号最终核验(案卷 v1 的已知风险)
+
+## 评测路径与 step-0 锚点(2026-08-05)
+
+`trainer.val_before_train` **默认关闭**。它测的 step-0 值对每条臂都是同一个数(同一个
+`Qwen3-1.7B-Base`、同一套 greedy、同一个 MATH500),15 条臂各测一遍约 **19 GPU-小时**
+换一个常数。
+
+**step-0 锚点 = MATH500 pass@1 `0.468`**,取自 **verl 内部 val 路径**。
+
+不用 `eval_offline.py` 报的 `0.4740`:曲线上 step 25/50/… 全部来自 verl 的 val,step-0
+若来自另一条评测路径,每条臂的第一段就混了两套测量。两者差 0.006,**臂间比较不受影响**
+(所有臂同一常数偏移),受影响的是"相对基线提升"这类绝对量。
+
+`val_before_train` 原本兼任的接线检查由 `scripts/preflight.py` 承担(~20 秒,只加载
+tokenizer 和 parquet 头):非思考模板渲染、师生词表一致、数据集存在且非空、超长 prompt
+比例、loss mode 是否真的注册(`PYTHONPATH` 掉了会让 `k1_rec` 静默退化成 stock `k1`)。
+
+**有效训练集**:`train.parquet` 14476 行,其中约 **14%** 超过 `max_prompt_length=1024`,
+被 `filter_overlong_prompts=True` 丢弃,实际训练约 **12478 行**。`truncation='error'`
+保证漏网的会报错而非静默截断。

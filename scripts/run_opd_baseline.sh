@@ -138,7 +138,14 @@ resume_mode=auto
 # worth 75 minutes before committing 14 hours: 0.474 says the student and the
 # chat template loaded correctly, 0.05 says they did not. The resume branch below
 # turns it off, where it buys neither.
-val_before_train=${VAL_BEFORE_TRAIN:-True}
+# Off by default (2026-08-05). A full MATH500 pass@1 is ~75 minutes and its step-0
+# value is the SAME for every arm -- one base model, greedy, one val set -- so
+# 15 arms spend ~19 GPU-hours re-measuring one constant. It is recorded instead:
+# scripts/preflight.py STEP0_MATH500 = 0.468, the verl-path value, so every curve
+# stays on one measurement pipeline (eval_offline.py reports 0.4740 for the same
+# model, and mixing the two would put each arm's first point on a different one).
+# The wiring check it also performed is now scripts/preflight.py, in ~20 seconds.
+val_before_train=${VAL_BEFORE_TRAIN:-False}
 fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
@@ -169,21 +176,25 @@ if [ -f "$latest_file" ]; then
         [ "${RESUME:-}" = force ] || exit 1
         echo "       RESUME=force given -- continuing, and recording the new fingerprint." >&2
     fi
-    # verl runs val_before_train AFTER _load_checkpoint, unconditionally (ray_trainer
-    # 1404 then 1413), so every resume pays a full MATH500 pass@1 -- ~75 minutes -- to
-    # re-measure a step it has just measured. save_freq is a multiple of test_freq here,
-    # so the resumed step always already has a validation logged against it. Set
-    # VAL_BEFORE_TRAIN=True to force it back if a resume is ever in doubt.
-    val_before_train=${VAL_BEFORE_TRAIN:-False}
+    # A resume has a second, independent reason to skip validation: verl runs
+    # val_before_train AFTER _load_checkpoint and unconditionally (ray_trainer 1404 then
+    # 1413), so it would re-measure the step it just restored. save_freq is a multiple
+    # of test_freq here, so that step already has a validation logged against it.
     echo "=== resuming $experiment_name from step $_at (fingerprint $fingerprint)"
-    [ "$val_before_train" = False ] && echo "    skipping val_before_train (step $_at was" \
-        "validated when it was reached; ~75 min saved). VAL_BEFORE_TRAIN=True overrides."
     [ -f "$fp_file" ] || echo "    NOTE: no fingerprint on disk (checkpoint predates this check)." \
         "Cannot verify the config matches; verify by hand if this arm is going in the paper."
 else
     echo "=== fresh start: $experiment_name (fingerprint $fingerprint)"
 fi
 mkdir -p "$ckpt_dir" && printf '%s\n' "$fingerprint" > "$fp_file"
+
+# The gate val_before_train used to be, without the 75 minutes of generation.
+python3 "$(dirname "$0")/preflight.py" \
+    --student "$STUDENT_MODEL" --teacher "$TEACHER_MODEL" \
+    --data "$data_dir/${TRAIN_FILE_BASENAME:-train.parquet}" \
+    --val "$data_dir/math500.parquet" \
+    --loss "$distillation_loss_mode" \
+    --max-prompt-length "$max_prompt_length"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
