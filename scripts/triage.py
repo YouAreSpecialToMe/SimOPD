@@ -265,6 +265,15 @@ def main():
             print("   ", l[:200])
         return 0
 
+    # A run that succeeded still emits teardown tracebacks -- wandb closing, atexit
+    # handlers racing the interpreter. Reporting those the same way as a real failure
+    # is how a tool stops being believed, so say plainly when that is all there is.
+    real = [(i, b) for i, b in found if not LOW_PRIORITY.search("\n".join(b))]
+    if not real and not any(st == "FAIL" for _, st, _, _ in segs):
+        print(f"\nno failure. ({len(found)} teardown traceback(s) -- wandb/atexit races "
+              f"on a run that finished; pass -n {len(found)} to see them.)")
+        return 0
+
     print(f"\n{len(found)} traceback(s); showing {min(a.n, len(found))}, most-likely-cause "
           f"first (inside a FAILed run beats elsewhere; teardown races rank last)")
     shown = 0
