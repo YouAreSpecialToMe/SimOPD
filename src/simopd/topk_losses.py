@@ -135,6 +135,16 @@ def compute_reverse_kl_topk(
     for width in PI_TAIL_WIDTHS:
         if width <= teacher_topk_ids.shape[-1]:
             out[f"pi_tail_k{width}"] = (1.0 - probs_on_support[..., :width].sum(dim=-1)).clamp(0.0, 1.0)
+    # Same reason the panels above are repeated here: this arm does not route through
+    # _overlap_diagnostics, so anything added there silently skips the one arm whose
+    # method IS top-k truncation.
+    out["overlap_teacher_mass"] = (teacher_topk_log_probs.exp() * overlap_mask).sum(dim=-1)
+    out["overlap_student_mass"] = (student_topk_log_probs.exp() * overlap_mask).sum(dim=-1)
+    t_ent_topk = -(teacher_topk_log_probs.exp() * teacher_topk_log_probs).sum(dim=-1)
+    s_ent = -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+    out["entropy_student"] = s_ent
+    out["entropy_teacher_topk"] = t_ent_topk
+    out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
     if SHADOW_ENABLED:
         out.update(_shadow_panel(student_log_probs, teacher_topk_log_probs, teacher_topk_ids,
                                  student_topk_log_probs, student_topk_ids))
@@ -266,6 +276,24 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
         "overlap_count": overlap_count,
         "overlap_token_advantage": torch.where(overlap_count > 0, adv, torch.zeros_like(adv)),
     }
+    # Rethinking App B.1's "quality" form of overlap. The count version (Eq.6) says how
+    # many tokens the two top-k sets share; this says how much PROBABILITY those shared
+    # tokens carry. Their claim that the intersection holds 97-99% of the mass is the
+    # load-bearing step in "support size does not matter", and only the mass version can
+    # confirm or refute it -- a large intersection of negligible tokens looks identical
+    # by count.
+    out["overlap_teacher_mass"] = (t_lp.exp() * overlap_mask).sum(dim=-1)
+    out["overlap_student_mass"] = (stu_at_teacher.exp() * overlap_mask).sum(dim=-1)
+    # Rethinking Eq.8, |H(q) - H(p)|. The student side is exact (full vocabulary); the
+    # teacher side can only be computed on the returned top-k, which UNDERSTATES its
+    # entropy by the tail it cannot see. Both sides are emitted separately so the
+    # approximation stays visible instead of being buried inside a difference: teacher
+    # mass below 1.0 is exactly how much of the teacher's distribution is missing.
+    t_ent_topk = -(t_lp.exp() * t_lp).sum(dim=-1)
+    s_ent = -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+    out["entropy_student"] = s_ent
+    out["entropy_teacher_topk"] = t_ent_topk
+    out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
     # pi(S-bar): student mass OUTSIDE the teacher's support. This is the quantity the
     # headline theorem is written in -- truncated reverse-KL error =
     # pi(S-bar) * KL(pi||q | S-bar) -- and the literature reports only the intersection
@@ -319,6 +347,8 @@ SHADOW_KEYS = (
     "shadow_and_teach_selectkd", "shadow_or_teach_selectkd",
 )
 PI_TAIL_KEYS = tuple(f"pi_tail_k{w}" for w in PI_TAIL_WIDTHS)
+OVERLAP_KEYS = ("overlap_teacher_mass", "overlap_student_mass",
+                "entropy_student", "entropy_teacher_topk", "entropy_gap_abs")
 
 
 # Shared retention for every D-axis selector, so the three arms are supervision-budget

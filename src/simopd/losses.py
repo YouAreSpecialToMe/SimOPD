@@ -331,14 +331,14 @@ def _topk_registry_fn(*extra_keys, signal="loss"):
     return fn
 
 
-from simopd.topk_losses import PI_TAIL_KEYS, SHADOW_KEYS
+from simopd.topk_losses import OVERLAP_KEYS, PI_TAIL_KEYS, SHADOW_KEYS
 
 # Every top-k arm reports the same two panels on top of its own keys: the shadow
 # masks (what the other D-axis selectors would have chosen -- redundancy prediction
 # #4, and the cheap way to tell whether two settings are actually different) and
 # pi(S-bar) at several support widths (the headline theorem's quantity, and the K
 # sweep for free). Both are pure functions of tensors the kernels already compute.
-_PANELS = SHADOW_KEYS + PI_TAIL_KEYS
+_PANELS = SHADOW_KEYS + PI_TAIL_KEYS + OVERLAP_KEYS
 
 for _name, _extras in [
     # C axis. Was delegating to verl's compute_forward_kl_topk post-processor, which

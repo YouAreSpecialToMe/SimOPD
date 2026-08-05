@@ -20,9 +20,13 @@ CKPT_ROOT=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}
 PROJECT=${PROJECT_NAME:-simopd}
 OUT_DIR=${EVAL_OUT_DIR:-/scratch/zz865/simopd/evals}
 BENCHES=${BENCHES:-humanevalplus,mbppplus,ifeval}
-# Long enough for IFEval's "at least 800 words" prompts; truncation rate is printed
-# per benchmark, so if this ever binds it is visible rather than silent.
-MAX_TOKENS=${MAX_TOKENS:-2048}
+# 4096, raised from 2048 on the first end-to-end run: IFEval truncated 21.4% of its
+# answers at 2048 while HumanEval+ truncated 3.0% and MBPP+ 10.1%. IFEval asks for
+# "at least 400/800 words" and scores whether the answer obeys, so a truncated answer
+# fails the constraint it was cut off from meeting -- the column would have measured
+# our cap rather than the model. Set BEFORE any arm's transfer column runs, because
+# changing it later makes the arms incomparable.
+MAX_TOKENS=${MAX_TOKENS:-4096}
 # evalplus forks a worker per test. Leave the training lanes their cores -- and see
 # the load-sensitivity note in transfer_eval.py for what happens when you do not.
 PARALLEL=${PARALLEL:-8}
