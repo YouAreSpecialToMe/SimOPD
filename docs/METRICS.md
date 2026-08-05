@@ -43,7 +43,7 @@
 | AIME24/25 avg@32(全档) | 同上 | Demystifying(其含 AIME26/HMMT25,我们不扩,预注册可选) | 终审 |
 | Minerva pass@1(仅锚点) | greedy | **锚点专用**:Demystifying 报表含 Minerva,对表面加宽 | 锚点 run |
 | HumanEval+/MBPP+ pass@1、IFEval strict | 官方 harness(evalplus / instruction_following_eval) | FiRe(+ 变体)/Teachability | **每臂 final ckpt**(迁移列,§2);Phase 3 另有跨域**重训** |
-| **Gap Recovery Rate** | (Acc_配方−Acc_前)/(Acc_师−Acc_前);**分母已测(2026-08-04)**:MATH500 非思考 teacher 上限 4B-2507 **0.896** / 8B 0.792 / 1.7B 0.702;学生 1.7B-Base 起点 **0.468** → 主档可用差距 **0.428** | **Rethinking**;跨 teacher 档可比性 | 台账列(verdict.py 算) |
+| **Gap Recovery Rate** | (Acc_配方−Acc_前)/(Acc_师−Acc_前)。**两个分母都已实测**:MATH500(greedy)4B-2507 **0.896**/8B 0.792/1.7B 0.702;**AMC23(avg@32)4B-2507 0.9133**/8B 0.683/1.7B 0.434。学生 1.7B-Base 起点 MATH500 **0.468** → 主档可用差距 **0.428** | **Rethinking**;跨 teacher 档可比性 | 台账列(verdict.py 算) |
 | **噪声底** | vanilla×3 seeds 的 MATH500 pass@1 极差 | **本文新增**(文献无人做;判"平局"必需) | W1 一次 |
 
 统计装置与逐题工件 schema 不变(v1;`scripts/verdict.py`、parquet 落盘

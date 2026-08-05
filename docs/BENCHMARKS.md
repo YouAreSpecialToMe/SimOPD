@@ -78,7 +78,12 @@ eval 生成长度:筛选 8192 / 终验 16384(与训练帽一致),截断率必报
   1.7B<8B<4B —— 在 `enable_thinking=False` 下 8B 被砍掉主武器。
   由此改了两件事:主档 teacher 换成 4B-Instruct-2507(PROTOCOL §1),
   D6 从"单调阶梯"改为"尺寸/能力解耦"(plan §3)。
-  ⚠ 仍欠:AMC23 上再各测一次(GRR 的副指标分母)。
+  **AMC23 天花板(2026-08-05 完成,avg@32,τ=0.7/p=0.95,协议同款 checkpoint 终评参数)**:
+  **4B-Instruct-2507 = 0.9133**(pass@32 1.000,len 2857)/ **8B = 0.6828**(0.950,1688)/
+  **1.7B = 0.4336**(0.875,1457)。GRR 的两个分母现在都齐了。
+  **AMC23 上的倒挂比 MATH500 更极端**:4B-2507 领先 8B **23.1 个点**(MATH500 是 10.4)、
+  领先 1.7B **48.0 个点**。题越难,`enable_thinking=False` 对 hybrid 模型的惩罚越重 ——
+  8B 的强项本来就建立在 thinking 上。这把 D6 的"尺寸/能力解耦"从一个观察变成了一条趋势。
 - [x] AIME/AMC 答案字段抽查(2026-07-31 完成):amc23/aime25 answer 列整数 ✓;
   **math-ai/aime24 无 answer 列 → 已换 HuggingFaceH4/aime_2024**(30 题,answer 列 ✓)。
 
