@@ -63,6 +63,19 @@ STEPS=${STEPS:-150}   # see run_opd_baseline.sh: 300 was 19h/arm of Mode A
 TEST_FREQ=${TEST_FREQ:-25}
 SAVE_FREQ=${SAVE_FREQ:-50}
 TAG=${TAG:-}
+
+# Ray sizes its object store at DEFAULT_OBJECT_STORE_MEMORY_PROPORTION (0.3) of
+# AVAILABLE host memory -- PER INSTANCE. Each lane starts its own Ray, each sees a
+# machine with plenty free, and each claims 30%: four lanes ask for 120% of the box.
+# Measured: 28.3GB apiece on a 94GB host. The store is lazily backed by /dev/shm, so
+# nothing fails at startup -- it fails hours later, as a lane hanging with no
+# traceback while its neighbours keep running, which is exactly what happened to
+# lanes 1 and 3 at step 5 while 0 and 2 reached step 126.
+# Divide by the lane count so all lanes together ask for what one would have.
+if [ -z "${RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION:-}" ]; then
+    export RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION=$(awk -v n="$LANES" 'BEGIN{printf "%.4f", 0.30/(n<1?1:n)}')
+fi
+echo "ray object store: ${RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION} of available RAM per lane ($LANES lanes)"
 if [ "$REHEARSAL" = 1 ]; then
     STEPS=3; TEST_FREQ=-1; SAVE_FREQ=-1; TAG=rehearsal
     export PROJECT_NAME=${PROJECT_NAME:-simopd_rehearsal}

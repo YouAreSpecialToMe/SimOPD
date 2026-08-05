@@ -107,6 +107,18 @@ fi
 NVCC_VER=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
 if [ -n "$NVCC_VER" ]; then ok "nvcc $NVCC_VER -> torch must be cu${NVCC_VER%%.*}x"
 else warn "no nvcc on PATH -- flash-attn cannot be compiled here"; fi
+# Host RAM, against what concurrent lanes need. GPUs are disjoint per lane but the
+# host memory, /dev/shm and Ray's object store are shared -- and an over-committed
+# object store does not fail at startup, it hangs a lane hours later with no traceback.
+RAM=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}')
+_lanes=${LANES:-4}
+_want=$(( _lanes * 25 + 30 ))     # ~25G of processes per lane, plus object stores/OS
+if [ "${RAM:-0}" -ge "$_want" ]; then ok "${RAM}G RAM (>= ~${_want}G for $_lanes lanes)"
+elif [ "${RAM:-0}" -gt 0 ]; then warn "${RAM}G RAM; $_lanes lanes want ~${_want}G"
+     fix "LANES=$(( (RAM - 30) / 25 )) bash deploy/dsw/run_parallel.sh ...   # fewer lanes, same total work"
+else warn "could not read host RAM"; fi
+SHM_G=$(df -BG /dev/shm 2>/dev/null | tail -1 | awk '{print $2}' | tr -dc '0-9')
+[ "${SHM_G:-0}" -gt 0 ] && ok "/dev/shm ${SHM_G}G (Ray's object store lives here)"
 AVAIL=$(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9')
 [ "${AVAIL:-0}" -ge 150 ] && ok "${AVAIL}G free here" || warn "${AVAIL:-?}G free -- a 17-run campaign wants ~350G (MAX_CKPT_KEEP=1 to halve it)"
 
