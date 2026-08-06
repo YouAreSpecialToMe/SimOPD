@@ -350,14 +350,21 @@ if [ "$_expect" -gt "$_detected" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; 
     echo >&2
     echo "       Unfinished runs it found, with how long since their log last moved --" >&2
     echo "       anything under ${INFLIGHT_HOURS:-6}h counts as alive, and a validation is ~75 min of silence:" >&2
+    # Newest log per run only. Several rounds of failed launches leave a dead log
+    # each, and printing them all made vanilla_s1 appear four times -- which buried
+    # the fact that mattered: two runs went quiet 490 and 492 minutes ago, within two
+    # minutes of each other, which is one event and not two slow runs.
     for _f in "$LOG_DIR"/lane*.log "$LOG_DIR"/*/lane*.log; do
         [ -f "$_f" ] || continue
         _last=$(grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$_f" 2>/dev/null | tail -1 | awk '{print $3}')
         [ -n "$_last" ] || continue
         grep -qE "^#+ $_last -> (OK|FAIL)" "$_f" && continue
-        printf '         %-28s %4d min   %s\n' "$_last" \
-            "$(( ( $(date +%s) - $(stat -c %Y "$_f") ) / 60 ))" "$_f" >&2
-    done
+        printf '%s\t%s\t%s\n' "$(stat -c %Y "$_f")" "$_last" "$_f"
+    done | sort -rn | awk -F'\t' -v now="$(date +%s)" '
+        !seen[$2]++ { printf "         %-28s %4d min   %s\n", $2, (now-$1)/60, $3 }
+        seen[$2]>1  { hidden++ }
+        END { if (hidden) printf "         (%d older log(s) from earlier attempts hidden)\n", hidden }
+    ' >&2
     echo >&2
     echo "       ps -o pid,etime,cmd -p \$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | tr '\\n' ',' | sed 's/,\$//')" >&2
     echo "       INFLIGHT_HOURS=12 MACHINE=$MACHINE bash deploy/campaign.sh   # if a run is simply slow" >&2
