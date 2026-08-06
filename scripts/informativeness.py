@@ -167,7 +167,7 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-tokens", type=int, default=8192)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
-    p.add_argument("--work", default="/home/zz865/data/simopd_evals")
+    p.add_argument("--work", default=os.environ.get("SIMOPD_EVAL_ROOT", "/home/zz865/data/simopd_evals"))
     p.add_argument("--phase", choices=["generate", "score", "report", "all"], default="all")
     a = p.parse_args()
 

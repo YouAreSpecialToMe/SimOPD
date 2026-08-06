@@ -539,6 +539,11 @@ export VLLM_USE_MODELSCOPE=$( [ "${SIMOPD_USE_MODELSCOPE:-0}" = 1 ] && echo True
 export DATA_DIR="$DATA_ROOT/simopd_math"
 export CKPT_ROOT="$DATA_ROOT/ckpt"
 export WANDB_DIR="$DATA_ROOT/wandb"
+# Where the offline evaluators write their per-problem parquet artifacts. Their
+# argparse defaults are Cornell paths that exist on no other cluster, and unlike
+# CKPT_ROOT there was nothing here to override them -- so eval_offline.py,
+# d6_matrix.py and informativeness.py now all read this first.
+export SIMOPD_EVAL_ROOT="$DATA_ROOT/evals"
 # Offline unless credentials exist. A lane under nohup cannot answer wandb's login
 # prompt, and an instance behind the GFW may not reach wandb.ai at all; offline
 # records everything locally for `wandb sync` later.

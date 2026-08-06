@@ -134,7 +134,10 @@ def main():
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
     p.add_argument("--parallel", type=int, default=None,
                    help="evalplus unit-test workers (code benchmarks only); default = cpu count")
-    p.add_argument("--out-dir", default="/scratch/zz865/simopd/evals")
+    # Env first, Cornell path as the fallback -- same shape as progress.py's
+    # --ckpt-root. A bare literal here is unreachable on any other cluster, and
+    # unlike CKPT_ROOT nothing in simopd_env.sh could override it.
+    p.add_argument("--out-dir", default=os.environ.get("SIMOPD_EVAL_ROOT", "/scratch/zz865/simopd/evals"))
     args = p.parse_args()
 
     from transformers import AutoTokenizer
