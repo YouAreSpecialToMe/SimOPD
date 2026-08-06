@@ -320,7 +320,7 @@ def render(runs, ckpt_root):
         pass
 
 
-def enforce(runs, ledger="logs/early_stops.tsv"):
+def enforce(runs, ledger="logs/early_stops.tsv", kill=False):
     """Cancel runs the stop rule fires on, and record WHY in a ledger.
 
     The record is the point. An unrecorded early stop makes two arms silently
@@ -346,9 +346,16 @@ def enforce(runs, ledger="logs/early_stops.tsv"):
         with open(ledger, "a") as f:
             f.write(line)
         print(f"EARLY STOP {r['name']} at step {step}: {why}")
-        if job and shutil.which("scancel"):
+        if job and shutil.which("scancel") and kill:
             subprocess.run(["scancel", job.group(1)], timeout=20)
             print(f"  scancelled job {job.group(1)}; recorded in {ledger}")
+        elif job and shutil.which("scancel"):
+            # Fixed-horizon amendment (2026-08-06): every arm runs the full 250 steps
+            # so curves share one x-axis, and the rule's firing step is RECORDED as a
+            # measurement -- how long an arm held off Mode A is F-axis data, and
+            # vanilla_s0's own tail (0.63@155 -> 0.506@250) is exactly what
+            # enforcement would have amputated. --kill restores the old behaviour.
+            print(f"  recorded in {ledger}; NOT cancelled (fixed 250-step horizon).")
         else:
             # DSW has no scheduler: runs are lane subprocesses, and killing one from
             # outside is the same problem _lane.sh's sweep exists to solve -- doing it
@@ -374,8 +381,19 @@ def main():
                    help="hide finished runs whose log has not moved in this long "
                         "(0 = show everything). Dead rehearsals from days ago crowd out "
                         "the four rows that are actually live.")
+    # Recording is NOT a flag. Since the fixed-horizon amendment nothing is ever
+    # stopped, so the ledger is pure measurement -- and a measurement behind an
+    # opt-in flag named "--enforce" read exactly like the thing the amendment
+    # abolished: the operator saw the suggested command and reasonably asked whether
+    # early stopping was back. It records on every invocation now (idempotent via
+    # the ledger dedup), which also means one post-campaign run back-fills every
+    # firing step from the complete logs -- no resident watcher required.
     p.add_argument("--enforce", action="store_true",
-                   help="scancel runs the pre-registered stop rule fires on (use with --watch)")
+                   help="deprecated no-op: the stop ledger records on every invocation")
+    p.add_argument("--kill", action="store_true",
+                   help="DANGEROUS: actually scancel a run when the stop rule fires "
+                        "(abolished by the 2026-08-06 fixed-horizon amendment; exists "
+                        "for a deliberate future protocol change only)")
     args = p.parse_args()
 
     while True:
@@ -386,8 +404,7 @@ def main():
                       if r["status"] != "running" and r["mtime"] < cutoff]
             for n in hidden:
                 del runs[n]
-        if args.enforce:
-            enforce(runs)
+        enforce(runs, kill=args.kill)
         if args.run:
             r = runs.get(args.run)
             if not r:

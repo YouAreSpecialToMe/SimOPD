@@ -139,6 +139,26 @@ def main():
         fail.append("sitecustomize is not importable; none of the patches apply and "
                     "k1_rec would silently be stock k1")
 
+    # ModelScope's three resurrections all shared one shape: a flag goes truthy
+    # somewhere in the chain, and the death certificate is a vLLM stack at engine
+    # init, fourteen identical times across lanes. Name it here instead, before a
+    # launch is spent: truthy flags must be the deliberate knob AND importable.
+    for var in ("VERL_USE_MODELSCOPE", "VLLM_USE_MODELSCOPE"):
+        val = os.environ.get(var, "")
+        if val.lower() in ("true", "1", "yes"):
+            if os.environ.get("SIMOPD_USE_MODELSCOPE", "0") != "1":
+                fail.append(f"{var}={val} but SIMOPD_USE_MODELSCOPE is not 1 -- the flag "
+                            f"leaked in from somewhere (simopd_env.sh? an inherited shell?) "
+                            f"rather than being chosen. run_opd_baseline force-assigns from "
+                            f"the knob, so seeing this means the assignment was bypassed.")
+            else:
+                try:
+                    import modelscope  # noqa: F401
+                    print(f"  modelscope deliberately ON ({var}) and importable")
+                except ImportError:
+                    fail.append(f"{var}={val} (deliberate) but modelscope is not installed "
+                                f"in this venv -- every vLLM engine will die at init.")
+
     print(f"  step0 MATH500 anchor {STEP0_MATH500} (recorded; val_before_train is off)")
     if fail:
         print("\npreflight FAILED:", file=sys.stderr)

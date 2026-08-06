@@ -27,6 +27,20 @@ set -xeuo pipefail
 # run whose numbers are the evidence for stopping it.
 export PYTHONUNBUFFERED=1
 
+# ModelScope, resurrection three. Round one: the image exported it and ${VAR:-False}
+# is a default, not an override. Round two: simopd_env.sh carries an explicit
+# VLLM_USE_MODELSCOPE=True from a long-finished download errand. Round three: lanes
+# died at vLLM init because SOME launch chain reached this script with the flag
+# truthy and no modelscope in the venv. run_parallel force-assigns both flags -- but
+# only launches that pass through run_parallel. This is the innermost shell every
+# variant must traverse, so the assignment lives here too: derived from the ONE knob,
+# assigned unconditionally, never defaulted.
+if [ "${SIMOPD_USE_MODELSCOPE:-0}" = "1" ]; then
+    export VERL_USE_MODELSCOPE=True VLLM_USE_MODELSCOPE=True
+else
+    export VERL_USE_MODELSCOPE=False VLLM_USE_MODELSCOPE=False
+fi
+
 # Screening tier, decided 2026-08-04 on measurement rather than on the v3.1 plan's
 # speed argument. Both changed:
 #
@@ -129,8 +143,17 @@ max_ckpt_keep=${MAX_CKPT_KEEP:-2}
 # composition -> both the RNG stream and the reduction order. Runs that must be
 # comparable have to share it: vanilla s0/s1/s2 are the noise floor, and a config
 # difference among them would inflate it and make every downstream verdict falsely
-# conservative. Pin ROLLOUT_GPU_MEM_UTIL=0.45 to match a run started before this date.
-rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.55}
+# conservative.
+#
+# DEFAULT 0.45 for the whole screening campaign (audit 2026-08-06). It was 0.55 here
+# while campaign.sh exported 0.45 -- which protected exactly one entrance. Any launch
+# not through campaign.sh (cornell's campaign.sbatch, a manual run_parallel, f1's
+# +100-step resume) got 0.55: the resume is refused by the fingerprint, but a FRESH
+# arm at 0.55 starts quietly and becomes an incomparable batch member that nothing
+# refuses. Same lesson as ModelScope: the protocol value lives at the innermost
+# layer, not at whichever launcher remembered to export it. 0.55 returns as the
+# anchor-round default, where the whole batch starts together.
+rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 

@@ -202,6 +202,44 @@ if [ -z "$_mapped" ]; then
     printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$_map"
     echo "  registered: $(hostname) = $MACHINE ($_map)"
 fi
+
+# A unique tmpdir tag PER INVOCATION. Lane numbering restarts at 0 every launch, so a
+# second invocation on a box with surviving lanes computed the same /tmp/ray_lane<m>_0
+# as a cluster still alive under it -- and run_parallel's attach-guard then correctly
+# refused, wedging the machine: m1 could not top up because its own healthy vanilla_s1
+# owned lane 0's tmpdir. Timestamping the tag makes the collision impossible instead
+# of guarded; GPU ownership (not tags) is what prevents double-launches, and fix_node
+# reclaims by GPU truth, so nothing else keyed on tag stability.
+LAUNCH_TAG="${MACHINE}_$(date +%s)_"
+# One launch at a time per machine. A daemon firing while a human runs campaign.sh
+# by hand would have both count the same free GPUs and both launch lanes onto them.
+# The lock is machine-LOCAL (/tmp) on purpose: the race being closed is same-machine
+# concurrency, and flock on the shared NAS mount is exactly the semantics not to
+# depend on. plan/probe/fingerprint modes take no lock -- they launch nothing.
+# .v2 in the lock path, and 9>&- on every launch below: nohup'd lanes inherit open
+# file descriptors, so the flock taken here was held by the entire ray/vllm tree for
+# the lifetime of the lanes -- every machine with running lanes refused all further
+# campaign invocations, manual and daemon alike, as "mid-launch". Closing the fd in
+# the children fixes the cause; versioning the path releases the fleet from locks the
+# CURRENTLY-running lanes already hold, without touching them.
+if [ "$MODE" = run ] || [ "$MODE" = control ]; then
+    # Every launching invocation records its own transcript on the shared mount.
+    # Manual runs used to exist only in someone's terminal scrollback: three times
+    # today the words "还是有点问题" arrived without the output that would have
+    # named the problem in one read, and diagnosis stalled on asking for a paste.
+    # The daemon already records itself; now the human path does too.
+    mkdir -p logs
+    exec > >(tee "logs/campaign_last_${MACHINE}.txt") 2>&1
+    echo "(transcript: logs/campaign_last_${MACHINE}.txt @ $(date -u +%FT%TZ), HEAD $(git rev-parse --short HEAD 2>/dev/null))"
+    exec 9> "/tmp/simopd_campaign_${MACHINE}.v2.lock"
+    flock -n 9 || {
+        echo "FATAL: another campaign.sh invocation is mid-launch on this machine" >&2
+        echo "       (daemon and manual run overlapping is the usual cause; wait a" >&2
+        echo "       minute or stop the daemon: touch .campaign/daemon.stop.$MACHINE)" >&2
+        exit 1
+    }
+fi
+
 rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
     echo "FATAL: '$MACHINE' has no rows in $MANIFEST." >&2
     echo "       Known: $(rows | awk '{print $2}' | sort -u | tr '\n' ' ')" >&2
@@ -298,7 +336,7 @@ fi
 # paper. FAIL is retried (it resumes from its checkpoint) and reported, because a run
 # that keeps failing needs an operator, not a quiet retry.
 done_ok=" "; failed=" "; recent=" "
-declare -A _started _ended
+declare -A _started _ended _failn
 if [ -d "$LOG_DIR" ]; then
     # Both layouts: logs/lane*.log from before machines were separated, and
     # logs/<machine>/lane*.log from now on -- which matters on a shared filesystem,
@@ -307,7 +345,8 @@ if [ -d "$LOG_DIR" ]; then
         [ -f "$f" ] || continue
         while read -r n; do done_ok="$done_ok$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> OK' "$f" 2>/dev/null | awk '{print $2}')
-        while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
+        while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 ))
+            _failn[$n]=$(( ${_failn[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> FAIL' "$f" 2>/dev/null | awk '{print $2}')
         while read -r n; do _started[$n]=$(( ${_started[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
@@ -332,7 +371,7 @@ fi
 # what it cannot start holds it away from the machine that could. A first version
 # claimed during the manifest walk -- which also meant --dry took the whole pool and
 # left nothing for anyone, a side effect a dry run must not have.
-mine=""; pool=""; skipped=""; live=""; retry=""
+mine=""; pool=""; skipped=""; live=""; retry=""; quarantined=""
 while read -r w m arm s note; do
     name="${arm}_s${s}"
     case "$done_ok" in *" $name "*) skipped="$skipped $name(done)"; continue ;; esac
@@ -344,7 +383,17 @@ while read -r w m arm s note; do
             _need=${note#needs=}
             [ -e "$_need" ] || { skipped="$skipped $name(needs $_need)"; continue; } ;;
     esac
-    case "$failed"  in *" $name "*) retry="$retry $name" ;; esac
+    # Three strikes and the run is quarantined instead of retried. The daemon makes
+    # retries unattended, and an arm with a real bug would otherwise crash-loop all
+    # night, burning a lane per attempt with nobody watching. Three attempts is enough
+    # to rule out transience; past that the failure wants eyes, not repetition.
+    case "$failed" in *" $name "*)
+        if [ "${_failn[$name]:-0}" -ge "${MAX_RUN_RETRIES:-3}" ]; then
+            quarantined="$quarantined $name(${_failn[$name]}x)"
+            continue
+        fi
+        retry="$retry $name" ;;
+    esac
     # In flight = a recent log names it AND it has more starts than results. A run
     # whose FAIL is on disk is definitionally not in flight, but the lane log it sits
     # in stays fresh for hours while the lane works through its remaining runs -- the
@@ -380,6 +429,12 @@ echo "=== $MACHINE ==="
 echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) rows named for it, $(rows | awk '$2=="any"' | wc -l) in the shared pool"
 [ -n "$skipped" ] && echo "  not mine     $skipped"
 [ -n "$live" ]    && echo "  in flight    $live   (lane log moved within ${INFLIGHT_HOURS:-6}h)"
+[ -n "$quarantined" ] && {
+    echo "  QUARANTINED $quarantined"
+    echo "              failed ${MAX_RUN_RETRIES:-3}+ times; not retried automatically. Read the"
+    echo "              traceback first:  python scripts/triage.py logs/*/lane*.log"
+    echo "              After a fix:      MAX_RUN_RETRIES=99 bash deploy/campaign.sh   # or clear its logs"
+}
 [ -n "$retry" ]   && {
     echo "  RETRYING    $retry"
     echo "              these reported FAIL before and are being run again -- they will"
@@ -390,7 +445,7 @@ echo "  assigned     ${mine:- none}"
 echo "  pool free    ${pool:- none}"
 echo "  vllm mem     $ROLLOUT_GPU_MEM_UTIL  (pinned campaign-wide)"
 
-if [ -z "${mine// /}${pool// /}" ]; then
+if [ -z "${mine// /}${pool// /}" ] && [ "$MODE" != control ]; then
     echo
     echo "nothing left for $MACHINE. If that is a surprise, check --plan: a machine with"
     echo "no wave-2 rows finishes early by design, and its GPUs are then free for another"
@@ -498,7 +553,7 @@ done
 [ -n "$would" ] && echo "  pool: would claim$would  (--dry claims nothing)"
 pending="$mine$claimed"
 echo "  pending     ${pending:- none}"
-[ -n "${pending// /}" ] || { echo; echo "nothing this machine can start right now."; exit 0; }
+[ -n "${pending// /}" ] || [ "$MODE" = control ] || { echo; echo "nothing this machine can start right now."; exit 0; }
 
 gpu_list=""
 for i in $(seq 0 $((lanes - 1))); do
@@ -532,7 +587,7 @@ fi
 if [ "$MODE" = dry ]; then
     echo
     echo "would run:"
-    echo "  GPU_LIST=\"$gpu_list\" LANES=$lanes RAY_TMPDIR_TAG=${MACHINE}_ \\"
+    echo "  GPU_LIST=\"$gpu_list\" LANES=$lanes RAY_TMPDIR_TAG=$LAUNCH_TAG \\"
     echo "  ROLLOUT_GPU_MEM_UTIL=$ROLLOUT_GPU_MEM_UTIL STEPS=${STEPS:-250} \\"
     echo "  bash deploy/dsw/run_parallel.sh \"${pending# }\""
     exit 0
@@ -556,16 +611,16 @@ if [ "$MODE" = control ]; then
     echo "=== machine control: vanilla seed 0, 50 steps, tagged _${MACHINE} ==="
     echo "compare its val@25 and val@50 with m1's vanilla_s0 at the same steps."
     exec env GPU_LIST="$(echo "$gpu_list" | awk '{print $1}')" LANES=1 \
-        RAY_TMPDIR_TAG="${MACHINE}ctl_" TAG="$MACHINE" \
+        RAY_TMPDIR_TAG="${MACHINE}ctl$(date +%s)_" TAG="$MACHINE" \
         STEPS=50 TEST_FREQ=25 SAVE_FREQ=-1 \
-        bash deploy/dsw/run_parallel.sh "vanilla:0"
+        bash deploy/dsw/run_parallel.sh "vanilla:0" 9>&- 8>&-
 fi
 
 echo
-env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="${MACHINE}_" \
+env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="$LAUNCH_TAG" \
     LOG_DIR="$LOG_DIR/$MACHINE" \
     STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-50}" \
-    bash deploy/dsw/run_parallel.sh "${pending# }"
+    bash deploy/dsw/run_parallel.sh "${pending# }" 9>&- 8>&-
 rc=$?
 if [ "$rc" != 0 ] && [ -n "${claimed// /}" ]; then
     # The launch never started, so the pool rows this invocation claimed are not

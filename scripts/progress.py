@@ -71,6 +71,13 @@ def read_kv_dir(claim_dir):
     pd = os.path.join(claim_dir, "_probe")
     if os.path.isdir(pd):
         info["probes"] = sorted(os.listdir(pd))
+    # Daemon heartbeats, by age. Stale is the alarm: a daemon that stopped beating is
+    # a machine that will sit idle after its current runs finish -- exactly the state
+    # this monitor exists to make visible before it costs a night.
+    info["daemons"] = {}
+    for f in os.listdir(claim_dir) if os.path.isdir(claim_dir) else []:
+        if f.startswith("daemon.alive."):
+            info["daemons"][f[len("daemon.alive."):]] = age_min(os.path.getmtime(os.path.join(claim_dir, f)))
     return info
 
 
@@ -126,8 +133,9 @@ def render(args):
     host = os.uname().nodename
     me = next((m for m, h in info["map"].items() if h == host), "?")
     print(f"\n=== SimOPD campaign @ {now}  (viewed from {me}:{host}) ===")
+    beats = "  ".join(f"{m}:{fmt_age(a)}" + ("!" if a > 45 else "") for m, a in sorted(info["daemons"].items()))
     print(f"pin {info['pin'] or 'UNPINNED'}   machines {', '.join(f'{m}={h}' for m, h in sorted(info['map'].items())) or '(none registered)'}"
-          f"   fs-probes {len(info['probes'])}")
+          f"   fs-probes {len(info['probes'])}   daemons {beats or 'NONE RUNNING'}")
 
     counts = {}
     by_wave = {}
@@ -149,6 +157,20 @@ def render(args):
     bar = "#" * done + "." * max(visible - done, 0)
     print(f"\n{done}/{visible} done here ({total} rows total)   [{bar}]")
     print("   " + "  ".join(f"{k}:{v}" for k, v in sorted(counts.items(), key=lambda kv: order.get(kv[0], 9))))
+
+    # A machine whose daemon is beating but refusing work: fresh heartbeat + QUEUED
+    # rows + nothing moving looks healthy from every other line on this screen.
+    for m in sorted(info["daemons"]):
+        st = os.path.join(args.claim_dir, f"daemon.status.{m}")
+        try:
+            txt = open(st).read()
+        except OSError:
+            continue
+        if not txt.startswith("ok"):
+            print(f"\nATTENTION -- {m}'s daemon is alive but its launches are REFUSED:")
+            for ln in txt.splitlines()[:5]:
+                print(f"  {ln}")
+            print(f"  full context: logs/<{m}-host>_daemon.log")
 
     # Anything running-but-silent is the line to read first; everything else can wait.
     quiet = [(n, r) for n, r in runs.items()

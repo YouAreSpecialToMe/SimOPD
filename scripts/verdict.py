@@ -1,0 +1,170 @@
+"""The verdict ledger: every arm against vanilla, by the pre-registered rules.
+
+    python scripts/verdict.py                       # ledger from whatever artifacts exist
+    python scripts/verdict.py --step 250 --write docs/verdict-ledger.md
+
+Implements plan §4/§5 exactly:
+
+  noise floor   per-domain range across vanilla seeds 0/1/2 at the same step. The
+                floor is what gives "tie" an operational meaning; until all three
+                seeds' artifacts exist the ledger says AWAIT-FLOOR, never guesses.
+  tie           |Δ| < floor  ->  TIE, and tie takes precedence over significance:
+                a p<0.05 win smaller than seed noise is a win over nothing.
+  promote       exact McNemar on per-problem paired binaries, p < 0.05. Exact
+                binomial on the discordant pairs, not the chi-square approximation --
+                discordant counts here are routinely small, which is precisely where
+                the approximation lies.
+  fixed step    comparisons at one step for every arm (fixed-horizon amendment,
+                2026-08-06). vanilla_s0 at 250 is 0.506, not its 0.63 peak; that
+                decline is Mode A data, and the ledger compares survivors' endpoints.
+
+Missing artifacts are rows too: each prints the eval_offline.py command that would
+fill it, so this file doubles as the evaluation work-list. Runs on pandas + stdlib.
+"""
+
+import argparse
+import glob
+import math
+import os
+import sys
+
+BASE = "vanilla"
+SEEDS = (0, 1, 2)
+ALPHA = 0.05
+
+# Pre-registered deviations that gate specific rows (plan §4.6). Shown on the ledger
+# so a reader cannot take the number without the asterisk.
+CAVEATS = {
+    "c1_lsm_topk32_renorm": "ran on cornell; vanilla floor is DSW -- same-cluster control (TAG=xc) pending",
+    "f1_soft_log": "completed at 150 steps under the old default; +100-step resume pending before fixed-step entry",
+}
+
+ARMS = [  # ledger order: axis order from the plan
+    "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "c1_lsm_topk32_renorm",
+    "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
+    "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "g1_verified_only",
+    "g2_fire_likelihood", "h1_first_segment",
+]
+TRANSFER = ("humanevalplus", "mbppplus", "ifeval", "amc23")
+
+
+def load_correct(evals, run_id, bench, step):
+    """problem_id -> pass rate, from the newest matching artifact; None if absent."""
+    import pandas as pd
+
+    pats = [os.path.join(evals, f"{run_id}__{bench}__step{step}__*.parquet"),
+            os.path.join(evals, f"{run_id}__{bench}__step{step}.parquet")]
+    hits = [h for p in pats for h in glob.glob(p)]
+    if not hits:
+        return None
+    df = pd.read_parquet(max(hits, key=os.path.getmtime))
+    return df.groupby("problem_id")["correct"].mean()
+
+
+def mcnemar_exact(b, c):
+    """Two-sided exact binomial on the discordant pairs: X ~ Bin(b+c, 1/2)."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n
+    return min(1.0, 2.0 * tail)
+
+
+def eval_cmd(run_id, bench, step):
+    return (f"python scripts/eval_offline.py --model <ckpt_of_{run_id}>/global_step_{step} "
+            f"--benchmarks {bench} --run-id {run_id} --step {step}")
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--evals", default=os.environ.get("SIMOPD_EVALS", "/home/zz865/data/simopd_evals"))
+    p.add_argument("--bench", default="math500")
+    p.add_argument("--step", type=int, default=250)
+    p.add_argument("--seed", type=int, default=0, help="arm seed compared against vanilla_s<seed>")
+    p.add_argument("--write", help="also write the ledger as markdown here")
+    a = p.parse_args()
+    out = []
+
+    def emit(line=""):
+        print(line)
+        out.append(line)
+
+    emit(f"# Verdict ledger -- {a.bench} @ step {a.step} (evals: {a.evals})")
+
+    # ---- noise floor ---------------------------------------------------------
+    vans = {s: load_correct(a.evals, f"{BASE}_s{s}", a.bench, a.step) for s in SEEDS}
+    have = [s for s in SEEDS if vans[s] is not None]
+    floor = None
+    emit("\n## Noise floor (vanilla seeds, range of accuracy)")
+    for s in SEEDS:
+        if vans[s] is None:
+            emit(f"- seed {s}: MISSING   ->  {eval_cmd(f'{BASE}_s{s}', a.bench, a.step)}")
+        else:
+            emit(f"- seed {s}: acc {vans[s].mean():.4f}  ({len(vans[s])} problems)")
+    if len(have) == len(SEEDS):
+        accs = [vans[s].mean() for s in SEEDS]
+        floor = max(accs) - min(accs)
+        emit(f"- **floor = {floor:.4f}** (range across {len(SEEDS)} seeds; |Δ| below this is a TIE)")
+    else:
+        emit(f"- floor: AWAIT-FLOOR ({len(have)}/{len(SEEDS)} seeds evaluated)")
+
+    base = vans.get(a.seed)
+
+    # ---- per-arm rows --------------------------------------------------------
+    emit(f"\n## Arms vs {BASE}_s{a.seed}")
+    emit("| arm | Δacc | b (van✓ arm✗) | c (van✗ arm✓) | p (exact McNemar) | verdict |")
+    emit("|---|---|---|---|---|---|")
+    for arm in ARMS:
+        run_id = f"{arm}_s{a.seed}"
+        cav = f" ⚠{CAVEATS[arm]}" if arm in CAVEATS else ""
+        cur = load_correct(a.evals, run_id, a.bench, a.step)
+        if cur is None:
+            emit(f"| {arm} | — | — | — | — | PENDING: `{eval_cmd(run_id, a.bench, a.step)}`{cav} |")
+            continue
+        if base is None:
+            emit(f"| {arm} | — | — | — | — | PENDING baseline artifact{cav} |")
+            continue
+        common = base.index.intersection(cur.index)
+        vb, vc = base.loc[common], cur.loc[common]
+        delta = float(vc.mean() - vb.mean())
+        # Paired binaries: avg@k rates collapse to right/wrong at 0.5 for pairing, the
+        # same convention d6_matrix uses; pass@1 artifacts are already 0/1.
+        b_ = int(((vb > 0.5) & (vc <= 0.5)).sum())
+        c_ = int(((vb <= 0.5) & (vc > 0.5)).sum())
+        pval = mcnemar_exact(b_, c_)
+        if floor is not None and abs(delta) < floor:
+            verdict = "TIE (|Δ| < floor)"
+        elif pval < ALPHA:
+            verdict = "**PROMOTE**" if delta > 0 else "**WORSE**"
+        elif floor is None:
+            verdict = f"AWAIT-FLOOR (p={'<' if pval < ALPHA else '≥'}{ALPHA})"
+        else:
+            verdict = "inconclusive"
+        emit(f"| {arm} | {delta:+.4f} | {b_} | {c_} | {pval:.4f} | {verdict}{cav} |")
+
+    # ---- side-effect panel: transfer deltas where artifacts exist ------------
+    emit(f"\n## Side-effect panel (transfer deltas vs {BASE}_s{a.seed}; informational until per-bench floors exist)")
+    any_transfer = False
+    for bench in TRANSFER:
+        vb = load_correct(a.evals, f"{BASE}_s{a.seed}", bench, a.step)
+        if vb is None:
+            continue
+        for arm in ARMS:
+            vc = load_correct(a.evals, f"{arm}_s{a.seed}", bench, a.step)
+            if vc is None:
+                continue
+            any_transfer = True
+            emit(f"- {arm} on {bench}: {vc.mean():.4f} vs {vb.mean():.4f} (Δ {vc.mean()-vb.mean():+.4f})")
+    if not any_transfer:
+        emit("- (no transfer artifacts at this step yet; scripts/eval_transfer.sh per finished arm)")
+
+    if a.write:
+        with open(a.write, "w") as f:
+            f.write("\n".join(out) + "\n")
+        print(f"\nwrote {a.write}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
