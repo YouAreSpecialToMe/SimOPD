@@ -178,6 +178,49 @@ rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
 }
 
 # ---------------------------------------------------------------------------
+# One commit for the whole campaign.
+#
+# The machines share a repo -- a git pull on one is a pull on all -- so code can change
+# between one machine's runs and another's. That is invisible: the config fingerprint
+# in run_opd_baseline.sh records config, not code, so editing a loss in src/ leaves it
+# unchanged while the arms become incomparable in a dimension nothing recorded.
+#
+# The snapshot run_parallel.sh takes makes each RUN internally consistent; it cannot
+# make two runs launched hours apart agree. Only a pinned ref can, and a shared
+# filesystem is exactly what makes it enforceable across machines rather than a note.
+#
+# (Pulling while lanes run is safe on its own: measured, git checkout replaces the
+# inode, so a running bash keeps reading the file it started with. An in-place rewrite
+# -- an editor, sed -i -- does corrupt it, which is what campaign.sbatch warns about.)
+# ---------------------------------------------------------------------------
+_head=$(git rev-parse HEAD 2>/dev/null || echo nogit)
+_ref_file="$CLAIM_DIR/CAMPAIGN_REF"
+if [ -f "$_ref_file" ]; then
+    _ref=$(cut -d' ' -f1 < "$_ref_file")
+    if [ "$_ref" != "$_head" ] && [ "$_head" != nogit ]; then
+        _drift=$(git diff --name-only "$_ref" "$_head" -- scripts src configs 2>/dev/null)
+        if [ -n "$_drift" ]; then
+            echo "FATAL: the campaign is pinned to $_ref (see $_ref_file)" >&2
+            echo "       and HEAD is $_head. Files that decide what a run computes changed:" >&2
+            echo "$_drift" | sed 's/^/         /' >&2
+            echo "       Arms launched on either side of this are not comparable, and nothing" >&2
+            echo "       downstream would say so -- the config fingerprint records config," >&2
+            echo "       not code." >&2
+            echo "       git checkout $_ref                    # run the campaign's code" >&2
+            echo "       echo $_head > $_ref_file              # OR re-pin, deliberately," >&2
+            echo "                                              and note it in the ledger" >&2
+            exit 1
+        fi
+        echo "  note: HEAD moved since the campaign was pinned, but nothing under" >&2
+        echo "        scripts/ src/ configs/ changed -- runs stay comparable." >&2
+    fi
+else
+    mkdir -p "$CLAIM_DIR" 2>/dev/null
+    printf '%s pinned-by=%s at=%s\n' "$_head" "${MACHINE}@$(hostname)" "$(date -u +%FT%TZ)" > "$_ref_file"
+    echo "  pinned campaign to $_head ($_ref_file)"
+fi
+
+# ---------------------------------------------------------------------------
 # What this machine has already done, read from the lane logs _lane.sh writes.
 # No new bookkeeping file: the summary line is already the record, and a marker
 # written by something other than the run itself can outlive the thing it describes.
