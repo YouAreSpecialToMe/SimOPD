@@ -105,8 +105,8 @@ if [ "$MODE" = fsprobe ]; then
     exit 0
 fi
 
-rows() {   # wave, machine, arm, seed -- comments and blank lines gone
-    awk -F'\t' '!/^[[:space:]]*#/ && NF>=4 { print $1, $2, $3, $4 }' "$MANIFEST"
+rows() {   # wave, machine, arm, seed, note -- comments and blank lines gone
+    awk -F'\t' '!/^[[:space:]]*#/ && NF>=4 { print $1, $2, $3, $4, $5 }' "$MANIFEST"
 }
 
 # ---------------------------------------------------------------------------
@@ -292,9 +292,17 @@ fi
 # claimed during the manifest walk -- which also meant --dry took the whole pool and
 # left nothing for anyone, a side effect a dry run must not have.
 mine=""; pool=""; skipped=""; live=""; retry=""
-while read -r w m arm s; do
+while read -r w m arm s note; do
     name="${arm}_s${s}"
     case "$done_ok" in *" $name "*) skipped="$skipped $name(done)"; continue ;; esac
+    # needs=<path>: a prerequisite this machine may not have. a2_coldstart pins an SFT
+    # checkpoint under /scratch, which exists on no DSW box; unchecked it sorted first
+    # in the pool, would have taken a lane, failed, and been retried on every pass.
+    case "$note" in
+        needs=*)
+            _need=${note#needs=}
+            [ -e "$_need" ] || { skipped="$skipped $name(needs $_need)"; continue; } ;;
+    esac
     case "$failed"  in *" $name "*) retry="$retry $name" ;; esac
     case "$recent" in
         *" $name "*)
@@ -309,7 +317,7 @@ while read -r w m arm s; do
         continue
     fi
     mine="$mine ${arm}:${s}"
-done < <(rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | sort -k1,1n)
+done < <(rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | sort -s -k1,1n)
 
 echo "=== $MACHINE ==="
 echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) rows named for it, $(rows | awk '$2=="any"' | wc -l) in the shared pool"

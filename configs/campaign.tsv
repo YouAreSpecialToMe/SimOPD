@@ -53,4 +53,8 @@
 2	any	d2_selectkd	0
 2	any	d3_teachability	0
 2	any	g2_fire_likelihood	0	run informativeness.py first: it tests this arm's premise
-2	any	a2_coldstart	0	needs the SFT checkpoint from slurm/coldstart.sbatch
+# cornell, not the pool: its env pins STUDENT_MODEL=/scratch/zz865/... and
+# DATA_DIR=/home/zz865/..., which exist on no DSW box. needs= is checked before it is
+# ever handed to a lane -- it had sorted first in the pool and would have taken a lane,
+# failed, and been retried forever.
+3	cornell	a2_coldstart	0	needs=/scratch/zz865/simopd/ckpt/coldstart_sft
