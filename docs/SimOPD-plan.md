@@ -76,7 +76,7 @@ max 16,384 token、τ=1.0、top-p=1.0、每 batch 一个 epoch。
 
 ---
 
-## 2. 参赛臂(7 轴;预算配平:同轴内总监督量严格相等)
+## 2. 参赛臂(8 轴;预算配平:同轴内总监督量严格相等)
 
 ### 轴 A — rollout 来源与日程
 纯 on-policy (λ=1) / GKD λ∈{0, 0.5} / 离策略冷启动→OPD(Rethinking recipe 复核)。
@@ -113,6 +113,13 @@ PLD 2506.12542 视觉离线版,OPD 版无人占)+ 小系数 value 锚(锚强度�
 全 rollout(基线)/ **verified-only(规则验证器通过的 rollout 才蒸)** /
 teacher 似然过滤 (FiRe-OPD 2606.02684)。
 纪律:验证只做过滤,答案不进训练输入。
+
+### 轴 H — 序列视野(2026-08-06 补登;臂本身自 2026-08-05 起在 `arms.yaml`)
+全长监督(基线)/ **仅监督前 K=512 个响应 token**(ESR 2605.27028 的 loss-mask 形式)。
+纪律:生成不截断 —— rollout 截断形式会改采样分布本身,与 A 轴混淆;只动监督窗口。
+此臂**有意**削监督预算(那正是它的主张),台账报预算而非配平。
+> 登记说明:h1 于 2026-08-05 进入 `configs/arms.yaml` 时未同步修订本计划,
+> §2 标题一直写着"7 轴"。此为文档滞后,非新增臂 —— 修正而非修订。
 
 ### 固定约定(不进比赛)
 特殊 token 掩码、n=1 题目多样性(Demystifying 已判)、top-p rollout 采样。
@@ -228,6 +235,13 @@ vanilla_s0(job 719188)在我们自己的栈上量到:
 
 实测效果(同一条 vanilla 日志回放):300 步 30.3h → 150 步 10.9h → **+早停 4.6h,6.6×**。
 
+**H = 150 → 250(2026-08-06 预注册修订,依据 DSW 锚点 run)**:上表的校准 run
+(job 719188,cornell)后被判 ABANDONED,**其数字仅用于 horizon 校准,不进任何判决**;
+且 DSW 上同 cell 的 `vanilla_s0`(已完成 250/250)显示 1.7B 的 Mode A 起点更晚
+(~90–100 步)、val 平台更高(~0.62–0.63 vs 719188 的 0.456@200 —— 两数之差本身
+记入跨集群偏离台账)。250 步在新档下才装得下"平台 + 熵塌 + Mode A 成型 + 60 步
+established"的完整故事;早停规则不变,仍由每条 run 自己的实测退化触发。
+
 **迁移列改为逐臂(2026-08-03 预注册修订)**:每臂 final checkpoint 加评
 HumanEval+/MBPP+/IFEval(math 训、跨域评,greedy),记入副作用面板。
 **只评测不训练,不参与晋级** —— 选择仍然纯在 math。
@@ -256,6 +270,52 @@ HumanEval+/MBPP+/IFEval(math 训、跨域评,greedy),记入副作用面板。
 code/IFEval **只验证不选择**(防配方过拟合 math)。约 25–30 runs。
 
 总预算:**60–80 runs**(1.7B student、16k 上下文;单 run 成本以集群实测为准)。
+
+---
+
+## 4.6 预注册修订与执行日志(2026-08-06)
+
+**协议常量(全部依据实测,修订留痕):**
+
+| 量 | 定值 | 依据 |
+|---|---|---|
+| step-0 锚点 | **0.468,记录不重测**(`val_before_train` 默认关) | 15 臂各测一遍 ≈19 GPU·h 换一个常数;取 verl-val 路径值(`eval_offline` 报 0.474,两条流水线,曲线必须全程一套)。接线检查由 `preflight.py` 承担(~20s) |
+| 有效训练集 | **~12,478 行**(14,476 中 14% 超 `max_prompt_length=1024` 被丢) | `filter_overlong_prompts=True`;此前无处记载 |
+| IFEval 迁移列 | 生成上限 **4096** | 2048 下 21.4% 截断,且 IFEval 打分"至少 400 词"类约束 —— 截断答案恰好挂在被截掉的约束上;在任何臂的迁移列存在前统一,避免臂间不可比 |
+| rollout 显存份额 | **0.45 全场钉死** | 0.55 实测更快(Mode A 段 KV cache 并发回血),但第二个取值 = 第二批 = 第二个噪声底(~168 GPU·h),超过 0.55 全场省的 ~73;该量非数值中性(引擎级 seed,cache 尺寸→batch 组成→RNG 流),入指纹。0.55 留给 anchor 轮 |
+| 迁移列 selfcheck | HumanEval+ 163/164、MBPP+ 376/378、`MIN_TIME_LIMIT=4.0` | CPU 争用曾致 160/164 假阴性 |
+
+**执行布局(多机campaign):** m1–m3(各 8×A100-80G,同镜像同驱动,**共享
+/mnt/workspace**:HF cache、数据、ckpt、日志、认领目录全共享)+ cornell 2×A100
+(独立文件系统,岛)。`configs/campaign.tsv` 唯一分派源;治理三件套 =
+**commit 钉 pin**(只看 run-defining 文件:`src/`、`arms.yaml`、`run_opd_baseline.sh`、
+`arm.py`;pin 迁移强制 REASON 入 `PIN_HISTORY`)+ **配置指纹**(含全部 SIMOPD_* 旋钮与
+hydra 追加参;诊断开关豁免)+ **机器身份映射**(hostname→m*,一次登记,矛盾拒绝)。
+池子行(machine=any)mkdir 原子认领,**仅在 fs-probe 证实共享后开放**(cornell 的
+认领目录是岛,在那里认领挡不住任何人)。监控:`progress.py`(campaign 高度,任一台
+看全部)/ `watch.py --enforce`(run 高度,DSW 上只记台账不杀进程)。
+
+**首批结果(执行日志;判决须待噪声底,此处不下):**
+
+| run | 状态 | 关键数字 |
+|---|---|---|
+| `vanilla_s0`(DSW) | **完成 250/250** | val ~0.62–0.63,len 7.6k,trunc 0.77,Mode A ×6.7 —— 锚点 |
+| `c1_lsm`(cornell) | **完成 250/250** | val 0.598,**len 1396,trunc 0.05,无 Mode A**,s/it 146 |
+| 719188(cornell 旧 vanilla) | ABANDONED,判决作废 | 仅存 horizon 校准用途(见 §4)|
+
+c1 的读法(预注册视角):C 轴问"截到老师 top-k 损失什么",第一个答案是
+"**≈0.03 val,换 Mode A 完全不发生**" —— 副作用面板强于 headline,正是本设计要
+捕捉的结论形态。**但 c1 在 cornell、vanilla 在 DSW,跨集群对照是 §2.5 已登偏离**;
+719188 与 DSW vanilla 的 val 之差(0.456 vs 0.63)说明该偏离不是形式主义。
+**开放项:c1 的判决前需一个同集群 vanilla 对照**(DSW 空泳道跑 c1 或 cornell 补
+vanilla,二选一,入 campaign.tsv 后执行)。
+
+**已付学费入账(方法论,写进 paper 附录的素材):** `.gitignore` 裸 `simopd/` 模式
+静默扣下 `zmq_lane.py` 一天 → 四机 ImportError → 双端未打补丁 → socket 互删 →
+两 run 挂 8h(32 GPU·h)。三道类级防线:锚定 gitignore、`src/` 未跟踪 `.py` 拒绝启动、
+`REQUIRED_MODULES` 逐机 preflight。同类教训第四次:**阈值必须先看健康长什么样**
+(triage 假警、val_before_train 误判 STALL、30 分钟在跑窗 vs 75 分钟验证、
+守卫拦下自己的监控脚本)。
 
 ---
 
@@ -309,6 +369,8 @@ code/IFEval **只验证不选择**(防配方过拟合 math)。约 25–30 runs�
 
 **槽位**:**2 卡/run** —— verl 把 teacher 池注册成独立 Ray 资源池,不与 actor 共卡,
 所以 2 卡是地板,不是选择。8 卡 = 4 路并行,16 卡 = 8 路。
+**(2026-08-06)机队现状:24 卡在役(m1–m3 各 8,共享文件系统;+cornell 2,岛),
+m4 可能 +8 → 32。12 路 DSW 泳道;分派由 `configs/campaign.tsv` 取代手排。**
 
 **单 run 成本(实测,50 步 probe 外推)**:1.7B 到 50 步 1.8h;按当前长度增长外推
 150 步 ≈ 23h,早停会砍掉相当一部分。对照 0.6B 档 150 步 10.9h —— **换档约 2×,不是 10×**
@@ -328,8 +390,8 @@ code/IFEval **只验证不选择**(防配方过拟合 math)。约 25–30 runs�
 
 | 周 | 事 |
 |---|---|
-| **W1** | infra 跑通(verl/EasyOPD 选型)+ **复现锚点**(1.7B←4B vanilla,对 Demystifying 现成格;进度闸门)+ Phase 0 诊断 + 各域噪声底 + 三域验证器 |
-| **W2** | 贪心 R1(= 单轴筛,~12 臂 × 300 步早筛,6–8 路并行)+ R2 |
+| **W1** ✅ | infra 跑通(verl/EasyOPD 选型)+ **复现锚点**(1.7B←4B vanilla,对 Demystifying 现成格;进度闸门)+ Phase 0 诊断 + 各域噪声底 + 三域验证器 |
+| **W2** ◐ | 贪心 R1(= 单轴筛,~12 臂 × **250 步 + 早停**,12 路并行)+ R2。2026-08-06:2/15 完成(vanilla_s0、c1_lsm),wave-1 8 臂已入队 m2/m3;**关键路径 = vanilla×3 噪声底**,它出来之前一切判决悬置 |
 | **W3** | 贪心 R3–R4;终审满步 run 启动(配方 / vanilla / 全家桶);写作开始 |
 | **W4** | Phase 3:三域验证 + 1.7B 终验档 + 配方消融;结果冻结 |
 | W5 | buffer:返工 + 写作收尾 |
