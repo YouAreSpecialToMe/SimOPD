@@ -240,8 +240,13 @@ if [ "$MODE" = run ] || [ "$MODE" = control ]; then
     }
 fi
 
-rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
-    echo "FATAL: '$MACHINE' has no rows in $MANIFEST." >&2
+# A machine participates if the manifest names it OR the pool has rows -- a box with
+# zero named rows and an open pool is exactly what m4 will be on arrival, and the old
+# named-rows-only gate refused it outright. (The gate also produced a vacuously "green"
+# audit test: nothing was claimed because the run was refused, and an assertion that
+# checked for the claim's absence read that refusal as a successful release.)
+rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | grep -q . || {
+    echo "FATAL: '$MACHINE' has no rows in $MANIFEST and the pool is empty." >&2
     echo "       Known: $(rows | awk '{print $2}' | sort -u | tr '\n' ' ')" >&2
     exit 1
 }
