@@ -10,6 +10,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [docs/ARMS-GUIDE.md](docs/ARMS-GUIDE.md) | **从这里开始**:基础 OPD setting(目标函数、锁定协议)+ 每个臂的直观/数学讲解 + 执行脚本 + 本集群(Group_GY 7 机)适配清单 |
 | [docs/SimOPD-plan.md](docs/SimOPD-plan.md) | 实验计划 v3.1:定位、7 轴、诊断 D1'–D6、三阶段流程、判决规则、硬件预算、里程碑 |
 | [docs/SimOPD-casefile.md](docs/SimOPD-casefile.md) | 案卷:动物园普查、管辖权裁定、8 轴参赛名单(审/替/落)、代表选择准则 |
 | [docs/INFRA-NOTES.md](docs/INFRA-NOTES.md) | infra 勘察:verl 主线原生 OPD 基座裁定、缺口→接缝图、槽位布局、W1 清单;v1.1 集群实测补充 |

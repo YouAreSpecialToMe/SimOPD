@@ -21,3 +21,6 @@ wandb/
 *.log
 
 .campaign/
+
+# OMC session state (tooling artifact, not project content)
+.omc/
