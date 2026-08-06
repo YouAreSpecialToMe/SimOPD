@@ -313,7 +313,7 @@ fi
 # paper. FAIL is retried (it resumes from its checkpoint) and reported, because a run
 # that keeps failing needs an operator, not a quiet retry.
 done_ok=" "; failed=" "; recent=" "
-declare -A _started _ended
+declare -A _started _ended _failn
 if [ -d "$LOG_DIR" ]; then
     # Both layouts: logs/lane*.log from before machines were separated, and
     # logs/<machine>/lane*.log from now on -- which matters on a shared filesystem,
@@ -322,7 +322,8 @@ if [ -d "$LOG_DIR" ]; then
         [ -f "$f" ] || continue
         while read -r n; do done_ok="$done_ok$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> OK' "$f" 2>/dev/null | awk '{print $2}')
-        while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
+        while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 ))
+            _failn[$n]=$(( ${_failn[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> FAIL' "$f" 2>/dev/null | awk '{print $2}')
         while read -r n; do _started[$n]=$(( ${_started[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
@@ -347,7 +348,7 @@ fi
 # what it cannot start holds it away from the machine that could. A first version
 # claimed during the manifest walk -- which also meant --dry took the whole pool and
 # left nothing for anyone, a side effect a dry run must not have.
-mine=""; pool=""; skipped=""; live=""; retry=""
+mine=""; pool=""; skipped=""; live=""; retry=""; quarantined=""
 while read -r w m arm s note; do
     name="${arm}_s${s}"
     case "$done_ok" in *" $name "*) skipped="$skipped $name(done)"; continue ;; esac
@@ -359,7 +360,17 @@ while read -r w m arm s note; do
             _need=${note#needs=}
             [ -e "$_need" ] || { skipped="$skipped $name(needs $_need)"; continue; } ;;
     esac
-    case "$failed"  in *" $name "*) retry="$retry $name" ;; esac
+    # Three strikes and the run is quarantined instead of retried. The daemon makes
+    # retries unattended, and an arm with a real bug would otherwise crash-loop all
+    # night, burning a lane per attempt with nobody watching. Three attempts is enough
+    # to rule out transience; past that the failure wants eyes, not repetition.
+    case "$failed" in *" $name "*)
+        if [ "${_failn[$name]:-0}" -ge "${MAX_RUN_RETRIES:-3}" ]; then
+            quarantined="$quarantined $name(${_failn[$name]}x)"
+            continue
+        fi
+        retry="$retry $name" ;;
+    esac
     # In flight = a recent log names it AND it has more starts than results. A run
     # whose FAIL is on disk is definitionally not in flight, but the lane log it sits
     # in stays fresh for hours while the lane works through its remaining runs -- the
@@ -395,6 +406,12 @@ echo "=== $MACHINE ==="
 echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) rows named for it, $(rows | awk '$2=="any"' | wc -l) in the shared pool"
 [ -n "$skipped" ] && echo "  not mine     $skipped"
 [ -n "$live" ]    && echo "  in flight    $live   (lane log moved within ${INFLIGHT_HOURS:-6}h)"
+[ -n "$quarantined" ] && {
+    echo "  QUARANTINED $quarantined"
+    echo "              failed ${MAX_RUN_RETRIES:-3}+ times; not retried automatically. Read the"
+    echo "              traceback first:  python scripts/triage.py logs/*/lane*.log"
+    echo "              After a fix:      MAX_RUN_RETRIES=99 bash deploy/campaign.sh   # or clear its logs"
+}
 [ -n "$retry" ]   && {
     echo "  RETRYING    $retry"
     echo "              these reported FAIL before and are being run again -- they will"
