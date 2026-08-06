@@ -258,18 +258,19 @@ fi
 # green, the arm never gets written, and the only symptom is a column missing from the
 # paper. FAIL is retried (it resumes from its checkpoint) and reported, because a run
 # that keeps failing needs an operator, not a quiet retry.
-done_ok=" "; failed=" "; attempted=" "; recent=" "
+done_ok=" "; failed=" "; recent=" "
+declare -A _started _ended
 if [ -d "$LOG_DIR" ]; then
     # Both layouts: logs/lane*.log from before machines were separated, and
     # logs/<machine>/lane*.log from now on -- which matters on a shared filesystem,
     # where two boxes starting in the same second would otherwise write one filename.
     for f in "$LOG_DIR"/lane*.log "$LOG_DIR"/*/lane*.log; do
         [ -f "$f" ] || continue
-        while read -r n; do done_ok="$done_ok$n "; done < <(
+        while read -r n; do done_ok="$done_ok$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> OK' "$f" 2>/dev/null | awk '{print $2}')
-        while read -r n; do failed="$failed$n "; done < <(
+        while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> FAIL' "$f" 2>/dev/null | awk '{print $2}')
-        while read -r n; do attempted="$attempted$n "; done < <(
+        while read -r n; do _started[$n]=$(( ${_started[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
         # How long may a HEALTHY run be silent? Not 30 minutes, which is what this
         # said first and is the fourth time on this project that a threshold was
@@ -283,6 +284,7 @@ if [ -d "$LOG_DIR" ]; then
             while read -r n; do recent="$recent$n "; done < <(
                 grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
         fi
+        :
     done
 fi
 
@@ -304,13 +306,29 @@ while read -r w m arm s note; do
             [ -e "$_need" ] || { skipped="$skipped $name(needs $_need)"; continue; } ;;
     esac
     case "$failed"  in *" $name "*) retry="$retry $name" ;; esac
+    # In flight = a recent log names it AND it has more starts than results. A run
+    # whose FAIL is on disk is definitionally not in flight, but the lane log it sits
+    # in stays fresh for hours while the lane works through its remaining runs -- the
+    # old "log moved recently" test therefore held every FAILed run hostage until its
+    # whole lane went quiet, which for a 4-run lane is more than a day.
     case "$recent" in
         *" $name "*)
-            case "$attempted" in *" $name "*) live="$live $name" ; continue ;; esac ;;
+            if [ "${_started[$name]:-0}" -gt "${_ended[$name]:-0}" ]; then
+                live="$live $name"; continue
+            fi ;;
     esac
     if [ "$m" = any ]; then
         if [ -d "$CLAIM_DIR/claims/$name" ]; then
-            skipped="$skipped $name(held by $(claim_owner "$name" | sed -n 's/.*machine=\([^ ]*\).*/\1/p'))"
+            _owner=$(claim_owner "$name" | sed -n 's/.*machine=\([^ ]*\).*/\1/p')
+            if [ "$_owner" = "$MACHINE" ]; then
+                # Our own claim, and the run is not done (done_ok returned above). This
+                # is the FAIL-retry path for pool rows: without it, a machine that
+                # claimed a row and crashed skips it forever as "held by" itself, and
+                # no other machine can take it either -- the row just dies.
+                mine="$mine ${arm}:${s}"
+            else
+                skipped="$skipped $name(held by $_owner)"
+            fi
         else
             pool="$pool ${arm}:${s}"
         fi
@@ -408,6 +426,19 @@ if [ "$_expect" -gt "$_detected" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; 
     exit 1
 fi
 
+# The pool is open only where the claim directory is PROVEN shared: cornell has its
+# own checkout on its own filesystem, so its .campaign is an island -- a claim there
+# stops nobody, and the same row runs twice. Proof = --fs-probe has recorded another
+# hostname in THIS CLAIM_DIR. Until two machines have probed, pool rows wait, loudly.
+pool_open=""
+[ -n "$(ls "$CLAIM_DIR/_probe" 2>/dev/null | grep -vx "$(hostname)")" ] && pool_open=1
+if [ -z "$pool_open" ] && [ -n "${pool// /}" ]; then
+    echo "  pool: CLOSED on this machine -- no other host has probed $CLAIM_DIR,"
+    echo "        so a claim here would not be visible to the machines it must block."
+    echo "        Open it:  bash deploy/campaign.sh --fs-probe   (here AND on one other box)"
+    pool=""
+fi
+
 # Claim now that the lane count is known, and only as many as there are slots left
 # after this machine's own rows. --dry deliberately claims nothing: it reports what it
 # would take, so running it on four machines does not hand the pool to whoever ran it
@@ -444,6 +475,20 @@ fi
 
 echo "  GPU_LIST     $gpu_list"
 echo "  steps        ${STEPS:-250}   save/${SAVE_FREQ:-50}  test/${TEST_FREQ:-25}"
+
+# Object-store share by machine CAPACITY, not by this launch's lane count.
+# run_parallel divides 0.30 by ITS lane count, which was right when one launch owned
+# the box. campaign.sh makes staggered launches normal -- three lanes started today
+# next to one still running from yesterday -- and then each launch divides by its own
+# smaller number: 0.30/2 + 3 x 0.30/3 sums to 45% of available RAM, drifting back
+# toward the /dev/shm exhaustion that hung lanes 1 and 3 at step 5. Dividing by the
+# most lanes this box can hold keeps any mix of launches at or under 0.30 total.
+if [ -z "${RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION:-}" ]; then
+    _cap_lanes=$(( $(nvidia-smi -L 2>/dev/null | wc -l) / GPUS_PER_RUN ))
+    export RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION=$(awk -v n="${_cap_lanes:-4}" \
+        'BEGIN{printf "%.4f", 0.30/(n<1?1:n)}')
+    echo "  object store $RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION of available RAM per lane (capacity $_cap_lanes lanes)"
+fi
 
 if [ "$MODE" = dry ]; then
     echo
