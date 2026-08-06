@@ -603,13 +603,13 @@ if [ "$MODE" = control ]; then
     echo "=== machine control: vanilla seed 0, 50 steps, tagged _${MACHINE} ==="
     echo "compare its val@25 and val@50 with m1's vanilla_s0 at the same steps."
     exec env GPU_LIST="$(echo "$gpu_list" | awk '{print $1}')" LANES=1 \
-        RAY_TMPDIR_TAG="${MACHINE}ctl_" TAG="$MACHINE" \
+        RAY_TMPDIR_TAG="${MACHINE}ctl$(date +%s)_" TAG="$MACHINE" \
         STEPS=50 TEST_FREQ=25 SAVE_FREQ=-1 \
         bash deploy/dsw/run_parallel.sh "vanilla:0" 9>&- 8>&-
 fi
 
 echo
-env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="${MACHINE}_" \
+env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="$LAUNCH_TAG" \
     LOG_DIR="$LOG_DIR/$MACHINE" \
     STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-50}" \
     bash deploy/dsw/run_parallel.sh "${pending# }" 9>&- 8>&-
