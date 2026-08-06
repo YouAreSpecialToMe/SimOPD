@@ -216,8 +216,14 @@ LAUNCH_TAG="${MACHINE}_$(date +%s)_"
 # The lock is machine-LOCAL (/tmp) on purpose: the race being closed is same-machine
 # concurrency, and flock on the shared NAS mount is exactly the semantics not to
 # depend on. plan/probe/fingerprint modes take no lock -- they launch nothing.
+# .v2 in the lock path, and 9>&- on every launch below: nohup'd lanes inherit open
+# file descriptors, so the flock taken here was held by the entire ray/vllm tree for
+# the lifetime of the lanes -- every machine with running lanes refused all further
+# campaign invocations, manual and daemon alike, as "mid-launch". Closing the fd in
+# the children fixes the cause; versioning the path releases the fleet from locks the
+# CURRENTLY-running lanes already hold, without touching them.
 if [ "$MODE" = run ] || [ "$MODE" = control ]; then
-    exec 9> "/tmp/simopd_campaign_${MACHINE}.lock"
+    exec 9> "/tmp/simopd_campaign_${MACHINE}.v2.lock"
     flock -n 9 || {
         echo "FATAL: another campaign.sh invocation is mid-launch on this machine" >&2
         echo "       (daemon and manual run overlapping is the usual cause; wait a" >&2
@@ -599,14 +605,14 @@ if [ "$MODE" = control ]; then
     exec env GPU_LIST="$(echo "$gpu_list" | awk '{print $1}')" LANES=1 \
         RAY_TMPDIR_TAG="${MACHINE}ctl_" TAG="$MACHINE" \
         STEPS=50 TEST_FREQ=25 SAVE_FREQ=-1 \
-        bash deploy/dsw/run_parallel.sh "vanilla:0"
+        bash deploy/dsw/run_parallel.sh "vanilla:0" 9>&- 8>&-
 fi
 
 echo
 env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="${MACHINE}_" \
     LOG_DIR="$LOG_DIR/$MACHINE" \
     STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-50}" \
-    bash deploy/dsw/run_parallel.sh "${pending# }"
+    bash deploy/dsw/run_parallel.sh "${pending# }" 9>&- 8>&-
 rc=$?
 if [ "$rc" != 0 ] && [ -n "${claimed// /}" ]; then
     # The launch never started, so the pool rows this invocation claimed are not

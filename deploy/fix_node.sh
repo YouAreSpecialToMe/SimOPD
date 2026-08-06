@@ -23,7 +23,7 @@ echo "== fix_node on $MACHINE ($(hostname)) @ $(date -u +%FT%TZ) =="
 
 # --- 1. retire the old daemon (it may be mid-sleep for up to 15 min and would not
 #        see a stop file; the lock file holds its pid, so retire it directly) -------
-_pid=$(cat "/tmp/simopd_daemon_${MACHINE}.lock" 2>/dev/null | head -1)
+_pid=$(cat "/tmp/simopd_daemon_${MACHINE}.v2.lock" 2>/dev/null | head -1)
 if [ -n "${_pid:-}" ] && grep -q campaign_daemon "/proc/$_pid/cmdline" 2>/dev/null; then
     kill "$_pid" 2>/dev/null && echo "daemon: retired old instance (pid $_pid)"
 else

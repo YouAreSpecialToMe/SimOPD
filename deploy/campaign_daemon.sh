@@ -41,7 +41,7 @@ MACHINE=$(awk -F'\t' -v h="$(hostname)" '$1==h {print $2; exit}' "$CLAIM_DIR/MAC
 # worse than none. The lock is held for the daemon's lifetime; /tmp because the
 # singleton scope is this machine, and flock on the shared NAS is the semantics not
 # to rely on.
-exec 8> "/tmp/simopd_daemon_${MACHINE}.lock"
+exec 8> "/tmp/simopd_daemon_${MACHINE}.v2.lock"
 flock -n 8 || {
     echo "FATAL: a daemon for $MACHINE is already running on this box:" >&2
     pgrep -af "campaign_daemon" | grep -v $$ | sed 's/^/       /' >&2
@@ -60,7 +60,7 @@ while :; do
     date -u +%FT%TZ > "$HEART"
     if [ -e "$STOP" ]; then echo "[daemon] stop file seen, exiting"; rm -f "$STOP" "$HEART" "$CLAIM_DIR/daemon.status.$MACHINE"; exit 0; fi
     echo "[daemon] $(date -u +%FT%TZ) invoking campaign.sh (STEPS=${STEPS:-250-default})"
-    _out=$(bash deploy/campaign.sh 2>&1)
+    _out=$(bash deploy/campaign.sh 2>&1 8>&-)
     rc=$?
     printf '%s\n' "$_out"
     # A refusing daemon looks EXACTLY like a working one from the progress screen:

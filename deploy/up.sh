@@ -25,7 +25,7 @@ fi
 # visibly, rather than inside a daemon log nobody reads.
 MACHINE="$MACHINE" bash deploy/campaign.sh --dry || exit 1
 
-if bash -c 'exec 9> "/tmp/simopd_daemon_'"$MACHINE"'.lock"; flock -n 9' 2>/dev/null; then
+if bash -c 'exec 9> "/tmp/simopd_daemon_'"$MACHINE"'.v2.lock"; flock -n 9' 2>/dev/null; then
     nohup bash deploy/campaign_daemon.sh > "logs/$(hostname)_daemon.log" 2>&1 &
     sleep 2
     if kill -0 $! 2>/dev/null; then
