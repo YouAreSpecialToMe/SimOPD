@@ -166,13 +166,42 @@ claim() {   # claim <name> -> 0 if this machine now owns it
 }
 claim_owner() { cat "$CLAIM_DIR/claims/$1/owner" 2>/dev/null; }
 
-MACHINE=${MACHINE:-}
+# ---------------------------------------------------------------------------
+# Which machine is this? m1/m2/m3 are manifest labels, and a box does not know its
+# own label -- the operator did, per launch, from memory. Typing m2 on the box that
+# already ran as m1 double-assigns m2's rows and orphans m1's, silently. So the first
+# launch REGISTERS hostname->label in the shared map; after that MACHINE can be
+# omitted, and a label that contradicts the map is refused instead of obeyed.
+# ---------------------------------------------------------------------------
+_map="$CLAIM_DIR/MACHINE_MAP"
+_mapped=$(awk -F'\t' -v h="$(hostname)" '$1==h {print $2; exit}' "$_map" 2>/dev/null)
+MACHINE=${MACHINE:-$_mapped}
 [ -n "$MACHINE" ] || {
-    echo "FATAL: set MACHINE. The manifest assigns work by machine name, and there is no" >&2
-    echo "       shared filesystem for a box to claim work at runtime -- it can only be told." >&2
+    echo "FATAL: this box ($(hostname)) is not yet registered, so it must be told its" >&2
+    echo "       manifest name ONCE:   MACHINE=<name> bash deploy/campaign.sh --dry" >&2
+    echo "       That records hostname->name in $_map; afterwards MACHINE can be omitted." >&2
     echo "       Names in $MANIFEST: $(rows | awk '{print $2}' | sort -u | tr '\n' ' ')" >&2
+    [ -f "$_map" ] && { echo "       already registered:" >&2; sed 's/^/         /' "$_map" >&2; }
     exit 1
 }
+if [ -n "$_mapped" ] && [ "$_mapped" != "$MACHINE" ]; then
+    echo "FATAL: $(hostname) is registered as '$_mapped' but MACHINE=$MACHINE was given." >&2
+    echo "       Obeying it would run another machine's rows here. If the registration" >&2
+    echo "       itself is wrong, edit $_map." >&2
+    exit 1
+fi
+_other=$(awk -F'\t' -v m="$MACHINE" -v h="$(hostname)" '$2==m && $1!=h {print $1; exit}' "$_map" 2>/dev/null)
+if [ -n "$_other" ]; then
+    echo "FATAL: '$MACHINE' is already registered to $_other. Two boxes answering to one" >&2
+    echo "       name is the duplicate-run accident by another door. Pick this box's own" >&2
+    echo "       name, or fix $_map." >&2
+    exit 1
+fi
+if [ -z "$_mapped" ]; then
+    mkdir -p "$CLAIM_DIR"
+    printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$_map"
+    echo "  registered: $(hostname) = $MACHINE ($_map)"
+fi
 rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
     echo "FATAL: '$MACHINE' has no rows in $MANIFEST." >&2
     echo "       Known: $(rows | awk '{print $2}' | sort -u | tr '\n' ' ')" >&2
