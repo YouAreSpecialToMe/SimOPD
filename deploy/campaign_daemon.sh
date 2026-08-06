@@ -23,12 +23,30 @@ CLAIM_DIR=${CLAIM_DIR:-.campaign}
 MACHINE=$(awk -F'\t' -v h="$(hostname)" '$1==h {print $2; exit}' "$CLAIM_DIR/MACHINE_MAP" 2>/dev/null)
 [ -n "$MACHINE" ] || { echo "FATAL: $(hostname) not in $CLAIM_DIR/MACHINE_MAP; register first:"; \
                        echo "       MACHINE=<name> bash deploy/campaign.sh --dry"; exit 1; }
+# Exactly one daemon per machine. Without this, a second `nohup` quietly makes two:
+# the launch flock keeps them from double-launching, but the first to see the stop
+# file deletes it and the OTHER survives the stop request -- an unstoppable daemon is
+# worse than none. The lock is held for the daemon's lifetime; /tmp because the
+# singleton scope is this machine, and flock on the shared NAS is the semantics not
+# to rely on.
+exec 8> "/tmp/simopd_daemon_${MACHINE}.lock"
+flock -n 8 || {
+    echo "FATAL: a daemon for $MACHINE is already running on this box:" >&2
+    pgrep -af "campaign_daemon" | grep -v $$ | sed 's/^/       /' >&2
+    exit 1
+}
+echo $$ >&8
+
 STOP="$CLAIM_DIR/daemon.stop.$MACHINE"
+HEART="$CLAIM_DIR/daemon.alive.$MACHINE"
 rm -f "$STOP"
-echo "[daemon] $MACHINE on $(hostname), every ${LOOP_SEC}s; stop with: touch $STOP"
+echo "[daemon] $MACHINE on $(hostname) pid $$, every ${LOOP_SEC}s; stop with: touch $STOP"
 
 while :; do
-    if [ -e "$STOP" ]; then echo "[daemon] stop file seen, exiting"; rm -f "$STOP"; exit 0; fi
+    # Heartbeat on the shared mount: progress.py shows it from any machine, so "is
+    # m3's daemon alive" is a glance, not an ssh. A stale heartbeat IS the alarm.
+    date -u +%FT%TZ > "$HEART"
+    if [ -e "$STOP" ]; then echo "[daemon] stop file seen, exiting"; rm -f "$STOP" "$HEART"; exit 0; fi
     echo "[daemon] $(date -u +%FT%TZ) invoking campaign.sh"
     bash deploy/campaign.sh
     rc=$?
