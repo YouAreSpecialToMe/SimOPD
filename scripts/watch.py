@@ -47,6 +47,10 @@ RUN_RE = re.compile(r"#+ RUN: (\S+) #+")
 READY_RE = re.compile(r"all initialize finished, ready to fit")
 DONE_RE = re.compile(r"#+ (\S+) -> (OK|FAIL) #+")
 TQDM_RE = re.compile(r"\|\s*(\d+)/(\d+) \[([\d:]+)<([\d:?]+),\s*([\d.]+)s/it\]")
+# The horizon verl will actually stop at (trainer.total_training_steps after its
+# own min() against epochs). The tqdm denominator above is len(dataloader) x epochs
+# instead -- 310 here -- which is why it must not be used as the total on its own.
+TOTAL_RE = re.compile(r"Total training steps: (\d+)")
 
 STALL_MIN = 25          # startup is legitimately ~5 min; 25 means something is wrong
 MODE_A_GROWTH = 1.5     # response length this many times its early value
@@ -148,7 +152,7 @@ def parse_log(path):
                     current = m.group(1)
                     runs.setdefault(current, {"name": current, "log": path, "steps": [],
                                               "val": [], "status": "running", "tqdm": None,
-                                              "ready": False})
+                                              "announced_total": None, "ready": False})
                     continue
                 m = DONE_RE.search(line)
                 if m and m.group(1) in runs:
@@ -162,6 +166,15 @@ def parse_log(path):
                 m = TQDM_RE.search(line)
                 if m:
                     r["tqdm"] = (int(m.group(1)), int(m.group(2)), m.group(4), float(m.group(5)))
+                # The horizon the trainer will actually stop at. The tqdm bar's
+                # denominator is len(dataloader) x epochs -- 310 on this dataset --
+                # while the run stops at trainer.total_training_steps; showing the
+                # bar's number had every 250-step run reading "1/310" on the one
+                # screen everyone watches. verl announces the real value once at
+                # startup; prefer it wherever both exist.
+                m = TOTAL_RE.search(line)
+                if m:
+                    r["announced_total"] = int(m.group(1))
                 m = STEP_RE.search(line)
                 if not m:
                     continue
@@ -289,7 +302,9 @@ def render(runs, ckpt_root):
     for name in sorted(runs):
         r = runs[name]
         s = r["steps"][-1] if r["steps"] else None
-        prog = f"{r['tqdm'][0]}/{r['tqdm'][1]}" if r["tqdm"] else (str(s["step"]) if s else "-")
+        _tot = r.get("announced_total") or (r["tqdm"][1] if r["tqdm"] else None)
+        _cur = r["tqdm"][0] if r["tqdm"] else (s["step"] if s else None)
+        prog = f"{_cur}/{_tot}" if _cur is not None and _tot else (str(_cur) if _cur is not None else "-")
         val = f"{r['val'][-1][1]:.3f}" if r["val"] else "-"
         ln = f"{s['len']:.0f}" if s and s["len"] else "-"
         tr = f"{s['clip']:.2f}" if s and s["clip"] is not None else "-"

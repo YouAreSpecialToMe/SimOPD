@@ -98,7 +98,10 @@ def row_state(row, runs, info):
 
     if r:
         last_step = r["steps"][-1]["step"] if r["steps"] else (r["tqdm"][0] if r.get("tqdm") else 0)
-        total = r["tqdm"][1] if r.get("tqdm") else 250
+        # verl's announced horizon first. The tqdm denominator is len(dataloader) x
+        # epochs (310 on this dataset), not where the trainer stops (250) -- every
+        # healthy run read "step N/310" until it ended 60 steps "early".
+        total = r.get("announced_total") or (r["tqdm"][1] if r.get("tqdm") else 250)
         val = f"{r['val'][-1][1]:.3f}@{r['val'][-1][0]}" if r["val"] else "-"
         ck = f"ckpt@{r['ckpt_step']}" if r.get("ckpt_step") else ""
         fl = " ".join(f for f in r.get("flags", []) if not f.startswith("VAL-0"))
