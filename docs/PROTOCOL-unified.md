@@ -238,3 +238,28 @@ tokenizer 和 parquet 头):非思考模板渲染、师生词表一致、数据�
 **有效训练集**:`train.parquet` 14476 行,其中约 **14%** 超过 `max_prompt_length=1024`,
 被 `filter_overlong_prompts=True` 丢弃,实际训练约 **12478 行**。`truncation='error'`
 保证漏网的会报错而非静默截断。
+
+## 多机运行(2026-08-06)
+
+四台机器(`m1`–`m4`,各 8×A100-80G)+ Cornell 2 卡。同一镜像、同型号卡、同驱动
+(`deploy/campaign.sh --fingerprint` 每台跑一遍对比确认),**且共享同一个文件系统**
+(一台 `git pull` 后其余机器即为最新)。
+
+`configs/campaign.tsv` 是**唯一**说明"谁跑什么"的地方。`deploy/campaign.sh` 按机器取
+自己那份、跳过已完成的、只占用空闲卡,再交给 `run_parallel.sh`。可反复重跑。
+
+三条为多机而设的约束:
+
+1. **`ROLLOUT_GPU_MEM_UTIL=0.45` 全场钉死。** 0.55 更快且已是脚本默认,但第二个取值
+   就是第二批,而第二批需要自己的 vanilla×3 噪声底(~168 GPU-小时,而 0.55 在 13 个
+   run 上只省 ~73)。一批到底还能让 15 个臂共用一个底而不是两个更弱的底。
+
+2. **整场钉一个 commit**(`.campaign/CAMPAIGN_REF`)。共享仓库意味着一台 pull 就是全部
+   pull,于是不同时刻入队的 run 可能用不同代码 —— 而配置指纹记的是配置不是代码,改一行
+   `src/` 里的 loss 它纹丝不动。`scripts/ src/ configs/` 有变动则拒绝启动;只动 docs 放行。
+
+3. **不重复跑靠两道互不相关的网**:泳道日志里的在跑标记,以及"忙卡数 ÷ 2 = 在跑的 run 数"
+   ——忙卡来自驱动,不是本项目写的任何东西。对不上就拒绝启动。
+
+`git pull` 在实验运行中是安全的:实测 `git checkout` 会换 inode,运行中的 bash 仍持有
+旧 inode。会损坏的是**原地重写**(编辑器、`sed -i`),这是 `campaign.sbatch` 警告的对象。
