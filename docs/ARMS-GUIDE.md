@@ -785,9 +785,11 @@ python scripts/informativeness.py --model <ckpt>/actor --run-id vanilla_s0 --ste
 
 ### 5.3 上机前必须改的四处
 
-1. **`CKPT_ROOT` 默认值是 Cornell 路径** `/scratch/zz865/simopd/ckpt` —— 在这里不存在。
-   必须在 `simopd_env.sh` 里显式设成 `/mgfs/shared/Group_GY/changhao/simopd_data/ckpt`
-   一类的共享路径。同理 `DATA_DIR`。
+1. ~~`CKPT_ROOT` 要改~~ —— **不用管,setup.sh 已经处理**。`run_opd_baseline.sh:171`
+   的 fallback 确实是 Cornell 路径 `/scratch/zz865/simopd/ckpt`,但 `setup.sh` 生成的
+   `simopd_env.sh` 会 export `CKPT_ROOT=$DATA_ROOT/ckpt`,而 `DATA_ROOT` 默认就是
+   `<repo>/../simopd_data` —— 在我们这里正好落在共享盘上。`DATA_DIR` / `HF_HOME` /
+   `WANDB_DIR` 同理。**只要 `source simopd_env.sh`,那个 Cornell 默认值永远轮不到生效。**
 
 2. **flash-attn wheel 版本对不上**。仓库里 vendored 的是
    `flash_attn-2.8.3.post1-**cp312**-cp312-linux_x86_64.whl`,而这 7 台上是

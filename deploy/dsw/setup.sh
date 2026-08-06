@@ -452,11 +452,18 @@ elif ls "$SIMOPD_ROOT"/deploy/dsw/flash_attn-*.whl >/dev/null 2>&1; then
     # A stale build leaves a top-level .so with no dist-info, which an install will
     # not replace; clear all three pieces first.
     rm -rf "${_site:?}"/flash_attn "${_site:?}"/flash_attn_2_cuda*.so "${_site:?}"/flash_attn-*.dist-info 2>/dev/null || true
-    pipi --no-deps "$SIMOPD_ROOT"/deploy/dsw/flash_attn-*.whl
+    # `|| true` because this script runs under `set -e` and the wheel is allowed to
+    # be inapplicable. It is tagged cp312, so on a cp311 interpreter pip refuses it
+    # outright ("not a supported wheel on this platform") -- which killed the whole
+    # setup at 5/6, after torch and vLLM were in and before models, data and
+    # simopd_env.sh. The `else` branch below already treats a mismatched wheel as a
+    # warning; a REJECTED wheel is the same situation and must not be fatal either.
+    pipi --no-deps "$SIMOPD_ROOT"/deploy/dsw/flash_attn-*.whl || true
     if python -c "import torch, flash_attn_2_cuda" 2>/dev/null; then
         echo "  installed from the vendored wheel"
     else
-        echo "  vendored wheel does not match this torch -- run with USE_REMOVE_PADDING=False" >&2
+        echo "  vendored wheel does not apply here (wrong cp tag or torch) --" >&2
+        echo "  run arms with USE_REMOVE_PADDING=False, and note it enters the fingerprint" >&2
     fi
 else
     echo "  no wheel available; run arms with USE_REMOVE_PADDING=False (slower, same results)" >&2
