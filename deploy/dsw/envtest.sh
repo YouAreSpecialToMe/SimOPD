@@ -58,11 +58,29 @@ SHM=$(df -m /dev/shm 2>/dev/null | tail -1 | awk '{print $2}')
 
 # A Ray head left by a crashed run is not inert: the next ray.init() attaches to it,
 # and its workers carry the environment from when IT started -- so the fix above
-# would not reach them. Safe here because this script is the single-lane path.
-if pgrep -f "raylet|gcs_server" >/dev/null 2>&1; then
-    echo "stopping a leftover Ray cluster (single-lane debugging only)"
-    ray stop --force >/dev/null 2>&1 || true
+# would not reach them.
+#
+# But `ray stop --force` is MACHINE-WIDE, and "any raylet here is SimOPD debris" is
+# false on a shared box: on dsw251 (2026-08-07) this line killed a different
+# project's five-day-old Ray cluster (stacx env_engine, /tmp/ray_cx) that merely
+# shared the machine. A cluster we did not start is not ours to stop, whatever its
+# state. So: match on OUR venv's path in the cmdline -- every process of a Ray we
+# started carries it -- and leave everything else alone.
+#
+# And if what matches is a LIVE SimOPD lane, refuse rather than kill: this script is
+# the single-lane debugging path, and debugging on a box that is mid-campaign is a
+# mistake to surface, not to enforce.
+_ours="$SIMOPD_ROOT/simopd/bin"
+if pgrep -f "_lane\.sh|verl\.trainer\.main_ppo" >/dev/null 2>&1; then
+    echo "FATAL: SimOPD lanes are live on this box; envtest is a single-lane debugging tool." >&2
+    echo "       python scripts/watch.py   # see what is running before touching it" >&2
+    exit 1
+fi
+if pgrep -f "$_ours" >/dev/null 2>&1; then
+    echo "stopping leftover SimOPD Ray processes (matched on $_ours; other projects' Ray untouched)"
+    pkill -TERM -f "$_ours" 2>/dev/null || true
     sleep 3
+    pkill -KILL -f "$_ours" 2>/dev/null || true
 fi
 
 echo

@@ -119,17 +119,11 @@ kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")  # = log π �
 现货老师**,自训不是任何一篇的必要条件;而一个只有我们有的老师,会成为这份审计里
 唯一别人无法复现的部件。
 
-> ⚠ **horizon 有一处代码落后于预注册(2026-08-07 发现,尚未修)**:
-> `plan §4` 已在 2026-08-06 把 horizon 从 150 改到 **250**,已完成的 `vanilla_s0`
-> 和 `c1_lsm` 都是 **250/250**;但 `scripts/run_opd_baseline.sh:87` 和
-> `deploy/dsw/run_parallel.sh:62` 的默认值**都还是 150**。
->
-> 后果:不显式传 `STEPS=250` 就会跑出 150 步的 run,**和已有的两个锚点不可比**。
-> 在改掉默认值之前,每次都要写:
->
-> ```bash
-> STEPS=250 bash deploy/dsw/run_parallel.sh ...
-> ```
+> ⚠ **horizon 注(2026-08-07 更新)**:上游 merge(`ee6200d`)已把
+> `run_parallel.sh` / `campaign.sh` / daemon 的默认值统一为 **250**,且早停规则改为
+> **只记账不杀进程**("the stop rule measures, it no longer kills")。
+> 仍留一处地雷:**裸调 `scripts/run_opd_baseline.sh` 的 fallback 还是 150** ——
+> 手动调试单臂时记得 `TOTAL_TRAINING_STEPS=250`;走 campaign/泳道路径则无需操心。
 
 ### 1.6 一个 run 的成本
 
@@ -807,14 +801,26 @@ python scripts/informativeness.py --model <ckpt>/actor --run-id vanilla_s0 --ste
    但**步时会更快**,`plan §7.5` 里 "150 步 ≈ 23h" 的外推要在这里重新校准。
    另外 flash-attn 要有 **sm90** 支持。
 
-### 5.4 建议的分派形态
+### 5.4 分派与启动(2026-08-07 定稿;上游 daemon 机制 merge 后重写)
 
-原 `configs/campaign.tsv` 的 `machine` 列按 `m1/m2/m3/cornell` 写死。我们这边共享文件
-系统成立,所以**可以把绝大多数行改成 `any`**,靠 `mkdir` 原子认领自动铺满 28 条泳道 ——
-不需要手排。需要保留静态分派的只有 `a2_coldstart` 这种带机器专属前置的行。
+`configs/campaign.tsv` 已重写为本机队的分派表:**m1=dsw251 / m2=dsw252 /
+m3=dsw253 / m4=dsw254**,wave 1 = 全部 16 个 Phase-1 run(15 臂 + vanilla×3,
+一次铺满 4 台);**dsw258/261/262 刻意留白** —— 评测、informativeness、D6 探针
+这类临时活不跟 campaign 抢泳道。
 
-`deploy/campaign.sh --plan` 会审计 `campaign.tsv` 对 `arms.yaml` 的覆盖:每个可跑的臂
-必须恰好出现一次,漏的会报出来。改完先跑这个。
+每台机器的启动是一行(从 dsw243 ssh 过去执行):
+
+```bash
+MACHINE=m1 bash deploy/up.sh     # 首次:注册身份 + campaign.sh --dry + 起 daemon
+bash deploy/up.sh                # 之后:幂等,随时可重跑
+```
+
+daemon 每 15 分钟重新调用一次 `campaign.sh` 补空泳道;它**显式 unset 一切
+run-defining 环境变量**(STEPS/TEST_FREQ/…),继承性配置进不来。停一台:
+`touch .campaign/daemon.stop.<machine>`(共享盘,任何机器上都能发)。
+
+`deploy/campaign.sh --plan` 审计 manifest 对 `arms.yaml` 的覆盖:每个可跑臂必须
+恰好出现一次。改完 manifest 先跑这个。
 
 ---
 
