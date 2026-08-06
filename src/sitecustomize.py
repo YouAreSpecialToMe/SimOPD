@@ -148,10 +148,32 @@ def _after_verl_losses():
 
 
 def _after_vllm_server():
-    from simopd import teacher_patch, zmq_lane
+    """Two independent installs, and neither may take the other down with it.
 
-    teacher_patch.install()
-    zmq_lane.install_server()
+    They shared a body, with teacher_patch.install() first. Anything it raised meant
+    zmq_lane.install_server() never ran -- while the SENDER patch, which lives in a
+    different callback, still applied. That is the exact asymmetry zmq_lane's own
+    docstring warns about: one end tagged and the other not compute different socket
+    paths, never meet, and the run blocks at its first weight sync with engines
+    resident, 0% GPU and nothing in any log. A run that dies at the moment it starts
+    is what that looks like from outside.
+
+    So each runs in its own try, and a failure is loud rather than silent -- a patch
+    that quietly did not apply is worse than one that crashed, because the crash is
+    the only thing that would have said so.
+    """
+    import traceback
+
+    for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server")):
+        try:
+            m = __import__(f"simopd.{mod}", fromlist=[fn])
+            getattr(m, fn)()
+        except Exception:
+            print(f"[simopd] FATAL: simopd.{mod}.{fn}() failed. The other patches on "
+                  f"this path still applied, which for zmq_lane means one end of the "
+                  f"weight-transfer socket is tagged and the other is not -- the run "
+                  f"will hang at its first weight sync with no error.", file=sys.stderr)
+            traceback.print_exc()
 
 
 def _after_vllm_rollout():
