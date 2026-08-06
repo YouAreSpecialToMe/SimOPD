@@ -9,7 +9,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-simopd/
+/simopd/   # the venv at <repo>/simopd. Anchored: a bare `simopd/` also
+           # matches src/simopd/, which silently kept zmq_lane.py out of git for a
+           # day while sitecustomize imported it on four machines that never had it.
 
 # experiment outputs
 logs/

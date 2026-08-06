@@ -155,6 +155,22 @@ python scripts/fetch_assets.py --check --essential >/dev/null 2>&1 || {
     echo "       python scripts/fetch_assets.py --repair              # refetch" >&2
     _fail=1
 }
+# Every source file must be in git, because other machines get this repo by pulling
+# it. src/simopd/zmq_lane.py was not, for a day: `.gitignore` had a bare `simopd/` for
+# the venv, which also matches src/simopd/, so `git add -A` silently skipped a new file
+# there. sitecustomize imported it on four machines that never received it, printed one
+# line into a hundred thousand, and left both ends of the weight-transfer socket
+# unpatched -- two runs hung for eight hours holding four GPUs.
+_untracked=$(git ls-files --others --exclude-standard --ignored src 2>/dev/null; \
+             git ls-files --others --exclude-standard src 2>/dev/null)
+_untracked=$(printf '%s\n' "$_untracked" | grep -E '\.py$' | sort -u)
+if [ -n "$_untracked" ]; then
+    echo "FATAL: source files under src/ that git does not have:" >&2
+    printf '%s\n' "$_untracked" | sed 's/^/         /' >&2
+    echo "       Other machines pull this repo; a file only on this box is a patch that" >&2
+    echo "       silently does not apply there. Check .gitignore, then git add -f." >&2
+    _fail=1
+fi
 python scripts/arm.py check >/dev/null 2>&1 || {
     echo "FATAL: the arm registry does not load; every lane would fail identically." >&2
     echo "       PYTHONPATH=$SIMOPD_ROOT/src python scripts/arm.py check" >&2

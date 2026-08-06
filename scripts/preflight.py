@@ -118,6 +118,27 @@ def main():
                     f"PYTHONPATH, and k1_rec would fall back to stock k1 without the "
                     f"Delta-ell panel METRICS.md requires on every run")
 
+    # Every module sitecustomize's hooks import, checked on the machine that will run.
+    # simopd.zmq_lane was absent from all four machines for a day -- a .gitignore
+    # pattern meant `git add -A` never staged it -- while sitecustomize imported it,
+    # printed one line, and left both ends of the weight-transfer socket unpatched.
+    try:
+        import sitecustomize
+
+        for m in getattr(sitecustomize, "REQUIRED_MODULES", ()):
+            try:
+                __import__(m)
+            except Exception as e:
+                fail.append(f"{m} is not importable here ({type(e).__name__}). "
+                            f"sitecustomize hooks import it; without it the patch it "
+                            f"installs silently does not apply.")
+        else:
+            if getattr(sitecustomize, "REQUIRED_MODULES", None):
+                print(f"  hooks {len(sitecustomize.REQUIRED_MODULES)} patch modules importable")
+    except ImportError:
+        fail.append("sitecustomize is not importable; none of the patches apply and "
+                    "k1_rec would silently be stock k1")
+
     print(f"  step0 MATH500 anchor {STEP0_MATH500} (recorded; val_before_train is off)")
     if fail:
         print("\npreflight FAILED:", file=sys.stderr)

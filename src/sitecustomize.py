@@ -188,6 +188,13 @@ def _after_vllm_rollout_utils():
     zmq_lane.install_receiver_logging()
 
 
+# What the hooks import. Declared so preflight.py can check they are importable
+# BEFORE a run starts, on the machine that will run it -- the failure this guards was
+# a module that existed on the author's box and on none of the four that needed it.
+REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch",
+                    "simopd.zmq_lane")
+
+
 # verl module -> what to run once it has finished executing
 _TARGETS = {
     "verl.trainer.distillation.losses": _after_verl_losses,
@@ -235,10 +242,18 @@ class _SimOPDInstallHook(MetaPathFinder):
                     sys.meta_path.remove(_hook)
                 except ValueError:
                     pass
-            try:
-                callback()
-            except Exception as e:  # a broken arm must not disappear into a traceback-free hang
-                print(f"[simopd] install hook for {fullname} FAILED: {e!r}", file=sys.stderr)
+            # Raise. Every hook here is load-bearing: the loss registry, the teacher
+            # patch, and both ends of the weight-transfer socket. This used to print
+            # and continue, under a comment about not disappearing into a
+            # traceback-free hang -- and that is exactly what it produced. On
+            # 2026-08-06 simopd.zmq_lane was missing from four machines (a .gitignore
+            # pattern kept it out of git), this printed one line into a hundred
+            # thousand, and two runs then hung for eight hours holding four GPUs.
+            #
+            # Thirty seconds of traceback at import beats eight hours of silence. A
+            # patch that quietly did not apply is worse than one that crashed, because
+            # the crash is the only thing that reports it.
+            callback()
 
         spec.loader.exec_module = exec_module
         return spec
