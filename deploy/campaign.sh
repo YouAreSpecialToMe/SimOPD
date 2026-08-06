@@ -202,6 +202,15 @@ if [ -z "$_mapped" ]; then
     printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$_map"
     echo "  registered: $(hostname) = $MACHINE ($_map)"
 fi
+
+# A unique tmpdir tag PER INVOCATION. Lane numbering restarts at 0 every launch, so a
+# second invocation on a box with surviving lanes computed the same /tmp/ray_lane<m>_0
+# as a cluster still alive under it -- and run_parallel's attach-guard then correctly
+# refused, wedging the machine: m1 could not top up because its own healthy vanilla_s1
+# owned lane 0's tmpdir. Timestamping the tag makes the collision impossible instead
+# of guarded; GPU ownership (not tags) is what prevents double-launches, and fix_node
+# reclaims by GPU truth, so nothing else keyed on tag stability.
+LAUNCH_TAG="${MACHINE}_$(date +%s)_"
 # One launch at a time per machine. A daemon firing while a human runs campaign.sh
 # by hand would have both count the same free GPUs and both launch lanes onto them.
 # The lock is machine-LOCAL (/tmp) on purpose: the race being closed is same-machine
@@ -564,7 +573,7 @@ fi
 if [ "$MODE" = dry ]; then
     echo
     echo "would run:"
-    echo "  GPU_LIST=\"$gpu_list\" LANES=$lanes RAY_TMPDIR_TAG=${MACHINE}_ \\"
+    echo "  GPU_LIST=\"$gpu_list\" LANES=$lanes RAY_TMPDIR_TAG=$LAUNCH_TAG \\"
     echo "  ROLLOUT_GPU_MEM_UTIL=$ROLLOUT_GPU_MEM_UTIL STEPS=${STEPS:-250} \\"
     echo "  bash deploy/dsw/run_parallel.sh \"${pending# }\""
     exit 0
