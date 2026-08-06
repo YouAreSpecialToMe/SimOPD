@@ -3,6 +3,7 @@
 #
 #   bash deploy/campaign.sh --fingerprint       # is this box the same as the others?
 #   bash deploy/campaign.sh --fs-probe          # do the machines share a filesystem?
+#   REASON="..." bash deploy/campaign.sh --repin   # move the pin, on the record
 #   bash deploy/campaign.sh --plan              # whole manifest, audited, nothing run
 #   MACHINE=m2 bash deploy/campaign.sh --dry    # what m2 would launch, and why
 #   MACHINE=m2 bash deploy/campaign.sh          # launch it
@@ -39,6 +40,7 @@ for a in "$@"; do
         --machine-control) MODE=control ;;
         --fingerprint) MODE=fingerprint ;;
         --fs-probe) MODE=fsprobe ;;
+        --repin) MODE=repin ;;
         *) echo "unknown argument: $a" >&2; exit 2 ;;
     esac
 done
@@ -195,6 +197,32 @@ rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
 # ---------------------------------------------------------------------------
 _head=$(git rev-parse HEAD 2>/dev/null || echo nogit)
 _ref_file="$CLAIM_DIR/CAMPAIGN_REF"
+
+# Re-pinning is sometimes correct -- 62b33e6 could not run on any machine, because
+# src/simopd/zmq_lane.py was missing from git. What must not happen is re-pinning
+# leaving no trace. "Note it in the ledger" is advice nobody follows at 2am, so the
+# move writes its own entry: old ref, new ref, who, when, and why.
+if [ "$MODE" = repin ]; then
+    mkdir -p "$CLAIM_DIR"
+    _was=$(cut -d' ' -f1 < "$_ref_file" 2>/dev/null || echo "<unpinned>")
+    [ -n "${REASON:-}" ] || {
+        echo "FATAL: set REASON. A pin move that does not say why is the drift it exists" >&2
+        echo "       to catch, one level up." >&2
+        echo "       REASON=\"zmq_lane.py was missing from git; 62b33e6 cannot run\" \\" >&2
+        echo "         MACHINE=$MACHINE bash deploy/campaign.sh --repin" >&2
+        exit 1; }
+    printf '%s pinned-by=%s at=%s\n' "$_head" "${MACHINE:-?}@$(hostname)" "$(date -u +%FT%TZ)" > "$_ref_file"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$_was" "$_head" \
+        "${MACHINE:-?}@$(hostname)" "$REASON" >> "$CLAIM_DIR/PIN_HISTORY"
+    echo "re-pinned $_was -> $_head"
+    echo "  reason: $REASON"
+    echo "  history: $CLAIM_DIR/PIN_HISTORY ($(wc -l < "$CLAIM_DIR/PIN_HISTORY") entries)"
+    echo
+    echo "Runs launched before this pin used the old code. Whether they stay comparable"
+    echo "is a judgement about the diff, and it belongs in the paper's appendix:"
+    git diff --stat "$_was" "$_head" -- scripts src configs 2>/dev/null | sed 's/^/    /'
+    exit 0
+fi
 if [ -f "$_ref_file" ]; then
     _ref=$(cut -d' ' -f1 < "$_ref_file")
     if [ "$_ref" != "$_head" ] && [ "$_head" != nogit ]; then
@@ -207,8 +235,8 @@ if [ -f "$_ref_file" ]; then
             echo "       downstream would say so -- the config fingerprint records config," >&2
             echo "       not code." >&2
             echo "       git checkout $_ref                    # run the campaign's code" >&2
-            echo "       echo $_head > $_ref_file              # OR re-pin, deliberately," >&2
-            echo "                                              and note it in the ledger" >&2
+            echo "       REASON=\"why\" MACHINE=$MACHINE bash deploy/campaign.sh --repin" >&2
+            echo "                                             # OR move the pin, on the record" >&2
             exit 1
         fi
         echo "  note: HEAD moved since the campaign was pinned, but nothing under" >&2
