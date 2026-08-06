@@ -27,6 +27,20 @@ set -xeuo pipefail
 # run whose numbers are the evidence for stopping it.
 export PYTHONUNBUFFERED=1
 
+# ModelScope, resurrection three. Round one: the image exported it and ${VAR:-False}
+# is a default, not an override. Round two: simopd_env.sh carries an explicit
+# VLLM_USE_MODELSCOPE=True from a long-finished download errand. Round three: lanes
+# died at vLLM init because SOME launch chain reached this script with the flag
+# truthy and no modelscope in the venv. run_parallel force-assigns both flags -- but
+# only launches that pass through run_parallel. This is the innermost shell every
+# variant must traverse, so the assignment lives here too: derived from the ONE knob,
+# assigned unconditionally, never defaulted.
+if [ "${SIMOPD_USE_MODELSCOPE:-0}" = "1" ]; then
+    export VERL_USE_MODELSCOPE=True VLLM_USE_MODELSCOPE=True
+else
+    export VERL_USE_MODELSCOPE=False VLLM_USE_MODELSCOPE=False
+fi
+
 # Screening tier, decided 2026-08-04 on measurement rather than on the v3.1 plan's
 # speed argument. Both changed:
 #
