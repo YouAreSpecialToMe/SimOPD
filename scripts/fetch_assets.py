@@ -202,7 +202,13 @@ def nltk_punkt_cached():
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--data-dir", default=os.path.expanduser("~/data/simopd_math"))
+    # DATA_DIR first: simopd_env.sh exports it, and it is the same value setup.sh
+    # passes here explicitly. envtest.sh and run_parallel.sh call --check WITHOUT
+    # the flag, so with a bare ~ default their pre-flights look for the parquet in
+    # a directory nothing ever wrote to, report "training data missing", and refuse
+    # to launch on a machine where every asset is in fact present.
+    p.add_argument("--data-dir",
+                   default=os.environ.get("DATA_DIR", os.path.expanduser("~/data/simopd_math")))
     p.add_argument("--check", action="store_true", help="report what is missing, download nothing")
     p.add_argument("--essential", action="store_true",
                    help="only what a TRAINING run needs: student, teacher, train/val parquet. "
