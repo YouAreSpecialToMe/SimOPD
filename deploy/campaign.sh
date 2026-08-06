@@ -202,6 +202,21 @@ if [ -z "$_mapped" ]; then
     printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$_map"
     echo "  registered: $(hostname) = $MACHINE ($_map)"
 fi
+# One launch at a time per machine. A daemon firing while a human runs campaign.sh
+# by hand would have both count the same free GPUs and both launch lanes onto them.
+# The lock is machine-LOCAL (/tmp) on purpose: the race being closed is same-machine
+# concurrency, and flock on the shared NAS mount is exactly the semantics not to
+# depend on. plan/probe/fingerprint modes take no lock -- they launch nothing.
+if [ "$MODE" = run ] || [ "$MODE" = control ]; then
+    exec 9> "/tmp/simopd_campaign_${MACHINE}.lock"
+    flock -n 9 || {
+        echo "FATAL: another campaign.sh invocation is mid-launch on this machine" >&2
+        echo "       (daemon and manual run overlapping is the usual cause; wait a" >&2
+        echo "       minute or stop the daemon: touch .campaign/daemon.stop.$MACHINE)" >&2
+        exit 1
+    }
+fi
+
 rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
     echo "FATAL: '$MACHINE' has no rows in $MANIFEST." >&2
     echo "       Known: $(rows | awk '{print $2}' | sort -u | tr '\n' ' ')" >&2
