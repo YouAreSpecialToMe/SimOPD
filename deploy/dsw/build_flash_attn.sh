@@ -55,25 +55,65 @@ echo "=== target: sm${FA_ARCHS}  torch $(python -c 'import torch;print(torch.__v
 # and dpkg-deb -x unpacks without root and without touching the system.
 # ---------------------------------------------------------------------------
 echo "=== [1/4] CUDA toolchain ==="
-if [ ! -x "$BUILD_ROOT/cuda/bin/nvcc" ]; then
-    # cuda-cccl is not optional decoration: cuda_fp16.h includes <nv/target>, which
-    # lives in CCCL (libcu++), so without it every single .cu fails at
-    #   cuda_fp16.h:4492:10: fatal error: nv/target: No such file or directory
-    # after the toolchain has otherwise reported itself healthy.
-    for p in cuda-nvcc-12-9_${CUDA_PKG_VER} cuda-crt-12-9_${CUDA_PKG_VER} \
-             cuda-nvvm-12-9_${CUDA_PKG_VER} cuda-cudart-dev-12-9_${CUDART_PKG_VER} \
-             cuda-cccl-12-9_${CCCL_PKG_VER}; do
-        f="$BUILD_ROOT/deb/${p}_amd64.deb"
-        [ -f "$f" ] || { echo "  fetching ${p}"; curl -fsSL -o "$f" "$NV_REPO/${p}_amd64.deb"; }
-        dpkg-deb -x "$f" "$BUILD_ROOT/deb/unpacked"
+# Unpack unconditionally. Guarding the whole block on bin/nvcc existing means that
+# adding a package after a failed run silently does nothing -- the guard sees a
+# usable nvcc and skips, and the rerun fails at the identical spot. Downloads are
+# still cached per file, so a repeat costs a few seconds of dpkg-deb.
+#
+# cuda-cccl is not optional decoration: cuda_fp16.h includes <nv/target>, which lives
+# in CCCL (libcu++), so without it every single .cu fails at
+#   cuda_fp16.h:4492:10: fatal error: nv/target: No such file or directory
+# after the toolchain has otherwise reported itself healthy.
+#
+# cuda-cudart AND cuda-cudart-dev, not just -dev: the dev package ships the
+# unversioned libcudart.so, but that is a symlink onto libcudart.so.12, which only
+# the runtime package carries. With -dev alone the link exists and dangles, and
+# `ld` reports "cannot find -lcudart" about a file that is right there.
+for p in cuda-nvcc-12-9_${CUDA_PKG_VER} cuda-crt-12-9_${CUDA_PKG_VER} \
+         cuda-nvvm-12-9_${CUDA_PKG_VER} cuda-cudart-dev-12-9_${CUDART_PKG_VER} \
+         cuda-cudart-12-9_${CUDART_PKG_VER} cuda-cccl-12-9_${CCCL_PKG_VER}; do
+    f="$BUILD_ROOT/deb/${p}_amd64.deb"
+    [ -f "$f" ] || { echo "  fetching ${p}"; curl -fsSL -o "$f" "$NV_REPO/${p}_amd64.deb"; }
+    dpkg-deb -x "$f" "$BUILD_ROOT/deb/unpacked"
+done
+# The debs lay everything out under /usr/local/cuda-12.9; lift that to be CUDA_HOME.
+cp -a "$BUILD_ROOT/deb/unpacked/usr/local/cuda-12.9/." "$BUILD_ROOT/cuda/"
+
+# A real CUDA install has lib64/ and include/ as symlinks onto
+# targets/x86_64-linux/{lib,include}. The .debs ship the files under targets/ and the
+# symlinks come from a package we are not unpacking, so libcudart.so exists but
+# nothing looks where it is: torch's cpp_extension passes -L$CUDA_HOME/lib64 and only
+# that, and the build dies AFTER compiling all 73 objects with
+#   /usr/bin/ld: cannot find -lcudart
+# -- the most expensive place a path problem can surface. Re-establish the union.
+#
+# Outside the nvcc guard on purpose: an earlier run leaves bin/nvcc in place, so a
+# fix-and-rerun would skip this and fail at exactly the same link step.
+for _d in lib:lib64 include:include; do
+    _t="$BUILD_ROOT/cuda/targets/x86_64-linux/${_d%%:*}"
+    [ -d "$_t" ] || continue
+    _dst="$BUILD_ROOT/cuda/${_d##*:}"
+    mkdir -p "$_dst"
+    for _f in "$_t"/*; do
+        [ -e "$_dst/$(basename "$_f")" ] || ln -s "$_f" "$_dst/" 2>/dev/null || true
     done
-    # The debs lay everything out under /usr/local/cuda-12.9; lift that to be CUDA_HOME.
-    cp -a "$BUILD_ROOT/deb/unpacked/usr/local/cuda-12.9/." "$BUILD_ROOT/cuda/"
-fi
+done
 export CUDA_HOME="$BUILD_ROOT/cuda"
 export PATH="$CUDA_HOME/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 nvcc --version | sed -n 's/^.*release/  nvcc release/p'
+# Resolve -lcudart the way the final link will, here rather than after seven minutes
+# of nvcc. Everything above this point can look healthy while the link is doomed:
+# the compile phase never touches libcudart, so the first thing that notices a
+# missing runtime is g++ -shared on the very last target.
+if ! echo 'int main(){return 0;}' | gcc -x c - -o /dev/null -L"$CUDA_HOME/lib64" -lcudart 2>/dev/null; then
+    echo "FATAL: -lcudart does not resolve under $CUDA_HOME/lib64" >&2
+    ls -la "$CUDA_HOME/lib64"/libcudart* 2>/dev/null | sed 's/^/  /' >&2 || echo "  (nothing there)" >&2
+    echo "  The dev package ships libcudart.so as a symlink to libcudart.so.12;" >&2
+    echo "  the runtime package cuda-cudart-12-9 is what carries the target." >&2
+    exit 1
+fi
+echo "  -lcudart resolves"
 [ "$(nvcc --version | sed -n 's/.*release \([0-9]*\)\..*/\1/p')" = "$(python -c 'import torch;print(torch.version.cuda.split(".")[0])')" ] \
     || echo "  WARNING: nvcc major != torch CUDA major; the extension build will refuse" >&2
 
