@@ -475,6 +475,9 @@ n_pending=$(( n_mine + $(set -- $pool; echo $#) ))
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
 lanes=$(( n_free / GPUS_PER_RUN ))
 [ "$lanes" -gt "$n_pending" ] && lanes=$n_pending
+# control runs vanilla:0 regardless of pending, so an all-done manifest must not
+# clamp it to zero lanes -- that clamp is what made the mode unreachable in test.
+[ "$MODE" = control ] && [ "$lanes" -lt 1 ] && [ "$n_free" -ge "$GPUS_PER_RUN" ] && lanes=1
 
 echo "  GPUs         $n_free free of $(nvidia-smi 2>/dev/null -L | wc -l) ->$([ "$lanes" -gt 0 ] && echo " $lanes lanes" || echo " 0 lanes")"
 if [ "$lanes" -lt 1 ]; then
@@ -567,7 +570,7 @@ for i in $(seq 0 $((lanes - 1))); do
 done
 gpu_list="${gpu_list# }"
 _n_real=$(set -- $pending; echo $#)
-if [ "$_n_real" -lt "$lanes" ]; then
+if [ "$_n_real" -lt "$lanes" ] && [ "$MODE" != control ]; then
     lanes=$_n_real
     gpu_list=$(set -- $gpu_list; c=""; for i in $(seq 1 $lanes); do c="$c ${!i}"; done; echo "${c# }")
 fi
