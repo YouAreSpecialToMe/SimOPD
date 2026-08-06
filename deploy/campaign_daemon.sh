@@ -16,6 +16,17 @@
 # human who has just verified a corpse, and a daemon has verified nothing.
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# The daemon runs CAMPAIGN defaults, period. It inherits the interactive shell it was
+# nohup'd from, and that shell's leftovers become silent config: a stale STEPS=3 from
+# a rehearsal turned two arms into 3-step runs that would have been recorded as DONE
+# -- a false OK is worse than a failure, because nothing ever retries it. Same lesson
+# as ModelScope: inheritance is an override channel, so close it explicitly.
+unset STEPS TEST_FREQ SAVE_FREQ TAG REHEARSAL PROJECT_NAME EXPERIMENT_NAME \
+      LANES GPU_LIST GPUS_PER_RUN RAY_TMPDIR_TAG RAY_TMPDIR LANE_RUNS LANE_TAG \
+      INFLIGHT_HOURS ALLOW_UNKNOWN_GPU_USERS RESUME ROLLOUT_GPU_MEM_UTIL \
+      TOTAL_TRAINING_STEPS MAX_RESPONSE_LENGTH DISTILLATION_LOSS_MODE 2>/dev/null
+
 LOOP_SEC=${LOOP_SEC:-900}
 CLAIM_DIR=${CLAIM_DIR:-.campaign}
 
@@ -47,7 +58,7 @@ while :; do
     # m3's daemon alive" is a glance, not an ssh. A stale heartbeat IS the alarm.
     date -u +%FT%TZ > "$HEART"
     if [ -e "$STOP" ]; then echo "[daemon] stop file seen, exiting"; rm -f "$STOP" "$HEART"; exit 0; fi
-    echo "[daemon] $(date -u +%FT%TZ) invoking campaign.sh"
+    echo "[daemon] $(date -u +%FT%TZ) invoking campaign.sh (STEPS=${STEPS:-250-default})"
     bash deploy/campaign.sh
     rc=$?
     # 0 = launched or nothing to do; anything else is a refusal worth a human's eyes,
