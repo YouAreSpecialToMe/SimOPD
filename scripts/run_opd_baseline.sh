@@ -157,6 +157,17 @@ max_num_tokens=$(( max_prompt_length + max_response_length + 1 ))
 # So: record what defines the run, and refuse when the record contradicts it. Only
 # the fields that make two runs incomparable go in. total_training_steps does not --
 # extending a horizon is a legitimate resume, and the noise floor may well ask for it.
+#
+# Two fields the audit (2026-08-06) found missing:
+#   extra=$*      the hydra overrides _lane.sh appends (data.seed, rollout.seed, and
+#                 anything future). The old seed=${SEED:-} field read a variable the
+#                 caller never exports, so it hashed as empty on every run.
+#   simopd=...    every SIMOPD_* env knob. These ARE arm definitions -- retention,
+#                 budget, margin, segment K, drop fraction -- read by the kernels
+#                 straight from env, so a changed knob otherwise resumed silently.
+#                 SHADOW and PI_TAIL_WIDTHS are excluded: they alter which metrics are
+#                 emitted, never what the loss computes, and blocking a resume over a
+#                 diagnostics toggle would be the check crying wolf.
 ckpt_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name}
 resume_mode=auto
 # On a fresh run this is the step-0 anchor of the arm's curve and a wiring check
@@ -174,7 +185,8 @@ val_before_train=${VAL_BEFORE_TRAIN:-False}
 fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
-    "arm=${ARM_ARGS[*]-}" "seed=${SEED:-}" \
+    "arm=${ARM_ARGS[*]-}" "extra=$*" \
+    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
     "prompt=$max_prompt_length" "resp=$max_response_length" \
     "data=$train_files" "pad=$use_remove_padding" \

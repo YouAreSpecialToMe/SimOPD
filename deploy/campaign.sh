@@ -478,7 +478,20 @@ if [ "$MODE" = control ]; then
 fi
 
 echo
-exec env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="${MACHINE}_" \
+env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="${MACHINE}_" \
     LOG_DIR="$LOG_DIR/$MACHINE" \
     STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-50}" \
     bash deploy/dsw/run_parallel.sh "${pending# }"
+rc=$?
+if [ "$rc" != 0 ] && [ -n "${claimed// /}" ]; then
+    # The launch never started, so the pool rows this invocation claimed are not
+    # being worked on by anyone -- release them, or they stay "held by $MACHINE"
+    # forever while the machine that could run them skips past. (exec was wrong here
+    # for exactly this reason: nothing can run after an exec fails downstream.)
+    for entry in $claimed; do
+        name="${entry%%:*}_s${entry##*:}"
+        rm -f "$CLAIM_DIR/claims/$name/owner"
+        rmdir "$CLAIM_DIR/claims/$name" 2>/dev/null && echo "released pool claim: $name"
+    done
+fi
+exit "$rc"

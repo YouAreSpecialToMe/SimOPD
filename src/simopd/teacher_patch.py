@@ -61,7 +61,13 @@ def install():
         return
     module = sys.modules.get(_SERVER_MODULE)
     if module is None or not hasattr(module, "extract_prompt_logprobs"):
-        return
+        # SIMOPD_KEEP_SAMPLED=1 means a D-axis arm is depending on this patch. The
+        # kernel does fail loudly on the narrower tensor (_prepare raises on width K
+        # instead of K+1), but that error names a shape, not the cause; this one does.
+        raise RuntimeError(
+            f"teacher_patch: SIMOPD_KEEP_SAMPLED=1 but {_SERVER_MODULE} has no "
+            "extract_prompt_logprobs to patch -- verl moved or renamed it. The D-axis "
+            "arm cannot keep vanilla's objective without the sampled column.")
     if getattr(module.extract_prompt_logprobs, "_simopd_patched", False):
         return
     patched = _extract_with_sampled(module.extract_prompt_logprobs)
