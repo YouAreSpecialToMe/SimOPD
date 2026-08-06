@@ -254,8 +254,16 @@ def _live_jobs():
 def collect(log_dir, ckpt_root, save_freq):
     live = _live_jobs()
     runs = {}
+    # One level of subdirectories too: campaign.sh gives each machine its own
+    # logs/<machine>/ so shared-filesystem launches cannot collide on a filename,
+    # and the logs being shared means ONE watcher here sees every machine's lanes.
+    # Without this line the watcher was blind to exactly the runs the campaign
+    # starts -- the 32-GPU-hour lesson was that nothing was watching, and a watcher
+    # pointed at the wrong directory is nothing watching with extra confidence.
     for path in sorted(glob.glob(os.path.join(log_dir, "*.out")) +
-                       glob.glob(os.path.join(log_dir, "*.log"))):
+                       glob.glob(os.path.join(log_dir, "*.log")) +
+                       glob.glob(os.path.join(log_dir, "*", "*.out")) +
+                       glob.glob(os.path.join(log_dir, "*", "*.log"))):
         for name, r in parse_log(path).items():
             # a run re-run later supersedes the earlier attempt
             if name not in runs or r["mtime"] > runs[name]["mtime"]:
