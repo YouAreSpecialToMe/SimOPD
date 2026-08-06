@@ -25,6 +25,7 @@ VENV=${SIMOPD_VENV:-simopd}
 # chose this" from "this is just the default" and never overrides an explicit pick.
 _USER_INDEX=${UV_DEFAULT_INDEX:-}
 _USER_WHEELS=${TORCH_FIND_LINKS:-}
+_USER_HF_ENDPOINT=${HF_ENDPOINT:-}
 if [ "${SIMOPD_MIRRORS:-1}" = "1" ]; then
     # uv downloads its own CPython build; without this it pulls from GitHub.
     export UV_PYTHON_INSTALL_MIRROR=${UV_PYTHON_INSTALL_MIRROR:-https://python-standalone.org/mirror/astral-sh/python-build-standalone}
@@ -80,6 +81,31 @@ else
     export HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
 fi
 GH() { echo "${GITHUB_PROXY}$1"; }
+
+# The mirror block above picks hf-mirror.com sight unseen. That is right where the
+# hub itself is unreachable and wrong where it is not: on this cluster hf-mirror
+# answers the model API with a 308 that huggingface_hub does not follow, so every
+# asset fails with LocalEntryNotFoundError -- "check your connection" -- while
+# huggingface.co serves the same call with a 200. The mirror is an availability
+# workaround, so use it only when it is actually the one that works.
+#
+# Probe the API path, not the landing page: hf-mirror.com/ returns 200 either way.
+# An explicit HF_ENDPOINT is honoured untouched.
+if [ -z "${_USER_HF_ENDPOINT:-}" ] && command -v curl >/dev/null 2>&1; then
+    _probe=api/models/Qwen/Qwen3-1.7B-Base
+    _code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$HF_ENDPOINT/$_probe" 2>/dev/null || echo 000)
+    if [ "$_code" != "200" ]; then
+        _alt=https://huggingface.co
+        _acode=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$_alt/$_probe" 2>/dev/null || echo 000)
+        if [ "$_acode" = "200" ]; then
+            echo "  hf: $HF_ENDPOINT answers $_code on the model API; $_alt answers 200 -> using it"
+            export HF_ENDPOINT=$_alt
+        else
+            echo "  WARNING: neither $HF_ENDPOINT ($_code) nor $_alt ($_acode) serves the model API;" >&2
+            echo "  asset download will probably fail. Set HF_ENDPOINT to something reachable." >&2
+        fi
+    fi
+fi
 echo "mirrors: pypi=${UV_DEFAULT_INDEX:-upstream} hf=$HF_ENDPOINT torch=${TORCH_FIND_LINKS:-upstream} gh_proxy=${GITHUB_PROXY:-none}"
 
 echo "=== [0/6] pre-flight ==="
