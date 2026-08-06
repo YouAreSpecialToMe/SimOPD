@@ -141,7 +141,7 @@ def compute_reverse_kl_topk(
     out["overlap_teacher_mass"] = (teacher_topk_log_probs.exp() * overlap_mask).sum(dim=-1)
     out["overlap_student_mass"] = (student_topk_log_probs.exp() * overlap_mask).sum(dim=-1)
     t_ent_topk = -(teacher_topk_log_probs.exp() * teacher_topk_log_probs).sum(dim=-1)
-    s_ent = -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+    s_ent = _student_entropy(student_log_probs)
     out["entropy_student"] = s_ent
     out["entropy_teacher_topk"] = t_ent_topk
     out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
@@ -227,12 +227,25 @@ def _prepare(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, w
     return student_log_probs, t_lp, t_id, sampled_lp, sampled_id
 
 
-def _student_entropy(student_log_probs):
+def _student_entropy(student_log_probs, chunk=4096):
     """Full-vocabulary token entropy, computed here rather than taken from
     model_output['entropy'] -- that key only exists when calculate_entropy is on,
     and the usual way to switch it on (entropy_coeff != 0) adds an entropy bonus
-    to the loss, which would contaminate any arm that used it."""
-    return -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+    to the loss, which would contaminate any arm that used it.
+
+    Chunked over the token dimension, because the naive form materialises an
+    exp(B,S,V) chain -- ~7GB transient at a 12k-token microbatch on a 152k vocab --
+    and that growth of the caching allocator's reserved pool is what killed d1_tip:
+    verl's sleep/wake weight sync OOM'd at step 2's wake_up, the first sync after
+    the optimizer moments (12.7GB) materialise. Per-token entropy is independent
+    across tokens, so slicing changes the peak (~2.5GB at 4096) and not one bit of
+    the result; verified elementwise against the naive form."""
+    out = torch.empty(student_log_probs.shape[:-1],
+                      dtype=student_log_probs.dtype, device=student_log_probs.device)
+    for i in range(0, student_log_probs.shape[1], chunk):
+        sl = student_log_probs[:, i:i + chunk]
+        out[:, i:i + chunk] = -(sl.exp() * sl).sum(dim=-1)
+    return out
 
 
 def _minmax(x, mask=None):
@@ -290,7 +303,7 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
     # approximation stays visible instead of being buried inside a difference: teacher
     # mass below 1.0 is exactly how much of the teacher's distribution is missing.
     t_ent_topk = -(t_lp.exp() * t_lp).sum(dim=-1)
-    s_ent = -(student_log_probs.exp() * student_log_probs).sum(dim=-1)
+    s_ent = _student_entropy(student_log_probs)
     out["entropy_student"] = s_ent
     out["entropy_teacher_topk"] = t_ent_topk
     out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
