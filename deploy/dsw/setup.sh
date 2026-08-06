@@ -187,6 +187,31 @@ index_works() {   # index_works <index_url> -- will it actually hand over a whee
     return 0
 }
 
+# The two torch-wheel candidates are different KINDS of URL, and pip needs a
+# different flag for each:
+#
+#   mirrors.aliyun.com/pytorch-wheels/cu129/  flat directory of .whl files
+#                                             -> --find-links scrapes it, correct
+#   download.pytorch.org/whl/cu129            PEP 503 index ROOT; the page lists
+#                                             package NAMES, not wheels
+#
+# Handing the second one to --find-links finds zero wheels, silently falls back to
+# the pypi index, and reports "No matching distribution found for
+# torch==2.11.0+cu129" -- with the wheel sitting right there at
+# /whl/cu129/torch/torch-2.11.0+cu129-cp311-...whl. So the flag has to follow
+# whichever URL is actually in hand, rather than being fixed at --find-links.
+#
+# --extra-index-url rather than --index-url: torch's own dependency closure
+# (sympy, filelock, networkx...) resolves from pypi, and the +cu129 local version
+# label exists only on the pytorch index, so the pinned spec still lands there
+# deterministically.
+torch_src_flag() {   # torch_src_flag <url>
+    case "$1" in
+        *download.pytorch.org/whl/*) echo --extra-index-url ;;
+        *)                           echo --find-links ;;
+    esac
+}
+
 if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command -v curl >/dev/null 2>&1; then
     _tw=torch-2.11.0%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl
     echo "racing package sources (SIMOPD_RACE=0 to skip)"
@@ -223,9 +248,13 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command 
             echo "  no candidate index could serve a package; keeping $PIP_INDEX_URL" >&2
         fi
     fi
-    export PIP_FIND_LINKS=$TORCH_FIND_LINKS
+    # Only a flat wheel directory belongs in PIP_FIND_LINKS; pointing it at an index
+    # root just makes every later pip call scrape a page with no wheels on it.
+    if [ "$(torch_src_flag "$TORCH_FIND_LINKS")" = --find-links ]; then
+        export PIP_FIND_LINKS=$TORCH_FIND_LINKS
+    fi
     echo "  index=$PIP_INDEX_URL"
-    echo "  wheels=$TORCH_FIND_LINKS"
+    echo "  wheels=$TORCH_FIND_LINKS ($(torch_src_flag "$TORCH_FIND_LINKS"))"
 fi
 
 echo "=== [1/6] third-party checkouts ==="
@@ -369,7 +398,9 @@ PYCHK
         # Plain PyPI builds, both mirrored: nothing here leaves the mainland.
         pipi "torch==${PIN_TORCH}" "torchvision==${PIN_TV}" "torchaudio==${PIN_TORCH}" "vllm==${PIN_VLLM}"
     elif [ -n "$TORCH_FIND_LINKS" ]; then
-        pipi --find-links "$TORCH_FIND_LINKS" \
+        # Flag chosen by URL kind, not hardcoded -- see torch_src_flag. All three
+        # +cu129 wheels exist for cp310..cp314 on either source.
+        pipi "$(torch_src_flag "$TORCH_FIND_LINKS")" "$TORCH_FIND_LINKS" \
             "torch==${PIN_TORCH}+cu129" "torchvision==${PIN_TV}+cu129" "torchaudio==${PIN_TORCH}+cu129"
         vllm_install "$VLLM_WHEEL"
     else
