@@ -223,6 +223,14 @@ LAUNCH_TAG="${MACHINE}_$(date +%s)_"
 # the children fixes the cause; versioning the path releases the fleet from locks the
 # CURRENTLY-running lanes already hold, without touching them.
 if [ "$MODE" = run ] || [ "$MODE" = control ]; then
+    # Every launching invocation records its own transcript on the shared mount.
+    # Manual runs used to exist only in someone's terminal scrollback: three times
+    # today the words "还是有点问题" arrived without the output that would have
+    # named the problem in one read, and diagnosis stalled on asking for a paste.
+    # The daemon already records itself; now the human path does too.
+    mkdir -p logs
+    exec > >(tee "logs/campaign_last_${MACHINE}.txt") 2>&1
+    echo "(transcript: logs/campaign_last_${MACHINE}.txt @ $(date -u +%FT%TZ), HEAD $(git rev-parse --short HEAD 2>/dev/null))"
     exec 9> "/tmp/simopd_campaign_${MACHINE}.v2.lock"
     flock -n 9 || {
         echo "FATAL: another campaign.sh invocation is mid-launch on this machine" >&2
