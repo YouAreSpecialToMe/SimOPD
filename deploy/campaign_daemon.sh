@@ -57,12 +57,22 @@ while :; do
     # Heartbeat on the shared mount: progress.py shows it from any machine, so "is
     # m3's daemon alive" is a glance, not an ssh. A stale heartbeat IS the alarm.
     date -u +%FT%TZ > "$HEART"
-    if [ -e "$STOP" ]; then echo "[daemon] stop file seen, exiting"; rm -f "$STOP" "$HEART"; exit 0; fi
+    if [ -e "$STOP" ]; then echo "[daemon] stop file seen, exiting"; rm -f "$STOP" "$HEART" "$CLAIM_DIR/daemon.status.$MACHINE"; exit 0; fi
     echo "[daemon] $(date -u +%FT%TZ) invoking campaign.sh (STEPS=${STEPS:-250-default})"
-    bash deploy/campaign.sh
+    _out=$(bash deploy/campaign.sh 2>&1)
     rc=$?
-    # 0 = launched or nothing to do; anything else is a refusal worth a human's eyes,
-    # but not worth dying over -- the condition (drift, busy GPUs) may clear itself.
-    [ $rc -ne 0 ] && echo "[daemon] campaign.sh exited $rc (see above); retrying in ${LOOP_SEC}s"
+    printf '%s\n' "$_out"
+    # A refusing daemon looks EXACTLY like a working one from the progress screen:
+    # heartbeat fresh, rows QUEUED, nothing moving -- m2 and m3 sat in that state with
+    # eight free GPUs while the guard (correctly) refused over leftover processes, and
+    # nothing surfaced the contradiction. So the outcome of every invocation lands on
+    # the shared mount, and progress.py turns a refusal into an ATTENTION line.
+    if [ $rc -ne 0 ]; then
+        { echo "REFUSING rc=$rc at $(date -u +%FT%TZ)"; printf '%s\n' "$_out" | grep -E "FATAL|held|QUAR" | head -4; } \
+            > "$CLAIM_DIR/daemon.status.$MACHINE"
+        echo "[daemon] campaign.sh exited $rc; status written; retrying in ${LOOP_SEC}s"
+    else
+        printf 'ok %s\n' "$(date -u +%FT%TZ)" > "$CLAIM_DIR/daemon.status.$MACHINE"
+    fi
     sleep "$LOOP_SEC"
 done

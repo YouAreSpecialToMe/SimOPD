@@ -158,6 +158,20 @@ def render(args):
     print(f"\n{done}/{visible} done here ({total} rows total)   [{bar}]")
     print("   " + "  ".join(f"{k}:{v}" for k, v in sorted(counts.items(), key=lambda kv: order.get(kv[0], 9))))
 
+    # A machine whose daemon is beating but refusing work: fresh heartbeat + QUEUED
+    # rows + nothing moving looks healthy from every other line on this screen.
+    for m in sorted(info["daemons"]):
+        st = os.path.join(args.claim_dir, f"daemon.status.{m}")
+        try:
+            txt = open(st).read()
+        except OSError:
+            continue
+        if not txt.startswith("ok"):
+            print(f"\nATTENTION -- {m}'s daemon is alive but its launches are REFUSED:")
+            for ln in txt.splitlines()[:5]:
+                print(f"  {ln}")
+            print(f"  full context: logs/<{m}-host>_daemon.log")
+
     # Anything running-but-silent is the line to read first; everything else can wait.
     quiet = [(n, r) for n, r in runs.items()
              if r["status"] == "running" and any(f.startswith(("STALLED", "ABANDONED")) for f in r.get("flags", []))]
