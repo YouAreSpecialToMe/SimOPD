@@ -255,7 +255,16 @@ fi
 if [ -f "$_ref_file" ]; then
     _ref=$(cut -d' ' -f1 < "$_ref_file")
     if [ "$_ref" != "$_head" ] && [ "$_head" != nogit ]; then
-        _drift=$(git diff --name-only "$_ref" "$_head" -- scripts src configs 2>/dev/null)
+        # Only files whose content actually flows into a training process. The first
+        # version gated all of scripts/ and blocked a launch because progress.py -- a
+        # read-only monitor -- had been added; refusing over a monitoring script is
+        # this check crying wolf, the same failure the fingerprint avoids by exempting
+        # SIMOPD_SHADOW. Monitoring, eval tooling and deploy glue move the pin with a
+        # printed note instead. configs/campaign.tsv is deliberately out too: it
+        # assigns work, it does not define what a run computes, and editing waves
+        # mid-campaign is normal operation.
+        _RUN_DEFINING="src configs/arms.yaml scripts/run_opd_baseline.sh scripts/arm.py"
+        _drift=$(git diff --name-only "$_ref" "$_head" -- $_RUN_DEFINING 2>/dev/null)
         if [ -n "$_drift" ]; then
             echo "FATAL: the campaign is pinned to $_ref (see $_ref_file)" >&2
             echo "       and HEAD is $_head. Files that decide what a run computes changed:" >&2
@@ -268,8 +277,9 @@ if [ -f "$_ref_file" ]; then
             echo "                                             # OR move the pin, on the record" >&2
             exit 1
         fi
-        echo "  note: HEAD moved since the campaign was pinned, but nothing under" >&2
-        echo "        scripts/ src/ configs/ changed -- runs stay comparable." >&2
+        _moved=$(git diff --name-only "$_ref" "$_head" 2>/dev/null | head -6 | tr '\n' ' ')
+        echo "  note: HEAD moved since the pin ($_moved...) but nothing run-defining" >&2
+        echo "        (src/, arms.yaml, run_opd_baseline.sh, arm.py) -- runs stay comparable." >&2
     fi
 else
     mkdir -p "$CLAIM_DIR" 2>/dev/null
