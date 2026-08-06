@@ -107,6 +107,31 @@ max_ckpt_keep=${MAX_CKPT_KEEP:-2}
 # state already being written -- about 14%, for the difference between a checkpoint
 # and an artifact.
 
+# vLLM shares this GPU with the actor -- the teacher gets its own card at 0.85, being
+# pure inference with nothing to share with. gpu_memory_utilization is a fraction of
+# TOTAL memory reserved at engine init, not a usage cap, so it trades directly against
+# the actor's 25.3GB of static state at 1.7B (3.2 bf16 weights + 6.3 fp32 master +
+# 12.7 AdamW moments + 3.2 grads) before a single activation.
+#
+#   0.45 -> vLLM 36.0GB, 61.3/80 used, 18.7 free
+#   0.55 -> vLLM 44.0GB, 69.3/80 used, 10.7 free
+#   0.65 -> vLLM 52.0GB, 77.3/80 used,  2.7 free   -- too close
+#
+# 0.55 from 2026-08-05. free_cache_engine=True (verl default) sleeps the engine during
+# the actor update, so the two do not peak together; what stays resident regardless is
+# the optimizer state and vLLM's cuda graphs, which rollout.yaml notes cannot be
+# offloaded. The gain is specific: under Mode A responses grow toward the 8k cap, the
+# KV cache holds fewer concurrent sequences, and throughput falls faster than length
+# rises -- 8GB more cache buys concurrency back exactly where it is being lost.
+#
+# NOT numerically neutral, so it belongs in the fingerprint. Rollout sampling uses one
+# engine-level seed (rollout.seed=42), not per-request seeds, so cache size -> batch
+# composition -> both the RNG stream and the reduction order. Runs that must be
+# comparable have to share it: vanilla s0/s1/s2 are the noise floor, and a config
+# difference among them would inflate it and make every downstream verdict falsely
+# conservative. Pin ROLLOUT_GPU_MEM_UTIL=0.45 to match a run started before this date.
+rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.55}
+
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 
 project_name=${PROJECT_NAME:-simopd}
@@ -152,7 +177,9 @@ fingerprint=$(printf '%s\n' \
     "arm=${ARM_ARGS[*]-}" "seed=${SEED:-}" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
     "prompt=$max_prompt_length" "resp=$max_response_length" \
-    "data=$train_files" "pad=$use_remove_padding" | sha1sum | cut -c1-12)
+    "data=$train_files" "pad=$use_remove_padding" \
+    "vllmmem=$rollout_gpu_mem_util" "tokpergpu=$ppo_max_token_len_per_gpu" \
+    | sha1sum | cut -c1-12)
 fp_file="$ckpt_dir/simopd_fingerprint.txt"
 latest_file="$ckpt_dir/latest_checkpointed_iteration.txt"
 
@@ -220,7 +247,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=${ROLLOUT_GPU_MEM_UTIL:-0.45} \
+    actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_mem_util} \
     actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
