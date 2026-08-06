@@ -143,8 +143,17 @@ max_ckpt_keep=${MAX_CKPT_KEEP:-2}
 # composition -> both the RNG stream and the reduction order. Runs that must be
 # comparable have to share it: vanilla s0/s1/s2 are the noise floor, and a config
 # difference among them would inflate it and make every downstream verdict falsely
-# conservative. Pin ROLLOUT_GPU_MEM_UTIL=0.45 to match a run started before this date.
-rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.55}
+# conservative.
+#
+# DEFAULT 0.45 for the whole screening campaign (audit 2026-08-06). It was 0.55 here
+# while campaign.sh exported 0.45 -- which protected exactly one entrance. Any launch
+# not through campaign.sh (cornell's campaign.sbatch, a manual run_parallel, f1's
+# +100-step resume) got 0.55: the resume is refused by the fingerprint, but a FRESH
+# arm at 0.55 starts quietly and becomes an incomparable batch member that nothing
+# refuses. Same lesson as ModelScope: the protocol value lives at the innermost
+# layer, not at whichever launcher remembered to export it. 0.55 returns as the
+# anchor-round default, where the whole batch starts together.
+rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 

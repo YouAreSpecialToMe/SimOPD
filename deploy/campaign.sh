@@ -445,7 +445,7 @@ echo "  assigned     ${mine:- none}"
 echo "  pool free    ${pool:- none}"
 echo "  vllm mem     $ROLLOUT_GPU_MEM_UTIL  (pinned campaign-wide)"
 
-if [ -z "${mine// /}${pool// /}" ]; then
+if [ -z "${mine// /}${pool// /}" ] && [ "$MODE" != control ]; then
     echo
     echo "nothing left for $MACHINE. If that is a surprise, check --plan: a machine with"
     echo "no wave-2 rows finishes early by design, and its GPUs are then free for another"
@@ -553,7 +553,7 @@ done
 [ -n "$would" ] && echo "  pool: would claim$would  (--dry claims nothing)"
 pending="$mine$claimed"
 echo "  pending     ${pending:- none}"
-[ -n "${pending// /}" ] || { echo; echo "nothing this machine can start right now."; exit 0; }
+[ -n "${pending// /}" ] || [ "$MODE" = control ] || { echo; echo "nothing this machine can start right now."; exit 0; }
 
 gpu_list=""
 for i in $(seq 0 $((lanes - 1))); do
