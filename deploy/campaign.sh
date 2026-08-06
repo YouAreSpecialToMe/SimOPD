@@ -243,10 +243,15 @@ if [ -d "$LOG_DIR" ]; then
             grep -oE '^#+ [A-Za-z0-9_.]+ -> FAIL' "$f" 2>/dev/null | awk '{print $2}')
         while read -r n; do attempted="$attempted$n "; done < <(
             grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
-        # A log touched in the last 30 minutes belongs to something still alive; an
-        # older one with an unfinished run is a crash, and that run should be retried
-        # (it will resume from its checkpoint) rather than skipped forever.
-        if [ -n "$(find "$f" -mmin -30 2>/dev/null)" ]; then
+        # How long may a HEALTHY run be silent? Not 30 minutes, which is what this
+        # said first and is the fourth time on this project that a threshold was
+        # picked from what failure looks like without checking what health looks
+        # like. A validation is ~75 minutes at this tier, and a run in one writes
+        # nothing at all -- so 30 minutes calls a healthy run dead, and the machine
+        # then offers to start a second copy of it. Six hours clears the longest
+        # legitimate silence with room; the GPU cross-check below is what catches a
+        # genuine crash, and being conservative here errs toward not duplicating.
+        if [ -n "$(find "$f" -mmin -$(( ${INFLIGHT_HOURS:-6} * 60 )) 2>/dev/null)" ]; then
             while read -r n; do recent="$recent$n "; done < <(
                 grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
         fi
@@ -281,7 +286,7 @@ done < <(rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | sort -k1,1n)
 echo "=== $MACHINE ==="
 echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) rows named for it, $(rows | awk '$2=="any"' | wc -l) in the shared pool"
 [ -n "$skipped" ] && echo "  not mine     $skipped"
-[ -n "$live" ]    && echo "  in flight    $live   (a lane log moved in the last 30 min)"
+[ -n "$live" ]    && echo "  in flight    $live   (lane log moved within ${INFLIGHT_HOURS:-6}h)"
 [ -n "$retry" ]   && {
     echo "  RETRYING    $retry"
     echo "              these reported FAIL before and are being run again -- they will"
@@ -342,9 +347,21 @@ if [ "$_expect" -gt "$_detected" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; 
     echo "FATAL: $_busy_n GPUs are busy -- about $_expect run(s) -- but the lane logs" >&2
     echo "       account for only $_detected. Something is training that this cannot name," >&2
     echo "       so a lane started now could be a second copy of it." >&2
-    echo "       Look first:  ps -o pid,etime,cmd -p \$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | tr '\\n' ',' | sed 's/,\$//')" >&2
-    echo "       If the busy GPUs are something else entirely (an eval, another project):" >&2
-    echo "         ALLOW_UNKNOWN_GPU_USERS=1 MACHINE=$MACHINE bash \$0 ${*:-}" >&2
+    echo >&2
+    echo "       Unfinished runs it found, with how long since their log last moved --" >&2
+    echo "       anything under ${INFLIGHT_HOURS:-6}h counts as alive, and a validation is ~75 min of silence:" >&2
+    for _f in "$LOG_DIR"/lane*.log "$LOG_DIR"/*/lane*.log; do
+        [ -f "$_f" ] || continue
+        _last=$(grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$_f" 2>/dev/null | tail -1 | awk '{print $3}')
+        [ -n "$_last" ] || continue
+        grep -qE "^#+ $_last -> (OK|FAIL)" "$_f" && continue
+        printf '         %-28s %4d min   %s\n' "$_last" \
+            "$(( ( $(date +%s) - $(stat -c %Y "$_f") ) / 60 ))" "$_f" >&2
+    done
+    echo >&2
+    echo "       ps -o pid,etime,cmd -p \$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | tr '\\n' ',' | sed 's/,\$//')" >&2
+    echo "       INFLIGHT_HOURS=12 MACHINE=$MACHINE bash deploy/campaign.sh   # if a run is simply slow" >&2
+    echo "       ALLOW_UNKNOWN_GPU_USERS=1 ...                                # if the busy cards are something else" >&2
     exit 1
 fi
 
