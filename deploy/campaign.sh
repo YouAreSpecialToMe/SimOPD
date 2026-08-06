@@ -225,15 +225,22 @@ fi
 # No new bookkeeping file: the summary line is already the record, and a marker
 # written by something other than the run itself can outlive the thing it describes.
 # ---------------------------------------------------------------------------
-finished=" "; attempted=" "; recent=" "
+# OK and FAIL are NOT the same thing. An earlier version put both in `finished`, which
+# meant a run that crashed was skipped on every later invocation -- the lanes stay
+# green, the arm never gets written, and the only symptom is a column missing from the
+# paper. FAIL is retried (it resumes from its checkpoint) and reported, because a run
+# that keeps failing needs an operator, not a quiet retry.
+done_ok=" "; failed=" "; attempted=" "; recent=" "
 if [ -d "$LOG_DIR" ]; then
     # Both layouts: logs/lane*.log from before machines were separated, and
     # logs/<machine>/lane*.log from now on -- which matters on a shared filesystem,
     # where two boxes starting in the same second would otherwise write one filename.
     for f in "$LOG_DIR"/lane*.log "$LOG_DIR"/*/lane*.log; do
         [ -f "$f" ] || continue
-        while read -r n; do finished="$finished$n "; done < <(
-            grep -oE '^#+ [A-Za-z0-9_.]+ -> (OK|FAIL)' "$f" 2>/dev/null | awk '{print $2}')
+        while read -r n; do done_ok="$done_ok$n "; done < <(
+            grep -oE '^#+ [A-Za-z0-9_.]+ -> OK' "$f" 2>/dev/null | awk '{print $2}')
+        while read -r n; do failed="$failed$n "; done < <(
+            grep -oE '^#+ [A-Za-z0-9_.]+ -> FAIL' "$f" 2>/dev/null | awk '{print $2}')
         while read -r n; do attempted="$attempted$n "; done < <(
             grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
         # A log touched in the last 30 minutes belongs to something still alive; an
@@ -246,34 +253,46 @@ if [ -d "$LOG_DIR" ]; then
     done
 fi
 
-pending=""; skipped=""; live=""; claimed=""
+# Two lists, not one. Rows named for this machine are its own; 'any' rows are the pool
+# and are only CLAIMED once the free-GPU count is known, because a machine that claims
+# what it cannot start holds it away from the machine that could. A first version
+# claimed during the manifest walk -- which also meant --dry took the whole pool and
+# left nothing for anyone, a side effect a dry run must not have.
+mine=""; pool=""; skipped=""; live=""; retry=""
 while read -r w m arm s; do
     name="${arm}_s${s}"
-    case "$finished" in *" $name "*) skipped="$skipped $name(done)"; continue ;; esac
+    case "$done_ok" in *" $name "*) skipped="$skipped $name(done)"; continue ;; esac
+    case "$failed"  in *" $name "*) retry="$retry $name" ;; esac
     case "$recent" in
         *" $name "*)
             case "$attempted" in *" $name "*) live="$live $name" ; continue ;; esac ;;
     esac
     if [ "$m" = any ]; then
-        if claim "$name"; then
-            pending="$pending ${arm}:${s}"; claimed="$claimed $name"
+        if [ -d "$CLAIM_DIR/claims/$name" ]; then
+            skipped="$skipped $name(held by $(claim_owner "$name" | sed -n 's/.*machine=\([^ ]*\).*/\1/p'))"
         else
-            skipped="$skipped $name(claimed by $(claim_owner "$name" | sed -n 's/.*machine=\([^ ]*\).*/\1/p'))"
+            pool="$pool ${arm}:${s}"
         fi
         continue
     fi
-    pending="$pending ${arm}:${s}"
+    mine="$mine ${arm}:${s}"
 done < <(rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | sort -k1,1n)
 
 echo "=== $MACHINE ==="
-echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) runs assigned"
-[ -n "$skipped" ] && echo "  already done $skipped"
+echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) rows named for it, $(rows | awk '$2=="any"' | wc -l) in the shared pool"
+[ -n "$skipped" ] && echo "  not mine     $skipped"
 [ -n "$live" ]    && echo "  in flight    $live   (a lane log moved in the last 30 min)"
-[ -n "$claimed" ] && echo "  claimed now $claimed   (from the 'any' pool in $CLAIM_DIR)"
-echo "  pending      ${pending:- none}"
+[ -n "$retry" ]   && {
+    echo "  RETRYING    $retry"
+    echo "              these reported FAIL before and are being run again -- they will"
+    echo "              resume from their checkpoints. If one fails a second time, read it"
+    echo "              rather than relaunching:  python scripts/triage.py \$LOG_DIR/lane*.log"
+}
+echo "  assigned     ${mine:- none}"
+echo "  pool free    ${pool:- none}"
 echo "  vllm mem     $ROLLOUT_GPU_MEM_UTIL  (pinned campaign-wide)"
 
-if [ -z "${pending// /}" ]; then
+if [ -z "${mine// /}${pool// /}" ]; then
     echo
     echo "nothing left for $MACHINE. If that is a surprise, check --plan: a machine with"
     echo "no wave-2 rows finishes early by design, and its GPUs are then free for another"
@@ -293,7 +312,8 @@ while read -r idx uuid; do
 done < <(nvidia-smi --query-gpu=index,uuid --format=csv,noheader | tr -d ',')
 set -- $free_idx
 n_free=$#
-n_pending=$(set -- $pending; echo $#)
+n_mine=$(set -- $mine; echo $#)
+n_pending=$(( n_mine + $(set -- $pool; echo $#) ))
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
 lanes=$(( n_free / GPUS_PER_RUN ))
 [ "$lanes" -gt "$n_pending" ] && lanes=$n_pending
@@ -328,12 +348,39 @@ if [ "$_expect" -gt "$_detected" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; 
     exit 1
 fi
 
+# Claim now that the lane count is known, and only as many as there are slots left
+# after this machine's own rows. --dry deliberately claims nothing: it reports what it
+# would take, so running it on four machines does not hand the pool to whoever ran it
+# first.
+claimed=""; would=""
+slots=$(( lanes - n_mine ))
+for entry in $pool; do
+    [ "$slots" -gt 0 ] || break
+    name="${entry%%:*}_s${entry##*:}"
+    if [ "$MODE" = dry ]; then
+        would="$would $name"
+    else
+        claim "$name" || { echo "  pool: $name went to $(claim_owner "$name" | sed -n 's/.*machine=\([^ ]*\).*/\1/p') first"; continue; }
+        echo "  pool: claimed $name"
+    fi
+    claimed="$claimed $entry"; slots=$(( slots - 1 ))
+done
+[ -n "$would" ] && echo "  pool: would claim$would  (--dry claims nothing)"
+pending="$mine$claimed"
+echo "  pending     ${pending:- none}"
+[ -n "${pending// /}" ] || { echo; echo "nothing this machine can start right now."; exit 0; }
+
 gpu_list=""
 for i in $(seq 0 $((lanes - 1))); do
     a=$(( i * 2 + 1 )); b=$(( i * 2 + 2 ))
     gpu_list="$gpu_list ${!a},${!b}"
 done
 gpu_list="${gpu_list# }"
+_n_real=$(set -- $pending; echo $#)
+if [ "$_n_real" -lt "$lanes" ]; then
+    lanes=$_n_real
+    gpu_list=$(set -- $gpu_list; c=""; for i in $(seq 1 $lanes); do c="$c ${!i}"; done; echo "${c# }")
+fi
 
 echo "  GPU_LIST     $gpu_list"
 echo "  steps        ${STEPS:-250}   save/${SAVE_FREQ:-50}  test/${TEST_FREQ:-25}"

@@ -44,9 +44,13 @@
 1	m3	b2_forward_kl	0
 
 # ---- wave 2 -------------------------------------------------------------------
-# m4 if it exists; otherwise move these to m1, which frees four lanes when wave 1
-# ends there. campaign.sh --plan will show them as assigned-but-idle if m4 never runs.
-2	m4	d2_selectkd	0
-2	m4	d3_teachability	0
-2	m4	g2_fire_likelihood	0	run informativeness.py first: it tests this arm's premise
-2	m4	a2_coldstart	0	needs the SFT checkpoint from slurm/coldstart.sbatch
+# 'any': claimed at runtime by whichever machine has a free lane, which works because
+# the machines share a filesystem -- confirmed by a git pull on one leaving the others
+# already current, and .campaign/ sits in that same shared repo. m1 is freeing lanes
+# now, before m4 exists, and static assignment would have left them idle while four
+# rows waited on a machine that may never arrive.
+# mkdir is the claim: atomic, and it fails for the loser.
+2	any	d2_selectkd	0
+2	any	d3_teachability	0
+2	any	g2_fire_likelihood	0	run informativeness.py first: it tests this arm's premise
+2	any	a2_coldstart	0	needs the SFT checkpoint from slurm/coldstart.sbatch
