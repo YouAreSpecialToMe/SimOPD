@@ -381,11 +381,19 @@ def main():
                    help="hide finished runs whose log has not moved in this long "
                         "(0 = show everything). Dead rehearsals from days ago crowd out "
                         "the four rows that are actually live.")
+    # Recording is NOT a flag. Since the fixed-horizon amendment nothing is ever
+    # stopped, so the ledger is pure measurement -- and a measurement behind an
+    # opt-in flag named "--enforce" read exactly like the thing the amendment
+    # abolished: the operator saw the suggested command and reasonably asked whether
+    # early stopping was back. It records on every invocation now (idempotent via
+    # the ledger dedup), which also means one post-campaign run back-fills every
+    # firing step from the complete logs -- no resident watcher required.
     p.add_argument("--enforce", action="store_true",
-                   help="record the stop rule's firing step in the ledger (use with --watch). "
-                        "Since 2026-08-06 this RECORDS ONLY -- fixed 250-step horizon")
+                   help="deprecated no-op: the stop ledger records on every invocation")
     p.add_argument("--kill", action="store_true",
-                   help="with --enforce: actually scancel when the rule fires (pre-2026-08-06 behaviour)")
+                   help="DANGEROUS: actually scancel a run when the stop rule fires "
+                        "(abolished by the 2026-08-06 fixed-horizon amendment; exists "
+                        "for a deliberate future protocol change only)")
     args = p.parse_args()
 
     while True:
@@ -396,8 +404,7 @@ def main():
                       if r["status"] != "running" and r["mtime"] < cutoff]
             for n in hidden:
                 del runs[n]
-        if args.enforce:
-            enforce(runs, kill=args.kill)
+        enforce(runs, kill=args.kill)
         if args.run:
             r = runs.get(args.run)
             if not r:
