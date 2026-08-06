@@ -87,7 +87,14 @@ echo "=== [0/6] pre-flight ==="
 # up front so a mismatch fails here instead of 40 minutes into a wheel install.
 nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv || {
     echo "no GPU visible -- wrong instance type?"; exit 1; }
-DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1 | cut -d. -f1)
+# --id=0 rather than piping all eight rows into `head -1`. Under `set -euo pipefail`
+# that pipe is a race the script loses about 40% of the time on an 8-GPU box: head
+# exits after the first line, nvidia-smi gets SIGPIPE and returns 141, pipefail
+# promotes it to the pipeline's status, and set -e kills the script -- with no error
+# text, because nothing wrote any. It reads as "setup stopped after printing the GPU
+# table" and it succeeds on the next attempt, which is what makes it expensive.
+# Measured on dsw251: 2 of 5 runs returned 141.
+DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader --id=0 | cut -d. -f1)
 if [ "${DRV:-0}" -lt 525 ]; then
     echo "FATAL: driver $DRV < 525; the cu129 wheels this project pins will not load." >&2
     exit 1
@@ -101,7 +108,9 @@ fi
 # (Minor differences are fine -- torch warns for 12.9-vs-12.8 and carries on.)
 NVCC_MAJ=""
 if command -v nvcc >/dev/null 2>&1; then
-    NVCC_VER=$(nvcc --version | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
+    # `|| true` for the same SIGPIPE reason as DRV above; this one has a fallback
+    # (${NVCC_VER:-?}) so an empty value is survivable, a killed script is not.
+    NVCC_VER=$(nvcc --version | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1 || true)
     NVCC_MAJ=${NVCC_VER%%.*}
     echo "nvcc $NVCC_VER (build toolkit)"
 else
@@ -222,7 +231,7 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command 
         echo "  torch wheels:"
         _first=$(rank_sources \
             "aliyun;https://mirrors.aliyun.com/pytorch-wheels/cu129/;https://mirrors.aliyun.com/pytorch-wheels/cu129/$_tw" \
-            "pytorch.org;https://download.pytorch.org/whl/cu129;https://download.pytorch.org/whl/cu129/$_tw" | head -1)
+            "pytorch.org;https://download.pytorch.org/whl/cu129;https://download.pytorch.org/whl/cu129/$_tw" | head -1 || true)
         [ -n "$_first" ] && TORCH_FIND_LINKS=${_first#*;}
         echo "    -> ${_first%%;*}"
     fi
