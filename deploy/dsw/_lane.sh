@@ -110,7 +110,33 @@ for entry in $LANE_RUNS; do
         # run's own config, but stale all the same. Duplicated rather than sourced
         # because run_opd_baseline.sh runs from the snapshot and resolves them long
         # after this point.
-        export WANDB_RUN_GROUP="$(basename "${STUDENT_MODEL:-Qwen/Qwen3-1.7B-Base}")__from__$(basename "${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}")__s${SEED}"
+        # basename alone is wrong for a local checkpoint: a2's STUDENT_MODEL ends
+        # in .../ckpt/coldstart_sft/hf, and "hf" as a group name says nothing. Strip
+        # a trailing /hf (the merger's output dir) before taking the basename, so the
+        # label is coldstart_sft. Hub ids like Qwen/Qwen3-1.7B-Base are unaffected.
+        _short() { local q="${1%/}"; q="${q%/hf}"; basename "$q"; }
+        _stu=$(_short "${STUDENT_MODEL:-Qwen/Qwen3-1.7B-Base}")
+        _tch=$(_short "${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}")
+        export WANDB_RUN_GROUP="${_stu}__from__${_tch}__s${SEED}"
+        # job_type and tags are the SECOND grouping axis, free: wandb lets you
+        # regroup by either in the UI without touching a run. job_type is the arm,
+        # so "group by job_type" gives seed-spread per method -- the stability view,
+        # which the group above cannot show (its members are different methods, so
+        # its aggregate band would be spread across methods, not noise).
+        #
+        # None of this makes data queryable that was not already: ray_trainer.py:1398
+        # hands wandb the whole resolved hydra config, so data.seed, the model paths
+        # and distillation.distillation_loss.loss_mode are filterable regardless.
+        # These three fields only make the DEFAULT view usable without building a
+        # query first.
+        export WANDB_JOB_TYPE="$ARM"
+        # Axis letter from the run_id prefix -- the registry's naming is a1/b2/c1/...
+        # by construction. vanilla has no axis and says so rather than guessing.
+        case "$ARM" in
+            vanilla) _axis=baseline ;;
+            *)       _axis="axis$(printf '%s' "${ARM:0:1}" | tr '[:lower:]' '[:upper:]')" ;;
+        esac
+        export WANDB_TAGS="${ARM},${_axis},seed${SEED},${_stu}__from__${_tch}"
         export TOTAL_TRAINING_STEPS=$LANE_STEPS
         export TEST_FREQ=$LANE_TEST_FREQ
         export SAVE_FREQ=$LANE_SAVE_FREQ
