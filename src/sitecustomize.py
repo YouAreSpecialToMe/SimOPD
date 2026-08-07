@@ -164,7 +164,8 @@ def _after_vllm_server():
     """
     import traceback
 
-    for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server")):
+    for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server"),
+                    ("gkd_mix", "install")):
         try:
             m = __import__(f"simopd.{mod}", fromlist=[fn])
             getattr(m, fn)()
@@ -192,7 +193,7 @@ def _after_vllm_rollout_utils():
 # BEFORE a run starts, on the machine that will run it -- the failure this guards was
 # a module that existed on the author's box and on none of the four that needed it.
 REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch",
-                    "simopd.zmq_lane")
+                    "simopd.zmq_lane", "simopd.gkd_mix")
 
 
 # verl module -> what to run once it has finished executing

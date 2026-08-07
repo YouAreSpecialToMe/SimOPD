@@ -29,6 +29,12 @@ arms:
     axis: A
     desc: "GKD lambda=0.5 on/off-policy mixing (2306.13649)"
     status: needs
+    note: "CODE LANDED 2026-08-06 (src/simopd/gkd_mix.py + scripts/gen_offpolicy.py);
+           status flips to stock after the precompute lands and a 3-step GPU rehearsal
+           passes. Env below is live; the fingerprint carries both knobs"
+    env2_pending:
+      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_LAMBDA: "0.5"
     seam: "REVISED 2026-08-06: the i1 surgery pattern opens a cheaper path than the
            TransferQueue surgery originally feared. Rollout-server injection: patch
            the STUDENT's vllm server; a prompt-hash-deterministic coin (lambda=0.5)
