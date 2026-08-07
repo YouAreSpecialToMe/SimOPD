@@ -37,6 +37,11 @@ ALPHA = 0.05
 CAVEATS = {
     "c1_lsm_topk32_renorm": "ran on cornell; vanilla floor is DSW -- same-cluster control (TAG=xc) pending",
     "f1_soft_log": "completed at 150 steps under the old default; +100-step resume pending before fixed-step entry",
+    # 2607.23731 (Outcome-Confounded Local Supervision), read for this wording:
+    # outcome-level filtering does not localize token-level signal -- ~68% of
+    # response-token mass is agreement-on-failure even under such filters. The
+    # verdict may say "trajectory selection helps/hurts", never "purified signal".
+    "g1_verified_only": "outcome-level gate only; no token-level localization claim (2607.23731)",
 }
 
 ARMS = [  # ledger order: axis order from the plan

@@ -297,7 +297,7 @@ arms:
   # ---- G: trajectory gating ----
   - run_id: g1_verified_only
     axis: G
-    desc: "distil only rollouts passing the rule verifier (RG-OPD 2607.04037 family)"
+    desc: "distil only rollouts passing the rule verifier [OURS: plain verified-only member of the G axis; nearest published relative RG-OPD 2607.04037, whose rule differs]"
     status: stock
     note: "src/simopd/losses.py as a rescaled loss mask, not a batch filter, so it
            composes with other axes in the greedy rounds; the rescale keeps token-mean
@@ -305,7 +305,16 @@ arms:
            Gates on `advantages`: verl's trainer writes only advantages/returns back
            for the actor, so token_level_scores never reaches a loss fn. Under this
            protocol advantages derive from the verifier score alone, so positive total
-           advantage == verifier accepted; the arm asserts that rather than assuming it"
+           advantage == verifier accepted; the arm asserts that rather than assuming it.
+           AUDIT r5 2026-08-07: RG-OPD's actual rule (their Eq.2 + code UoC-tail/RG-OPD)
+           is a DIRECTIONAL alignment gate -- reward-positive trajectories distil only
+           when teacher likelihood exceeds the student's by delta, reward-NEGATIVE ones
+           also distil when the teacher likelihood is LOWER (negative teaching), base
+           loss top-50 RKL with tail correction. Ours keeps every pass and drops every
+           fail on a k1 base: NOT their method, the simpler canonical member of the
+           axis -- desc re-scoped accordingly. Verdict wording is bound by 2607.23731
+           (see verdict.py CAVEATS): an outcome-level gate localizes nothing at token
+           level, so no signal-purification claim"
     env:
       DISTILLATION_LOSS_MODE: k1_verified_only
 
@@ -321,7 +330,17 @@ arms:
            moved to the top-k path with the sampled column. Recorded deviations:
            micro-batch (not full-batch) max-normalization and thresholds; teacher
            entropy truncated to top-k (teacher_mass quantifies). Stays PG family:
-           FiRe's own setup is advantage-based with PPO clip"
+           FiRe's own setup is advantage-based with PPO clip.
+           AUDIT r5 2026-08-07, official code (YuYingLi0/FiRe-OPD dp_actor.py) vs
+           paper: eight of nine items match (filter statistic sum/len, skip
+           percentile 20, cT/cS with valid-token max, alpha=beta=1.0, weights
+           detached onto the RKL advantage; full-vocab teacher entropy remains our
+           recorded top-k truncation deviation). The ninth is a paper-vs-code split:
+           Eq.8 normalizes w by its PER-TRAJECTORY mean, the code by the mean over
+           ALL training tokens post-filter -- resolved code-ward as with c1, so a
+           uniformly-confident trajectory keeps weight above 1 instead of being
+           flattened. Their rollout-IS correction (threshold 5.0) is their infra,
+           not the arm, and is not imported"
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
       DISTILLATION_TOPK: 32

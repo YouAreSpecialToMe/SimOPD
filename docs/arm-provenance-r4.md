@@ -173,3 +173,24 @@ selectkd 的权重集(≥1 为其集合)。
 | 进入条件 | 差距大时的补救 | 预注册为 D5 见 Mode B 才入,因 stock 顺带冒烟 | ✅ |
 
 两臂实现零改动;本轮修正均为登记口径(f1 的条件性、f2 的阈值归属)。
+
+## G 轴(轨迹门控)
+
+### g1_verified_only —— r5 收窄口径:[自研朴素成员],非 RG-OPD 实现
+| 项 | RG-OPD(其 Eq.2 + `UoC-tail/RG-OPD`) | 我们 | 判定 |
+|---|---|---|---|
+| 规则 | **方向对齐门**:A>0 且 L_T>L_S+δ 才蒸;A≤0 且 L_T<L_S−δ **也蒸(负教学)** | 过验证全保,未过全弃 | ⚠️ 非其方法 —— desc 改为"G 轴朴素正典成员,最近发表亲属 RG-OPD(规则不同)" |
+| 底损失 | top-50 RKL + 尾修正 | 协议 k1 | 同上,不同臂 |
+| 信号 | GRPO 优势 | verl n=1 GRPO 单例→verifier 原始分(断言防换) | ✅ 机制同族 |
+
+**必读账结清(2607.23731 Outcome-Confounded Local Supervision)**:outcome 级过滤
+不定位 token 级信号——过滤后仍有 ~68% 响应 token 质量属"失败中同意"。措辞红线入
+`verdict.py CAVEATS`:g1 判决只能说"轨迹选择有益/有害",**永不声称"信号纯化"**。
+
+### g2_fire_likelihood —— FiRe (2606.02684) × 官方库 `YuYingLi0/FiRe-OPD`(dp_actor.py + 启动脚本)
+九项对照:八项吻合 —— 过滤统计 sum/len、`traj_skip_percentile=20`、cT=(1−H_T/max)、
+cS=H_S/max(均 valid-token max)、`entropy_alpha/beta=1.0`、w detach 后乘 RKL 优势、
+PG+PPO 裁剪(`only_reverse_kl_advantages=True`)、全词表老师熵(我们截断=已记录偏离)。
+第九项**论文≠代码**:Eq.8 逐轨迹均值归一 vs 码内**全体训练 token 均值归一**——照 c1
+先例以码为准,r5 已改([数] 0.00e+00 重验;逐轨迹均值不再强制为 1,均匀自信的轨迹
+保有 >1 权重)。其 rollout-IS 修正(threshold 5.0)属其基建,不入臂。
