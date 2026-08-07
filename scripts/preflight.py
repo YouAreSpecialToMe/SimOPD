@@ -109,7 +109,10 @@ def main():
     # back to stock k1, which is numerically identical and drops the Delta-ell panel
     # METRICS.md requires on every run -- a difference nothing downstream would show.
     try:
-        import simopd.topk_losses  # noqa: F401  registers the custom modes
+        import simopd.losses  # noqa: F401  estimator-path modes (k1_rec, k2_kdrl, ...)
+        import simopd.topk_losses  # noqa: F401  top-k-path modes
+        # In practice sitecustomize auto-imports both at interpreter start when src/ is
+        # on PYTHONPATH; the explicit imports keep this check honest without it.
         from verl.trainer.distillation.losses import DISTILLATION_LOSS_REGISTRY
 
         if a.loss not in DISTILLATION_LOSS_REGISTRY:

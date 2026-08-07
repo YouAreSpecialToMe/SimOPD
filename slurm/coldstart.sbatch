@@ -57,7 +57,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.sft_trainer \
     data.train_files="$DATA_DIR/coldstart_sft.parquet" \
     data.messages_key=messages \
-    data.max_length="${SFT_MAX_LEN:-8192}" \
+    data.max_length="${SFT_MAX_LEN:-17408}" \
     data.train_batch_size="${SFT_BATCH:-128}" \
     model.path="$STUDENT" \
     trainer.default_local_dir="$SFT_CKPT" \

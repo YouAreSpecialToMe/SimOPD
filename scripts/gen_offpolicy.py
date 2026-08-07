@@ -25,7 +25,8 @@ def main():
     p.add_argument("--student", default="Qwen/Qwen3-1.7B-Base")
     p.add_argument("--train-parquet", default=os.path.expanduser("~/data/simopd_math/train.parquet"))
     p.add_argument("--out", default=os.path.expanduser("~/data/simopd_math/gkd_offpolicy.parquet"))
-    p.add_argument("--max-tokens", type=int, default=8192)
+    p.add_argument("--max-tokens", type=int, default=16384,
+                   help="PROTOCOL 3.8: cache stands in for student rollouts, so it matches the 16k cap")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)

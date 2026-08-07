@@ -188,7 +188,7 @@ def main():
     p.add_argument("--log-dir", default=os.environ.get("LOG_DIR", os.path.join(ROOT, "logs")))
     p.add_argument("--claim-dir", default=os.environ.get("CLAIM_DIR", os.path.join(ROOT, ".campaign")))
     p.add_argument("--ckpt-root", default=os.environ.get("CKPT_ROOT", "/scratch/zz865/simopd/ckpt"))
-    p.add_argument("--save-freq", type=int, default=int(os.environ.get("SAVE_FREQ", "50")))
+    p.add_argument("--save-freq", type=int, default=int(os.environ.get("SAVE_FREQ", "25")))
     p.add_argument("--watch", type=int, metavar="SEC")
     args = p.parse_args()
     while True:
