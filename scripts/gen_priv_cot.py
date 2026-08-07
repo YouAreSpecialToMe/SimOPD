@@ -19,8 +19,8 @@ Design pinned in design-thinking-cells.md §2.1.5, restated where it binds:
 
 Output parquet: one row per training prompt --
   prefix_hash    sha1 of the first 16 original-prefix token ids (fast lookup key)
-  orig_ids       student-template prefix ids (enable_thinking=False), self-checked
-                 against apply_chat_template(tokenize=True) for the first 50 rows
+  orig_ids       student-template prefix ids, taken from apply_chat_template
+                 (tokenize=True) itself -- the match key is verl's own ids by definition
   repl_ids       same prefix with the empty think block replaced by the real one
   cot_correct    teacher's post-think boxed answer vs dataset ground truth (metric only)
   truncated      think block hit the cap and was force-closed
@@ -35,18 +35,33 @@ import sys
 EMPTY_THINK = "<think>\n\n</think>"
 
 
+def _template_ids(tok, msgs, **kw):
+    """verl's exact path: template's own tokenize + verl's own normalizer."""
+    from verl.utils.tokenizer.tokenizer import normalize_token_ids  # verl's, so the key matches by construction
+
+    return list(normalize_token_ids(tok.apply_chat_template(
+        msgs, add_generation_prompt=True, tokenize=True, **kw)))
+
+
 def build_prefixes(tok, content, think_text):
-    """Both prefixes for one prompt. Pure function of strings -> ids; CPU-testable."""
+    """orig = P + B (empty block), repl = P + C (real block), spliced at p_len.
+
+    Facts this rests on, all measured rather than assumed (two wrong versions ago):
+    the Base template renders NO think block under enable_thinking=True and the empty
+    CLOSED block under False, so P (the no-block render) is the shared prefix and B
+    is the block span; and verl produces ids via apply_chat_template(tokenize=True)
+    normalized by its own normalize_token_ids -- reproduced verbatim here, because a
+    re-tokenized template STRING encodes special tokens differently and the match key
+    would be fiction.
+    """
     msgs = [{"role": "user", "content": content}]
-    orig_text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True,
-                                        enable_thinking=False)
-    if EMPTY_THINK not in orig_text:
-        raise RuntimeError(f"template did not render the empty think block; got tail "
-                           f"{orig_text[-80:]!r} -- the swap anchor is gone")
-    repl_text = orig_text.replace(EMPTY_THINK, f"<think>\n{think_text}\n</think>", 1)
-    orig_ids = tok(orig_text, add_special_tokens=False).input_ids
-    repl_ids = tok(repl_text, add_special_tokens=False).input_ids
-    return orig_text, orig_ids, repl_ids
+    orig_ids = _template_ids(tok, msgs, enable_thinking=False)   # P + B
+    p_ids = _template_ids(tok, msgs, enable_thinking=True)       # P (no block)
+    if orig_ids[: len(p_ids)] != p_ids:
+        raise RuntimeError("no-block render is not a prefix of the empty-block render; "
+                           "splice point undefined for this tokenizer")
+    c_ids = tok(f"<think>\n{think_text}\n</think>\n\n", add_special_tokens=False).input_ids
+    return orig_ids, p_ids + list(c_ids), len(p_ids)
 
 
 def prefix_hash(ids):
@@ -115,21 +130,14 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from eval_offline import MATH_SCORER_SOURCE
 
-    rows, checked = [], 0
+    rows = []
     for i, (content, think, ans, gt) in enumerate(zip(contents, thinks, answers, gts, strict=True)):
-        orig_text, orig_ids, repl_ids = build_prefixes(tok, content, think)
-        # Self-check on early rows: our tok(text) must reproduce verl's
-        # apply_chat_template(tokenize=True) ids exactly, or the match key is fiction.
-        if checked < 50:
-            ref = tok.apply_chat_template([{"role": "user", "content": content}], tokenize=True,
-                                          add_generation_prompt=True, enable_thinking=False)
-            assert list(ref) == list(orig_ids), f"row {i}: tokenize path mismatch"
-            checked += 1
+        orig_ids, repl_ids, p_len = build_prefixes(tok, content, think)
         correct = False
         if ans and gt is not None:
             sc = default_compute_score(MATH_SCORER_SOURCE, ans, gt)
             correct = float(sc.get("score", 0.0) if isinstance(sc, dict) else sc) > 0.5
-        rows.append({"prefix_hash": prefix_hash(orig_ids), "orig_len": len(orig_ids),
+        rows.append({"prefix_hash": prefix_hash(orig_ids), "orig_len": len(orig_ids), "p_len": p_len,
                      "orig_ids": list(orig_ids), "repl_ids": list(repl_ids),
                      "cot_correct": correct, "truncated": not bool(ans),
                      "think_tokens": len(repl_ids) - len(orig_ids)})
