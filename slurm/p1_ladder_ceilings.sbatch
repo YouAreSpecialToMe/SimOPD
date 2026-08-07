@@ -13,6 +13,15 @@
 set -euo pipefail
 cd $HOME/pythonProject/SimOPD; source simopd/bin/activate
 export PYTHONPATH=$PWD/src HF_HUB_OFFLINE=1 VLLM_LOGGING_LEVEL=WARNING
+# Models must already be in the local cache: compute nodes have no internet, and the
+# first submission of this chain died in 36s on exactly that -- queued gated on a free
+# GPU while the real prerequisite was the prefetch. Fail in 5s with the name instead.
+for _m in "Qwen/Qwen3-14B" "Qwen/Qwen3-32B"; do
+  python - <<PYEOF || { echo "FATAL: $_m not cached; wait for prefetch"; exit 1; }
+from huggingface_hub import snapshot_download
+snapshot_download("$_m".strip(), local_files_only=True)
+PYEOF
+done
 EVALS=$HOME/data/simopd_evals
 python scripts/eval_offline.py --model Qwen/Qwen3-14B --run-id teacher_ceiling_Qwen3-14B \
     --step -1 --benchmarks math500 --out-dir $EVALS
