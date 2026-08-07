@@ -298,6 +298,27 @@ arms:
     env:
       LOSS_MAX_CLAMP: "10.0"
 
+  - run_id: f3_power
+    axis: F
+    desc: "bounded power reward r = pi_T^a - pi_theta^a, a=1 (PowerOPD 2606.17199)"
+    status: stock
+    note: "ADDED 2026-08-07 (user: promote the F-family bounded substitute to a run).
+           Audited against the paper only -- the abstract links EIT-NLP/PowerOPD but
+           the repo is not public (recorded, like d2/h1). Their form IS the PG
+           reward, so the branch is faithful by construction; bounded [-1,1] by
+           construction, the a->0 limit is vanilla's log-ratio. Registered a=1, the
+           family's canonical parameter-free member (r = p_T - p_theta): the paper
+           reports BEST-PER-METRIC across a in {0.1,...,500} with no named default,
+           which the audit records as a multiple-comparisons caveat rather than
+           imports; SIMOPD_POWER_ALPHA is the pre-registered internal ablation
+           (their trend: larger a converges faster/shorter). Recorded deviations:
+           protocol lr 1e-6 vs their 5e-7, our 16k cap vs their 1,024-token
+           rollouts, our fixed 250 steps vs their 1.5k. power_dead_frac logs the
+           high-a dead-token fraction; delta_ell panel stays on raw k1 (F6)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_power
+      SIMOPD_POWER_ALPHA: "1.0"
+
   # ---- G: trajectory gating ----
   - run_id: g1_verified_only
     axis: G

@@ -50,7 +50,7 @@ ARMS = [  # ledger order: axis order from the plan
     "a1_gkd_mix0.5", "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "b3_eopd_gate",
     "c1_lsm_topk32_renorm",
     "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
-    "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "g1_verified_only",
+    "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "f3_power", "g1_verified_only",
     "g2_fire_likelihood", "h1_first_segment",
     "vanilla_n8", "j1_kdrl",
 ]

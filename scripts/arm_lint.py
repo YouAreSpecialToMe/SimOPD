@@ -43,7 +43,7 @@ EXPECT_PG = {
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,
     "c1_lsm_topk32_renorm": True, "c2_quantile_budget": False,
     "d1_tip": True, "d2_selectkd": True, "d3_teachability": True,
-    "e1_pl_rank": False, "f1_soft_log": True, "f2_hard_clip": True,
+    "e1_pl_rank": False, "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
     "g1_verified_only": True, "g2_fire_likelihood": True,
     "h1_first_segment": True, "i0_think_scorer": True, "i1_priv_cot": True,
     "vanilla_n8": True, "j1_kdrl": False,
