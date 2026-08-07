@@ -576,7 +576,7 @@ if [ "$_n_real" -lt "$lanes" ] && [ "$MODE" != control ]; then
 fi
 
 echo "  GPU_LIST     $gpu_list"
-echo "  steps        ${STEPS:-250}   save/${SAVE_FREQ:-50}  test/${TEST_FREQ:-25}"
+echo "  steps        ${STEPS:-250}   save/${SAVE_FREQ:-25}  test/${TEST_FREQ:-25}"
 
 # Object-store share by machine CAPACITY, not by this launch's lane count.
 # run_parallel divides 0.30 by ITS lane count, which was right when one launch owned
@@ -627,7 +627,7 @@ fi
 echo
 env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="$LAUNCH_TAG" \
     LOG_DIR="$LOG_DIR/$MACHINE" \
-    STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-50}" \
+    STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-25}" \
     bash deploy/dsw/run_parallel.sh "${pending# }" 9>&- 8>&-
 rc=$?
 if [ "$rc" != 0 ] && [ -n "${claimed// /}" ]; then

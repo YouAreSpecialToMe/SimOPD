@@ -104,10 +104,33 @@ def cmd_acc(a):
     return 0
 
 
+def cmd_sweep(a):
+    """After a run completes (user decision 2026-08-07: offline, post-training):
+    one command evaluates every saved step. Idempotent -- steps whose five
+    artifacts already exist are skipped, so it can rerun after late checkpoints."""
+    steps = sorted(int(os.path.basename(os.path.dirname(d)).split("global_step_")[1])
+                   for d in glob.glob(os.path.join(a.ckpt_dir, "global_step_*", "actor")))
+    if not steps:
+        sys.exit(f"no global_step_*/actor under {a.ckpt_dir}")
+    print(f"[suite] {a.run_id}: {len(steps)} saved steps {steps}")
+    for step in steps:
+        have = all(newest(a.out_dir, a.run_id, b, step)
+                   for _, benches, _ in SUITE for b in benches)
+        if have:
+            print(f"[suite] step {step}: artifacts complete, skip")
+            continue
+        ns = argparse.Namespace(model=os.path.join(a.ckpt_dir, f"global_step_{step}", "actor"),
+                                run_id=a.run_id, step=step, out_dir=a.out_dir,
+                                weights=a.weights, write=False)
+        cmd_run(ns)
+    return cmd_acc(argparse.Namespace(run_id=a.run_id, step=None, out_dir=a.out_dir,
+                                      weights=a.weights, write=True))
+
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("run", "acc"):
+    for name in ("run", "acc", "sweep"):
         sp = sub.add_parser(name)
         sp.add_argument("--run-id", required=True)
         sp.add_argument("--step", type=int, default=None if name == "acc" else -1)
@@ -116,8 +139,11 @@ def main():
         sp.add_argument("--write", action="store_true", help="acc: persist the curve parquet")
         if name == "run":
             sp.add_argument("--model", required=True)
+        if name == "sweep":
+            sp.add_argument("--ckpt-dir", required=True,
+                            help="the run's checkpoint dir (holds global_step_*/)")
     a = p.parse_args()
-    return cmd_run(a) if a.cmd == "run" else cmd_acc(a)
+    return {"run": cmd_run, "acc": cmd_acc, "sweep": cmd_sweep}[a.cmd](a)
 
 
 if __name__ == "__main__":
