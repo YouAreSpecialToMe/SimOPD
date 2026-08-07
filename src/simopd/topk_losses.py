@@ -586,29 +586,29 @@ B3_HIGH_FRAC = float(os.environ.get("SIMOPD_B3_HIGH_FRAC", "0.5"))
 
 
 def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
-    student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
-        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+    """B3 under the DIRECT branch (audit r3): distributional on BOTH sides, which is
+    EOPD's actual form. The first version put sampled-token k1 on the low-entropy
+    side to mirror vanilla -- right under PG framing, degenerate under direct
+    differentiation (the pathwise gradient of log p - log q is grad log p: uniform
+    suppression of every sampled token, the exact pathology audit r3 diagnosed). So
+    low-entropy tokens now take c1's renormalized truncated reverse KL and
+    high-entropy tokens the clamped top-k forward KL; the router is unchanged."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
 
-    # Same -inf floor as the D-axis kernels: one unfound sampled token would NaN the batch.
-    finite = torch.isfinite(sampled_lp)
-    if (~finite).sum() > 0:
-        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
-
-    # Teacher entropy from its top-k -- understated by the unseen tail, exactly as the
-    # entropy panel documents; teacher_mass in the diagnostics says by how much.
     t_ent = -(t_lp.exp() * t_lp).sum(dim=-1)
-    # Batch-relative threshold, the same convention (and the same micro-batch-noise
-    # caveat) as TIP's and FiRe's; the realised fraction is emitted so it is visible.
     tau = torch.quantile(t_ent.float().flatten(), 1.0 - B3_HIGH_FRAC)
-    gate = t_ent >= tau   # True -> high-entropy -> forward KL
+    gate = t_ent >= tau   # True -> high teacher entropy -> forward KL
 
-    rkl = _weighted_sampled_token_loss(
-        student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
-    )
-    fkl = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1).clamp_min(0.0)
+    stu_n = stu_at_teacher - torch.logsumexp(stu_at_teacher, dim=-1, keepdim=True)
+    tch_n = t_lp - torch.logsumexp(t_lp, dim=-1, keepdim=True)
+    rkl = kl_divergence(log_q=tch_n, log_p=stu_n)                    # c1's renorm form
+    fkl = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1).clamp_min(0.0)   # b2's form
     losses = torch.where(gate, fkl, rkl)
 
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
