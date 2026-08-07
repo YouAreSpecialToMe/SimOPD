@@ -620,9 +620,47 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
     return out
 
 
+# FiRe Eq.5-8 needs per-token TEACHER entropy, which the estimator path cannot see,
+# so g2 moves to the top-k path (audit r4: the arm had implemented only the paper's
+# first stage -- the trajectory filter -- and silently skipped "Then Reweight", the
+# title's second half). The kernel emits COMPONENTS; trajectory-level operations
+# (filter, per-trajectory weight normalization) need sequence boundaries, which exist
+# only in the padded view, so they live in the registry post-processor.
+FIRE_ALPHA = float(os.environ.get("SIMOPD_FIRE_ALPHA", "1.0"))
+FIRE_BETA = float(os.environ.get("SIMOPD_FIRE_BETA", "1.0"))
+
+
+def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+    student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+
+    finite = torch.isfinite(sampled_lp)
+    if (~finite).sum() > 0:
+        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
+
+    raw = _weighted_sampled_token_loss(
+        student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
+    )
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
+    # Teacher entropy from its top-k understates by the unseen tail (teacher_mass in
+    # the diagnostics quantifies it); recorded deviation, same as the entropy panel.
+    out["distillation_losses"] = raw
+    out["fire_t_ent"] = -(t_lp.exp() * t_lp).sum(dim=-1)
+    out["fire_s_ent"] = _student_entropy(student_log_probs)
+    out["fire_tch_lp"] = sampled_lp
+    out["fire_missing"] = (~finite).float()
+    return out
+
+
 TOPK_DISPATCH.update(
     {
         "eopd_entropy_gate": compute_eopd_gate_topk,
+        "k1_fire_gate": compute_fire_components,
         "qb_quantile_budget": compute_quantile_budget_topk,
         "pl_rank_anchor": compute_pl_rank_topk,
         "tip_select": _d_axis_kernel(_tip_score),

@@ -257,11 +257,22 @@ arms:
     axis: G
     desc: "drop bottom-20% trajectories by normalized teacher logprob (FiRe 2606.02684)"
     status: stock
-    note: "src/simopd/losses.py; threshold is per micro-batch (noisier population than
-           FiRe's full batch -- realised keep fraction is logged so that is visible)"
+    note: "AUDIT r4 2026-08-07: the arm had implemented only the title's first half.
+           Now both stages verbatim (Eq.4-8, formulas fetched from the paper): Eq.4
+           trajectory filter (bottom 20% by mean teacher logprob) THEN Eq.5-8 token
+           reweighting w=(1+a*cT)(1+b*cS), per-trajectory mean-normalized, on the
+           signed k1 advantage. Needs teacher top-k for per-token teacher entropy ->
+           moved to the top-k path with the sampled column. Recorded deviations:
+           micro-batch (not full-batch) max-normalization and thresholds; teacher
+           entropy truncated to top-k (teacher_mass quantifies). Stays PG family:
+           FiRe's own setup is advantage-based with PPO clip"
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_FIRE_DROP_FRAC: "0.2"
+      SIMOPD_FIRE_ALPHA: "1.0"
+      SIMOPD_FIRE_BETA: "1.0"
 
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
