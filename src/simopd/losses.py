@@ -261,34 +261,6 @@ def k1_verified_only(config, distillation_config, model_output, data):
     return losses, metrics
 
 
-@register_distillation_loss(
-    DistillationLossSettings(names=["k1_fire_gate"], use_estimator=True)
-)  # type: ignore[arg-type]
-def k1_fire_likelihood_gate(config, distillation_config, model_output, data):
-    """G axis: drop the bottom quantile of trajectories by teacher likelihood (FiRe 2606.02684).
-
-    FiRe ranks trajectories by s(y) = (1/T) sum log pi*(y_t | ...) and discards the
-    bottom 20%. The threshold is taken within the micro-batch, so it tracks the
-    running distribution rather than a fixed cutoff -- with the caveat that a
-    micro-batch is a noisier ranking population than FiRe's full batch; the
-    realised drop fraction is logged so that noise is visible.
-    """
-    student, teacher, mask = _unpack(model_output, data)
-    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
-
-    lengths = mask.sum(dim=-1).clamp_min(1)
-    s_y = (teacher * mask).sum(dim=-1) / lengths  # normalised teacher logprob per trajectory
-    thresh = torch.quantile(s_y.float(), FIRE_DROP_FRAC)
-    keep_seq = s_y >= thresh
-    losses, keep = _reweight_kept(losses, mask, keep_seq)
-
-    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-    metrics.update(_delta_ell_metrics(losses, keep))
-    metrics["distillation/gate_keep_frac"] = Metric(aggregation=AggregationType.MEAN, value=keep_seq.float().mean())
-    metrics["distillation/fire_s_y_thresh"] = Metric(aggregation=AggregationType.MEAN, value=thresh)
-    return losses, metrics
-
-
 def _topk_registry_fn(*extra_keys, signal="loss"):
     """Post-processor for our top-k arms.
 
@@ -365,3 +337,54 @@ for _name, _extras in [
     register_distillation_loss(DistillationLossSettings(names=[_name], use_topk=True))(
         _topk_registry_fn(*_extras, signal=_signal)
     )
+
+
+def _fire_registry_fn(config, distillation_config, model_output, data):
+    """FiRe 2606.02684, both halves of the title (audit r4; Eq.4-8 verbatim).
+
+    Eq.4 filter: s(y) = mean teacher logprob per trajectory, bottom FIRE_DROP_FRAC
+    dropped. Eq.5-7 weights: c^T = 1 - H_T/max_batch(H_T), c^S = H_S/max_batch(H_S),
+    w = (1 + alpha c^T)(1 + beta c^S). Eq.8: w normalized by its per-trajectory mean,
+    applied to the advantage -- equivalently, to the signed k1 loss, since the
+    advantage is its negation. Their max is over the full batch; ours is the
+    micro-batch (recorded deviation, same population caveat as the filter threshold).
+    """
+    losses = no_padding_2_padding(model_output["distillation_losses"], data)
+    t_ent = no_padding_2_padding(model_output["fire_t_ent"], data)
+    s_ent = no_padding_2_padding(model_output["fire_s_ent"], data)
+    tch_lp = no_padding_2_padding(model_output["fire_tch_lp"], data)
+    mask = data["response_mask"]
+    mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+
+    lengths = mask.sum(dim=-1).clamp_min(1)
+    s_y = (tch_lp * mask).sum(dim=-1) / lengths                       # Eq.4
+    thresh = torch.quantile(s_y.float(), FIRE_DROP_FRAC)
+    keep_seq = s_y >= thresh
+
+    t_max = t_ent[mask].max().clamp_min(1e-8)
+    s_max = s_ent[mask].max().clamp_min(1e-8)
+    c_t = 1.0 - t_ent / t_max                                          # Eq.5
+    c_s = s_ent / s_max                                                # Eq.6
+    w = (1.0 + topk_losses.FIRE_ALPHA * c_t) * (1.0 + topk_losses.FIRE_BETA * c_s)   # Eq.7
+    w_mean = (w * mask).sum(dim=-1, keepdim=True) / lengths.unsqueeze(-1)
+    w_tilde = w / w_mean.clamp_min(1e-8)                               # Eq.8
+    losses = losses * w_tilde
+
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_signal_quantiles(losses, keep, "delta_ell"))
+    metrics["distillation/gate_keep_frac"] = Metric(aggregation=AggregationType.MEAN, value=keep_seq.float().mean())
+    metrics["distillation/fire_s_y_thresh"] = Metric(aggregation=AggregationType.MEAN, value=thresh)
+    metrics["distillation/fire_w_p90"] = Metric(aggregation=AggregationType.MEAN,
+                                                value=torch.quantile(w_tilde[mask].float(), 0.9))
+    for key in ("fire_missing",) + _PANELS:
+        if key in model_output:
+            v = no_padding_2_padding(model_output[key], data)
+            metrics[f"distillation/{key}"] = Metric(aggregation=AggregationType.MEAN, value=v[mask].float().mean())
+    return losses, metrics
+
+
+register_distillation_loss(DistillationLossSettings(names=["k1_fire_gate"], use_topk=True))(_fire_registry_fn)
+
+

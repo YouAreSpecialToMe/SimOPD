@@ -25,6 +25,11 @@ export PYTHONPATH="$PROJ_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HUB_OFFLINE=1
 export VLLM_LOGGING_LEVEL=WARNING
 export RAY_TMPDIR=/scratch/zz865/ray_tmp
+# vLLM v1 forks its EngineCore; anything that touched CUDA in this process first --
+# gen_coldstart does -- dies with "Cannot re-initialize CUDA in forked subprocess".
+# The 27-second death of the first submission, in one line. Spawn is the fix vLLM's
+# own error message prescribes.
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
 SFT_CKPT=${SFT_CKPT:-/scratch/zz865/simopd/ckpt/coldstart_sft}
 mkdir -p "$RAY_TMPDIR" "$SFT_CKPT"
 

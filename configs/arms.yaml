@@ -29,13 +29,23 @@ arms:
     axis: A
     desc: "GKD lambda=0.5 on/off-policy mixing (2306.13649)"
     status: needs
-    seam: "Substituting teacher-generated responses for a fraction of each batch has
-           to happen after generation and before compute_log_prob. In verl v1 that
-           path is the TransferQueue agent loop (trainer_base._submit_batch_to_rollout
-           -> AgentLoopManager), not a single swappable call, so this is real trainer
-           surgery rather than a loss or a patch. a2_coldstart already gives axis A an
-           off-policy arm (the same intervention, staged rather than interleaved);
-           deferred until a1 is worth that cost"
+    note: "CODE LANDED 2026-08-06 (src/simopd/gkd_mix.py + scripts/gen_offpolicy.py);
+           status flips to stock after the precompute lands and a 3-step GPU rehearsal
+           passes. Env below is live; the fingerprint carries both knobs"
+    env2_pending:
+      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_LAMBDA: "0.5"
+    seam: "REVISED 2026-08-06: the i1 surgery pattern opens a cheaper path than the
+           TransferQueue surgery originally feared. Rollout-server injection: patch
+           the STUDENT's vllm server; a prompt-hash-deterministic coin (lambda=0.5)
+           routes hit prompts to a cached teacher response (precomputed once via the
+           gen_coldstart stage-1 machinery over ALL train prompts) with the student
+           engine SCORING that text for log_probs instead of generating. Downstream
+           (teacher scoring, loss, PG) untouched. Recorded deviation: GKD's off-policy
+           half is a direct loss; under our PG base with one epoch per batch the ratio
+           is identically 1 and the gradients coincide -- estimator-note.md argument.
+           Sequenced AFTER i1 (shares the injection machinery); target: ready before
+           wave S/T so axis A ships complete"
     env: {}
 
   - run_id: a2_coldstart
@@ -71,6 +81,13 @@ arms:
            confound, so this arm is reported as forward-KL-topk, not plain forward KL"
     env:
       DISTILLATION_LOSS_MODE: forward_kl_topk
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "32"
 
   - run_id: b3_eopd_gate
@@ -87,8 +104,16 @@ arms:
            switch-vs-add is the internal ablation if the full text says otherwise"
     env:
       DISTILLATION_LOSS_MODE: eopd_entropy_gate
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
-      SIMOPD_KEEP_SAMPLED: "1"
+      # audit r3: direct branch => both sides distributional (EOPD's actual form);
+      # the sampled column is no longer consumed, KEEP_SAMPLED dropped.
       SIMOPD_B3_HIGH_FRAC: "0.5"
 
   # ---- C: vocabulary support ----
@@ -102,6 +127,13 @@ arms:
            pre-registered internal ablation of this arm"
     env:
       DISTILLATION_LOSS_MODE: lsm_topk_renorm
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "32"
       SIMOPD_SUPPORT_MODE: renorm
 
@@ -115,6 +147,13 @@ arms:
            Verified adaptive (budget p5/p50/p95 = 6/9/12 at target 8), not fixed-k in disguise"
     env:
       DISTILLATION_LOSS_MODE: qb_quantile_budget
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 64
       SIMOPD_QB_TARGET_BUDGET: "8"
       SIMOPD_QB_MARGIN: max
@@ -170,6 +209,13 @@ arms:
            agreeing 0.34 < flat 1.10 < reversed 2.84"
     env:
       DISTILLATION_LOSS_MODE: pl_rank_anchor
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
       SIMOPD_PL_ANCHOR_COEF: "0.1"
 
@@ -211,11 +257,22 @@ arms:
     axis: G
     desc: "drop bottom-20% trajectories by normalized teacher logprob (FiRe 2606.02684)"
     status: stock
-    note: "src/simopd/losses.py; threshold is per micro-batch (noisier population than
-           FiRe's full batch -- realised keep fraction is logged so that is visible)"
+    note: "AUDIT r4 2026-08-07: the arm had implemented only the title's first half.
+           Now both stages verbatim (Eq.4-8, formulas fetched from the paper): Eq.4
+           trajectory filter (bottom 20% by mean teacher logprob) THEN Eq.5-8 token
+           reweighting w=(1+a*cT)(1+b*cS), per-trajectory mean-normalized, on the
+           signed k1 advantage. Needs teacher top-k for per-token teacher entropy ->
+           moved to the top-k path with the sampled column. Recorded deviations:
+           micro-batch (not full-batch) max-normalization and thresholds; teacher
+           entropy truncated to top-k (teacher_mass quantifies). Stays PG family:
+           FiRe's own setup is advantage-based with PPO clip"
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_FIRE_DROP_FRAC: "0.2"
+      SIMOPD_FIRE_ALPHA: "1.0"
+      SIMOPD_FIRE_BETA: "1.0"
 
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
