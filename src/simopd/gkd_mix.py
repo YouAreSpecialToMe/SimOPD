@@ -33,6 +33,9 @@ _cache = None
 _stats = {"hit": 0, "miss": 0, "pass": 0}
 
 
+# Semantics note (provenance r4): SIMOPD_GKD_LAMBDA is P(off-policy) here, which is
+# 1 - lambda_GKD -- the paper's lambda is the STUDENT-data fraction. Identical at 0.5;
+# any future ablation away from 0.5 must convert, or it silently inverts the axis.
 def _lam():
     return float(os.environ.get("SIMOPD_GKD_LAMBDA", "0.5"))
 
