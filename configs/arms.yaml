@@ -112,7 +112,8 @@ arms:
       # behind uniformly negative early results.
       USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
-      SIMOPD_KEEP_SAMPLED: "1"
+      # audit r3: direct branch => both sides distributional (EOPD's actual form);
+      # the sampled column is no longer consumed, KEEP_SAMPLED dropped.
       SIMOPD_B3_HIGH_FRAC: "0.5"
 
   # ---- C: vocabulary support ----
