@@ -35,12 +35,20 @@ _QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
 # H-axis supervision window. verl's loss config is a fixed dataclass, so arm
 # hyper-parameters that it has no field for come in by env var; both the driver
 # and the Ray workers read it because verl forwards the environment it was
-# launched with. Pre-registered default 512 (ESR used 100 on much shorter
-# responses; 512 is the comparable fraction of our 8k cap).
-FIRST_SEGMENT_K = int(os.environ.get("SIMOPD_FIRST_SEGMENT_K", "512"))
+# launched with. (ESR used 100 on
+# responses far shorter than ours). Default = ESR's N=100 (audit r5: the earlier
+# 512 sat outside their tested 50-200 range and barely cut anything at this tier).
+FIRST_SEGMENT_K = int(os.environ.get("SIMOPD_FIRST_SEGMENT_K", "100"))
 
 # FiRe drops the bottom 20% of trajectories by normalised teacher logprob.
 FIRE_DROP_FRAC = float(os.environ.get("SIMOPD_FIRE_DROP_FRAC", "0.2"))
+from collections import deque as _deque
+# F5 (audit 2026-08-07): threshold population for FiRe's Eq.4 filter. At the 16k
+# cap dynamic batching packs ONE sequence per micro-batch and a singleton quantile
+# is itself -- the filter would be inert exactly when Mode A hits the cap. The
+# sliding window (process-local, resets on resume; recorded deviation from the
+# official rollout-batch population) restores a real percentile.
+_FIRE_WINDOW = _deque(maxlen=256)
 
 
 def _unpack(model_output, data):
@@ -202,10 +210,13 @@ def k1_first_segment(config, distillation_config, model_output, data):
     window = positions < FIRST_SEGMENT_K
     keep = window & mask
     kept, total = keep.sum().clamp_min(1).float(), mask.sum().clamp_min(1).float()
+    raw = losses
     losses = losses * keep * (total / kept)
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-    metrics.update(_delta_ell_metrics(losses, keep))
+    # Panel on the UNRESCALED k1 over supervised tokens: the x(total/kept) factor is
+    # ~x164 at K=100/16k and would make h1's delta_ell incomparable (audit F6).
+    metrics.update(_delta_ell_metrics(raw, keep))
     metrics["distillation/firstseg_covered_frac"] = Metric(
         aggregation=AggregationType.MEAN, value=kept / total
     )
@@ -286,10 +297,11 @@ def k1_verified_only(config, distillation_config, model_output, data):
     adv = data["advantages"]
     adv = adv.to_padded_tensor(0.0) if adv.is_nested else adv
     keep_seq = (adv * mask).sum(dim=-1) > 0
+    raw = losses
     losses, keep = _reweight_kept(losses, mask, keep_seq)
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-    metrics.update(_delta_ell_metrics(losses, keep))
+    metrics.update(_delta_ell_metrics(raw, keep))   # unrescaled k1 (audit F6)
     # A batch where nothing verified produces no update at all -- correct for this
     # arm, but it has to be visible or it looks like a silently dead step.
     metrics["distillation/gate_keep_frac"] = Metric(
@@ -314,7 +326,16 @@ def _topk_registry_fn(*extra_keys, signal="loss"):
         mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
 
         metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-        metrics.update(_signal_quantiles(losses, mask, signal))
+        # The cross-arm delta_ell panel must be scale-comparable: for D-axis arms the
+        # returned losses are weighted/rescaled, so the panel reads the kernel's raw
+        # signed k1 over the SUPERVISED set instead (audit 2026-08-07 F6).
+        if signal == "delta_ell" and "d_raw_k1" in model_output:
+            raw = no_padding_2_padding(model_output["d_raw_k1"], data)
+            sel = no_padding_2_padding(model_output["d_selected_frac"], data) > 0 \
+                if "d_selected_frac" in model_output else torch.ones_like(mask)
+            metrics.update(_signal_quantiles(raw, mask & sel, signal))
+        else:
+            metrics.update(_signal_quantiles(losses, mask, signal))
 
         k = distillation_config.distillation_loss.topk
         for key, label in [("student_mass", "student_mass"), ("teacher_mass", "teacher_mass")]:
@@ -394,7 +415,15 @@ def _b3_registry_fn(config, distillation_config, model_output, data):
     mask = data["response_mask"]
     mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
     soft = no_padding_2_padding(model_output["b3_soft_kd"], data)
-    term = topk_losses.B3_SOFT_COEF * (soft * mask).sum() / (mask.sum() + 1e-8)
+    # Global-mini-batch normalization, same convention as the PG base: per-micro
+    # means SUM under gradient accumulation, and at 16k (one seq/micro, mini=128)
+    # the effective coefficient would be ~128x the registered value and drift with
+    # response length (audit 2026-08-07 F2). Same keys ppo_loss consumes; fall
+    # back to the micro count when absent (CPU harnesses).
+    _bnt = data.get("batch_num_tokens", None) if hasattr(data, "get") else None
+    _dp = data.get("dp_size", 1) if hasattr(data, "get") else 1
+    _denom = (torch.as_tensor(_bnt).float() / max(int(_dp), 1)) if _bnt is not None else (mask.sum() + 1e-8)
+    term = topk_losses.B3_SOFT_COEF * (soft * mask).sum() / _denom
     b3_additive.STASH["soft_kd"] = term
     metrics["distillation/b3_soft_kd_term"] = Metric(aggregation=AggregationType.MEAN, value=term.detach())
     return losses, metrics
@@ -426,7 +455,8 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
 
     lengths = mask.sum(dim=-1).clamp_min(1)
     s_y = (tch_lp * mask).sum(dim=-1) / lengths                       # Eq.4
-    thresh = torch.quantile(s_y.float(), FIRE_DROP_FRAC)
+    _FIRE_WINDOW.extend(s_y.detach().float().flatten().tolist())
+    thresh = torch.quantile(torch.tensor(list(_FIRE_WINDOW), dtype=torch.float32), FIRE_DROP_FRAC)
     keep_seq = s_y >= thresh
 
     t_max = t_ent[mask].max().clamp_min(1e-8)
@@ -439,12 +469,13 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
     train_mask = mask & keep_seq.unsqueeze(-1)
     w_mean = (w * train_mask).sum() / train_mask.sum().clamp_min(1)
     w_tilde = w / w_mean.clamp_min(1e-8)
+    raw_panel = losses
     losses = losses * w_tilde
 
     losses, keep = _reweight_kept(losses, mask, keep_seq)
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
-    metrics.update(_signal_quantiles(losses, keep, "delta_ell"))
+    metrics.update(_signal_quantiles(raw_panel, keep, "delta_ell"))   # pre-weight k1 (audit F6)
     metrics["distillation/gate_keep_frac"] = Metric(aggregation=AggregationType.MEAN, value=keep_seq.float().mean())
     metrics["distillation/fire_s_y_thresh"] = Metric(aggregation=AggregationType.MEAN, value=thresh)
     metrics["distillation/fire_w_p90"] = Metric(aggregation=AggregationType.MEAN,

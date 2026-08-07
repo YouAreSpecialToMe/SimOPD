@@ -39,6 +39,7 @@ def compute_reverse_kl_topk(
     teacher_topk_ids: torch.Tensor,
     config,
     data_format: str,
+    data=None,
 ):
     """Truncated reverse KL over the teacher's top-k support (LSM 2603.25562).
 
@@ -172,6 +173,7 @@ def _dispatching_compute_topk_loss(config, distillation_config, data, student_lo
         teacher_topk_ids=data["teacher_ids"],
         config=distillation_config,
         data_format=data_format,
+        data=data,
     )
     expected = student_logits.shape[:2]
     for k, v in outputs.items():
@@ -225,6 +227,55 @@ def _prepare(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, w
 
     student_log_probs = F.log_softmax(student_logits, dim=-1)
     return student_log_probs, t_lp, t_id, sampled_lp, sampled_id
+
+
+def _stat_mask(teacher_topk_log_probs, data, total):
+    """Packed-view mask of the tokens batch statistics may legitimately see.
+
+    Kernels receive the FULL attended sequence (prompt + response + verl's dummy
+    first row per sequence), but every batch-relative statistic -- min-max and
+    robust normalizers, retention thresholds, qb's tau, selection rescale -- is
+    defined by the papers and the registration over RESPONSE tokens. The audit
+    (2026-08-07 F3/F4) measured the dummy row alone dragging TIP's divergence
+    normalizer by ~30x, degenerating d1 to entropy-only selection, and prompt
+    tokens contributing 6-50% of the population depending on training phase.
+
+    Built from the two length sources that exist in the micro-batch: the nested
+    teacher tensor's per-sequence row counts and response_mask's per-sequence
+    true counts; each sequence's LAST resp_len rows are its response. Returns
+    None (statistics fall back to the full population) when `data` is absent --
+    CPU harnesses -- or the two sources disagree, loudly.
+    """
+    import sys as _sys
+
+    if data is None:
+        return None
+    rm = data.get("response_mask", None)
+    if rm is None:
+        return None
+    try:
+        offs = teacher_topk_log_probs.offsets()
+        full_lens = (offs[1:] - offs[:-1]).tolist()
+        if rm.is_nested:
+            resp_lens = [int(x.sum()) for x in rm.unbind()]
+        else:
+            resp_lens = rm.sum(dim=-1).tolist()
+    except Exception as e:
+        print(f"[simopd] stat_mask unavailable ({e!r}); batch statistics fall back to "
+              f"the full packed population", file=_sys.stderr, flush=True)
+        return None
+    if len(full_lens) != len(resp_lens) or sum(full_lens) != total:
+        print(f"[simopd] stat_mask length mismatch (teacher rows {sum(full_lens)} over "
+              f"{len(full_lens)} seqs vs response {len(resp_lens)} seqs, packed {total}); "
+              f"falling back to full population", file=_sys.stderr, flush=True)
+        return None
+    m = torch.zeros(total, dtype=torch.bool)
+    pos = 0
+    for fl, rl in zip(full_lens, resp_lens):
+        rl = min(int(rl), int(fl))
+        m[pos + fl - rl: pos + fl] = True
+        pos += fl
+    return m.unsqueeze(0)
 
 
 def _student_entropy(student_log_probs, chunk=4096):
@@ -321,7 +372,7 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
     return out
 
 
-def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat=None):
     """What the OTHER D-axis selectors would have picked, inside this run.
 
     Redundancy prediction #4 (plan §4) says TIP, Teachability and SelecTKD select
@@ -341,7 +392,7 @@ def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
     out = {}
     for name, fn in (("tip", _tip_score), ("teach", _teachability_score),
                      ("selectkd", _selectkd_score)):
-        keep, _ = fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
+        keep, _ = fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat)
         # selectkd returns weights in {beta, 1} since audit r5; its SET, for
         # redundancy comparison, is the fully-supervised tokens.
         if keep.dtype.is_floating_point:
@@ -378,7 +429,7 @@ QB_MARGIN = os.environ.get("SIMOPD_QB_MARGIN", "max")  # q | pi | max
 PL_ANCHOR_COEF = float(os.environ.get("SIMOPD_PL_ANCHOR_COEF", "0.1"))
 
 
-def _rescale_selection(losses, keep):
+def _rescale_selection(losses, keep, mask=None):
     """Keep total loss magnitude comparable to vanilla after masking tokens.
 
     Without this a selector arm is indistinguishable from a learning-rate cut:
@@ -386,17 +437,26 @@ def _rescale_selection(losses, keep):
     the update. Same correction as the G-axis gates.
     """
     kept = keep.sum().clamp_min(1).float()
-    total = torch.ones_like(keep, dtype=torch.float32).sum()
+    total = (mask.sum() if mask is not None else torch.ones_like(keep, dtype=torch.float32).sum()).float()
     return losses * keep * (total / kept)
 
 
-def _topk_by_score(score, retention):
-    """Keep the top `retention` fraction of positions by score, batch-relative."""
-    thresh = torch.quantile(score.float().flatten(), 1.0 - retention)
-    return score >= thresh
+def _topk_by_score(score, retention, mask=None):
+    """Keep the top `retention` fraction of positions by score, batch-relative.
+
+    With a stat mask the threshold population AND the selectable set are the
+    response tokens; positions outside it are never selected (their loss is
+    discarded downstream anyway, but keeping them out preserves the realized
+    retention the ledger reports)."""
+    pop = (score[mask] if mask is not None else score).float().flatten()
+    thresh = torch.quantile(pop, 1.0 - retention)
+    keep = score >= thresh
+    if mask is not None:
+        keep = keep & mask
+    return keep
 
 
-def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     """C axis [OURS]: per-token adaptive support by a batch-level margin quantile.
 
     Fixed top-k spends the same vocabulary budget on a token the student is sure
@@ -410,6 +470,7 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
     student_log_probs, t_lp, t_id, _, _ = _prepare(
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
 
     q, pi = t_lp.exp(), stu_at_teacher.exp()
@@ -417,7 +478,7 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
 
     k = t_lp.shape[-1]
     frac = 1.0 - min(QB_TARGET_BUDGET / k, 1.0)
-    tau = torch.quantile(margin.float().flatten(), frac)
+    tau = torch.quantile((margin[stat] if stat is not None else margin).float().flatten(), frac)
     keep = margin >= tau
     keep[..., 0] = True  # the teacher's own top-1 is never dropped, so no support is empty
 
@@ -444,7 +505,7 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
     return out
 
 
-def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     """E axis [OURS]: Plackett-Luce rank loss over the teacher's top-k, plus a value anchor.
 
     Rank-only supervision asks the student to reproduce the teacher's *ordering*
@@ -499,7 +560,7 @@ def _d_axis_kernel(score_fn, extra_fn=None):
     because simopd.teacher_patch stops verl discarding the latter.
     """
 
-    def kernel(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+    def kernel(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
         student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
             student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
         )
@@ -516,7 +577,8 @@ def _d_axis_kernel(score_fn, extra_fn=None):
             floor = t_lp.min(dim=-1).values
             sampled_lp = torch.where(finite, sampled_lp, floor)
 
-        keep, diag = score_fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
+        stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+        keep, diag = score_fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat)
         raw = _weighted_sampled_token_loss(
             student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
         )
@@ -530,13 +592,14 @@ def _d_axis_kernel(score_fn, extra_fn=None):
             losses = raw * keep
             selected = (keep >= 1.0).float()
         else:
-            losses = _rescale_selection(raw, keep)
+            losses = _rescale_selection(raw, keep, stat)
             selected = keep.float()
 
         out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
         if SHADOW_ENABLED:
-            out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
+            out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
         out["distillation_losses"] = losses
+        out["d_raw_k1"] = raw          # panel source: the UNWEIGHTED signed k1 (F6)
         out["d_selected_frac"] = selected
         out["d_sampled_missing"] = (~finite).float()
         out.update(diag)
@@ -556,19 +619,19 @@ SELECTKD_BETA = float(os.environ.get("SIMOPD_SELECTKD_BETA", "0.01"))
 TEACH_K = int(os.environ.get("SIMOPD_TEACH_K", "16"))
 
 
-def _robust_norm(x):
+def _robust_norm(x, mask=None):
     """TA-OPD's batch-relative robust scaling: clip((z - Q05)/(Q95 - Q05), 0, 1).
 
     Their tip_compat.py default ('batch_quantile'); plain min-max is the fallback
     they ship but not the shipped default. Same micro-batch-population caveat as
     _minmax."""
-    flat = x.float().flatten()
+    flat = (x[mask] if mask is not None else x).float().flatten()
     lo = torch.quantile(flat, 0.05)
     hi = torch.quantile(flat, 0.95)
     return ((x - lo) / (hi - lo).clamp_min(1e-8)).clamp(0.0, 1.0)
 
 
-def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat=None):
     """TIP 2604.14084: soft-OR of student entropy and teacher-student divergence.
 
     s = h_hat + d_hat - h_hat*d_hat on plain min-max normalised inputs, top
@@ -579,12 +642,12 @@ def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
     divergence is teacher-top-k truncated (recorded; teacher_mass quantifies)."""
     h = _student_entropy(student_log_probs)
     delta = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
-    h_n, d_n = _minmax(h), _minmax(delta)
+    h_n, d_n = _minmax(h, stat), _minmax(delta, stat)
     score = h_n + d_n - h_n * d_n
-    return _topk_by_score(score, D_RETENTION), {"tip_entropy_mean": h}
+    return _topk_by_score(score, D_RETENTION, stat), {"tip_entropy_mean": h}
 
 
-def _selectkd_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+def _selectkd_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat=None):
     """SelecTKD 2510.24021 (greedy Top-k variant): the student proposes its top-1,
     the teacher verifies membership in its own top-k -- k = the paper's default 5,
     checked against the FIRST five of the rank-ordered payload, not all 32 (audit
@@ -601,7 +664,7 @@ def _selectkd_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
     return weights, {"selectkd_tar": accepted.float()}
 
 
-def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat=None):
     """TA-OPD 2605.26844: s = disagreement x compatibility, Q05/Q95-normalized.
 
     Compatibility is the teacher's mass on the student's top-K, K=16 (their
@@ -615,8 +678,8 @@ def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_
     stu_topK = stu_topk_ids[..., :TEACH_K]
     in_student_topk = (t_id.unsqueeze(-1) == stu_topK.unsqueeze(-2)).any(dim=-1)
     compatibility = (t_lp.exp() * in_student_topk).sum(dim=-1)
-    score = _robust_norm(disagreement) * _robust_norm(compatibility)
-    return _topk_by_score(score, D_RETENTION), {"teach_compatibility": compatibility}
+    score = _robust_norm(disagreement, stat) * _robust_norm(compatibility, stat)
+    return _topk_by_score(score, D_RETENTION, stat), {"teach_compatibility": compatibility}
 
 
 # B axis, adaptive member (EOPD 2603.07079, ICML 2026; pre-registered addition
@@ -634,7 +697,7 @@ B3_ENT_THRESH = float(os.environ.get("SIMOPD_B3_ENT_THRESH", "0.8"))
 B3_SOFT_COEF = float(os.environ.get("SIMOPD_B3_SOFT_COEF", "1.0"))
 
 
-def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     """B3, third form, this one against the official code (audit r5, WLS04/EOPD).
 
     "Augmenting" in their abstract is literal: `pg_loss = pg_loss + soft_kd_loss`.
@@ -656,6 +719,7 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
     student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
     )
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
 
@@ -674,7 +738,7 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
 
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
-        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
     out["distillation_losses"] = raw
     out["b3_soft_kd"] = fkl * gate.float()
     out["b3_gate"] = gate.float()
@@ -692,10 +756,11 @@ FIRE_ALPHA = float(os.environ.get("SIMOPD_FIRE_ALPHA", "1.0"))
 FIRE_BETA = float(os.environ.get("SIMOPD_FIRE_BETA", "1.0"))
 
 
-def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
     )
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
 
@@ -708,7 +773,7 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     )
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
-        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
     # Teacher entropy from its top-k understates by the unseen tail (teacher_mass in
     # the diagnostics quantifies it); recorded deviation, same as the entropy panel.
     out["distillation_losses"] = raw
