@@ -29,13 +29,17 @@ arms:
     axis: A
     desc: "GKD lambda=0.5 on/off-policy mixing (2306.13649)"
     status: needs
-    seam: "Substituting teacher-generated responses for a fraction of each batch has
-           to happen after generation and before compute_log_prob. In verl v1 that
-           path is the TransferQueue agent loop (trainer_base._submit_batch_to_rollout
-           -> AgentLoopManager), not a single swappable call, so this is real trainer
-           surgery rather than a loss or a patch. a2_coldstart already gives axis A an
-           off-policy arm (the same intervention, staged rather than interleaved);
-           deferred until a1 is worth that cost"
+    seam: "REVISED 2026-08-06: the i1 surgery pattern opens a cheaper path than the
+           TransferQueue surgery originally feared. Rollout-server injection: patch
+           the STUDENT's vllm server; a prompt-hash-deterministic coin (lambda=0.5)
+           routes hit prompts to a cached teacher response (precomputed once via the
+           gen_coldstart stage-1 machinery over ALL train prompts) with the student
+           engine SCORING that text for log_probs instead of generating. Downstream
+           (teacher scoring, loss, PG) untouched. Recorded deviation: GKD's off-policy
+           half is a direct loss; under our PG base with one epoch per batch the ratio
+           is identically 1 and the gradients coincide -- estimator-note.md argument.
+           Sequenced AFTER i1 (shares the injection machinery); target: ready before
+           wave S/T so axis A ships complete"
     env: {}
 
   - run_id: a2_coldstart

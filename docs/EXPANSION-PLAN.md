@@ -105,6 +105,14 @@ TM-faithful vanilla 即可,记为可选项不占波次。
 
 **排期**:V 波同期或其后(噪声底落地为门),不挤 S/T。
 
+## 6.6 a1 复活计划(2026-08-06 翻案)
+
+原延后理由(TransferQueue 手术不值)被 i1 的注入门派推翻:**rollout 注入**方案
+(学生 server 按 prompt-hash 掷币 λ=0.5,命中返回缓存 teacher 响应 + 学生引擎打分)
+不碰 trainer。GKD 是奠基双璧之一,缺席是审稿人一眼可见的洞。
+排序:i1 手术 → a1 手术(共享机械)→ 预生成(cornell)→ 随 S/T 波入列,A 轴齐装。
+PG-形式偏离照 estimator-note 论证入 note。
+
 ## 7. Phase 2/3 定型(依 plan §4,不变,列此备查)
 
 - 贪心 R1=单轴筛(即主表);R2+:vanilla 起逐加最优 trick,增益<噪声底停;后向删
