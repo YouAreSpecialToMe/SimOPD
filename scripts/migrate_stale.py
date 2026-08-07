@@ -46,10 +46,14 @@ DEFAULT_STALE = [
     "g2_fire_likelihood_s0",
 ]
 
-# campaign.sh's exact grammar, one pattern per marker kind -- a decorative "#### DONE"
-# banner must count as nothing, or it makes its file look permanently live here.
-START = re.compile(r"^#+ RUN: ([A-Za-z0-9_.]+)\s*$")
-END = re.compile(r"^#+ ([A-Za-z0-9_.]+) -> (?:OK|FAIL)\s*$")
+# campaign.sh's exact grammar (grep -oE, PREFIX match): the real lines are
+# "################ RUN: name ################" with trailing hashes, so anchoring $
+# here made every marker invisible -- on the live fleet this script then reported "no
+# evidence anywhere" for five finished runs and mistook a RUNNING run's claim for a
+# stale one. Prefix-match like the greps do; a decorative "#### DONE" banner still
+# counts as nothing because the RUN:/-> shapes don't match it.
+START = re.compile(r"^#+ RUN: ([A-Za-z0-9_.]+)")
+END = re.compile(r"^#+ ([A-Za-z0-9_.]+) -> (?:OK|FAIL)")
 
 
 def scan(path):
@@ -128,14 +132,18 @@ def main():
             print("  IN FLIGHT -- finish-don't-kill; rerun this script after it ends")
             continue
 
-        for f, counts in per_file.items():
-            if name not in counts:
-                continue
-            live = [n for n, (s, e) in counts.items() if s > e]
-            if live:
-                waiting.append(name)
-                print(f"  {f} still hosts running run(s) {live}; file untouched, rerun later")
-                continue
+        # All-or-nothing per name: a log skipped for hosting a live run while the ckpt
+        # moved anyway would leave the name "done" in evidence but pointing at no
+        # checkpoint -- a half-state every downstream lookup would trip over.
+        hosting = [(f, c) for f, c in per_file.items() if name in c]
+        blocked = {f: [n for n, (s, e) in c.items() if s > e] for f, c in hosting}
+        if any(blocked.values()):
+            waiting.append(name)
+            for f, live in blocked.items():
+                if live:
+                    print(f"  {f} still hosts running run(s) {live}; {name} deferred whole, rerun later")
+            continue
+        for f, counts in hosting:
             if set(counts) == {name}:
                 act(f"mv {f} -> {f}.pgab (sole occupant; drops out of the lane*.log glob)",
                     lambda f=f: os.rename(f, f + ".pgab"))
