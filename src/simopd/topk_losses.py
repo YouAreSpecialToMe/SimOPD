@@ -9,6 +9,7 @@ names appear in TOPK_DISPATCH get our kernel; everything else falls through to
 verl's original function untouched.
 """
 
+import math
 import os
 
 import torch
@@ -752,6 +753,43 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
 # title's second half). The kernel emits COMPONENTS; trajectory-level operations
 # (filter, per-trajectory weight normalization) need sequence boundaries, which exist
 # only in the padded view, so they live in the registry post-processor.
+JSD_BETA = float(os.environ.get("SIMOPD_JSD_BETA", "0.5"))
+
+
+def compute_jsd_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """B axis, b4 (supplement cohort): GKD's generalized JSD-beta on the teacher's
+    renormalized top-k support (2306.13649; TRL's canonical interpolation, audited
+    r5: mixture m = beta*teacher + (1-beta)*student, jsd = beta*KL(teacher||m) +
+    (1-beta)*KL(student||m); beta=0.5 is symmetric JSD, beta->0 recovers c1-style
+    renorm RKL, beta->1 the renorm FKL). The plan's own axis-B text promised JSD
+    and skew-KL displaced it -- this arm pays the debt. Distributional both sides
+    (JSD's teacher-outer half is not sampled-estimable), DIRECT branch per GKD;
+    support truncation is the recorded C-axis-style deviation, teacher_mass
+    quantifies it. SIMOPD_JSD_BETA is the pre-registered internal ablation
+    (GKD finds the optimum task-dependent across {0.1, 0.5, 0.9})."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    b = JSD_BETA
+    stu_n = (stu_at_teacher - torch.logsumexp(stu_at_teacher, dim=-1, keepdim=True)).float()
+    tch_n = (t_lp - torch.logsumexp(t_lp, dim=-1, keepdim=True)).float()
+    log_m = torch.logaddexp(tch_n + math.log(b), stu_n + math.log(1.0 - b))
+    losses = b * kl_divergence(log_q=log_m, log_p=tch_n) \
+        + (1.0 - b) * kl_divergence(log_q=log_m, log_p=stu_n)
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    return out
+
+
 FIRE_ALPHA = float(os.environ.get("SIMOPD_FIRE_ALPHA", "1.0"))
 FIRE_BETA = float(os.environ.get("SIMOPD_FIRE_BETA", "1.0"))
 
@@ -788,6 +826,7 @@ TOPK_DISPATCH.update(
     {
         "eopd_entropy_gate": compute_eopd_gate_topk,
         "k1_fire_gate": compute_fire_components,
+        "jsd_topk": compute_jsd_topk,
         "qb_quantile_budget": compute_quantile_budget_topk,
         "pl_rank_anchor": compute_pl_rank_topk,
         "tip_select": _d_axis_kernel(_tip_score),

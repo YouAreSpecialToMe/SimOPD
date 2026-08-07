@@ -162,7 +162,9 @@ def skew_kl(config, distillation_config, model_output, data):
     DistillationLossSettings(names=["k2_kdrl"], use_estimator=True)
 )  # type: ignore[arg-type]
 def k2_kdrl(config, distillation_config, model_output, data):
-    """G axis, g3: KDRL's KD term (2506.02208 Eq.8) -- the k2 estimator.
+    """KDRL's k2 estimator (2506.02208 Eq.8). Two arms share this mode: j1_kdrl
+    (axis J, as the KD term beside GRPO) and b5_k2 (axis B supplement, standalone
+    on the direct branch -- the estimator ladder's middle rung).
 
     KDRL optimizes J_GRPO - beta*KL^k2(pi_theta || pi_T): GRPO on rule rewards
     plus a DIRECTLY differentiated k2 KL estimate on the student's own rollouts,
@@ -415,6 +417,8 @@ for _name, _extras in [
     # says governs that truncation's error. _topk_registry_fn reports the same
     # Eq.6/Eq.7 metrics and the panels.
     ("lsm_topk_renorm", ()),
+    # B axis supplement b4: divergence >= 0, signal="loss" like the C/E arms.
+    ("jsd_topk", ()),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),

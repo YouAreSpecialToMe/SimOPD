@@ -79,11 +79,11 @@ max 16,384 token、τ=1.0、top-p=1.0、每 batch 一个 epoch。
 ## 2. 参赛臂(A–J 十轴,I 搁置 2026-08-07;预算立场 r5 修订:忠实优先于配平,账本报实际预算)
 
 ### 轴 A — rollout 来源与日程
-纯 on-policy (λ=1) / GKD λ∈{0, 0.5} / 离策略冷启动→OPD(Rethinking recipe 复核)。
+纯 on-policy (λ=1) / GKD λ∈{0, 0.5}(0.5=a1 主批;**0=a3 后补批,08-07 兑现**)/ 离策略冷启动→OPD(Rethinking recipe 复核)。
 落选:Early-Stopping Rollout、异步生成 —— 工程默认,不进比赛。
 
 ### 轴 B — 散度
-Reverse KL(默认)/ JSD-β / Forward KL。
+Reverse KL(默认)/ Skew-RKL(b1,顶替原 JSD 席位)/ Forward KL / 熵门控(b3);**JSD-β=0.5 于 08-07 入后补批兑现(b4)+ 自研估计器阶梯 k2(b5)**。
 落选:EOPD 熵切换 (2603.07079) —— D2 诊断若显示熵剖面支持可复活。
 
 **B 轴增补(2026-08-06 预注册修订,依据当日文献扫描;数据存在之前登记):**

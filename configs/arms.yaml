@@ -141,6 +141,47 @@ arms:
       SIMOPD_B3_ENT_THRESH: "0.8"
       SIMOPD_B3_SOFT_COEF: "1.0"
 
+  - run_id: b4_jsd
+    axis: B
+    cohort: supplement
+    desc: "generalized JSD-beta on renormalized teacher top-k, beta=0.5 (GKD 2306.13649)"
+    status: stock
+    note: "ADDED 2026-08-07 (B-axis completeness): the plan's own axis-B text promised
+           JSD-beta and skew-KL displaced it -- this pays the debt with GKD's own
+           divergence, in TRL's canonical interpolation form (audited r5:
+           m = beta*T + (1-beta)*S, jsd = beta*KL(T||m) + (1-beta)*KL(S||m)).
+           beta=0.5 symmetric canonical point; SIMOPD_JSD_BETA pre-registered
+           internal ablation (GKD: optimum task-dependent over {0.1,0.5,0.9}).
+           Distributional both sides on the renorm top-k support (teacher-outer
+           half is not sampled-estimable; truncation recorded, teacher_mass
+           quantifies), DIRECT branch per GKD. the scaled limits jsd/beta (beta->0)
+           and jsd/(1-beta) (beta->1) recover the renorm FKL and RKL respectively
+           (endpoints themselves degenerate to zero; verified numerically) -- so b4
+           interpolates the axis's two endpoints"
+    env:
+      DISTILLATION_LOSS_MODE: jsd_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_JSD_BETA: "0.5"
+
+  - run_id: b5_k2
+    axis: B
+    cohort: supplement
+    desc: "[OURS] estimator ladder: k2 = 0.5*(log-ratio)^2 as the sole objective, direct"
+    status: stock
+    note: "ADDED 2026-08-07 [OURS, firewall arm]: the audit's own biggest correction
+           class was estimator/optimizer FORM (r3/r5 branch saga), yet the campaign
+           never varies the estimator alone. k1 (vanilla, signed, PG), k2 (this arm:
+           quadratic, pathwise-unbiased gradient for the same RKL, direct branch --
+           KDRL's choice for its KD term, their ablation k2>k3) form a ladder;
+           k3 (GRPO's low-var default) stays in the substitute pool. Zero new code:
+           reuses the k2_kdrl loss mode without task rewards. Same-target-different-
+           estimator makes any k1-vs-k2 verdict difference an ESTIMATOR effect by
+           construction -- the empirical leg estimator-note has been missing"
+    env:
+      DISTILLATION_LOSS_MODE: k2_kdrl
+      USE_POLICY_GRADIENT: "False"
+
   # ---- C: vocabulary support ----
   - run_id: c1_lsm_topk32_renorm
     axis: C
