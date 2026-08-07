@@ -88,3 +88,57 @@
 #                   actor does not fit one card -- plan says 4-6 GPUs per lane against
 #                   the 2 this fleet's rows assume, so a machine holds 1-2 W lanes,
 #                   not 4. Needs its own in-cell vanilla; first batch is vanilla x2.
+
+# ---- wave 2: seed replication ------------------------------------------------
+# Every runnable arm at seeds 1 and 2, so each has the three-point spread vanilla
+# has had since wave 1. Until now only vanilla did: comparing an arm to vanilla was
+# one point against a distribution, which answers "is it outside the noise" but not
+# "is this arm itself stable".
+#
+# 14 arms x 2 seeds = 28, on the ten boxes that became available 2026-08-07
+# (255-262, 264, 265; 263 is DOWN). An arm's two seeds are deliberately on
+# DIFFERENT machines, so losing a box cannot take both replicas of one arm.
+#
+# Spanning two pins is fine here, and was checked rather than assumed: between
+# 5ee67c6 (wave 1) and 23831fa (now), the only files the snapshot carries that
+# changed with DELETIONS are eval_offline.py, progress.py and watch.py -- none of
+# which a training process ever imports (run_opd_baseline.sh names two of them only
+# in comments, lines 15 and 204). arm.py and run_opd_baseline.sh, the two scripts
+# that actually define a run, are byte-identical across the two pins, and
+# arms.yaml / losses.py / topk_losses.py changed by pure addition. So wave 1 and
+# wave 2 compute the same thing and vanilla does not need re-running.
+#
+# c2_quantile_budget and b2_forward_kl collapsed in wave 1 (0.026@150 and
+# 0.002@225). Replicated anyway, on purpose: whether a collapse reproduces across
+# seeds is the finding, and dropping them would leave that unanswered.
+#
+# a2_coldstart and i0_think_scorer are held back by decision, not by blocker --
+# a2's checkpoint exists and i0's teacher is now cached.
+2	m5	b1_skew_kl	1
+2	m6	b1_skew_kl	2
+2	m7	b2_forward_kl	1
+2	m8	b2_forward_kl	2
+2	m9	b3_eopd_gate	1
+2	m10	b3_eopd_gate	2
+2	m11	c1_lsm_topk32_renorm	1
+2	m12	c1_lsm_topk32_renorm	2
+2	m13	c2_quantile_budget	1
+2	m14	c2_quantile_budget	2
+2	m5	d1_tip	1
+2	m6	d1_tip	2
+2	m7	d2_selectkd	1
+2	m8	d2_selectkd	2
+2	m9	d3_teachability	1
+2	m10	d3_teachability	2
+2	m11	e1_pl_rank	1
+2	m12	e1_pl_rank	2
+2	m13	f1_soft_log	1
+2	m14	f1_soft_log	2
+2	m5	f2_hard_clip	1
+2	m6	f2_hard_clip	2
+2	m7	g1_verified_only	1
+2	m8	g1_verified_only	2
+2	m9	g2_fire_likelihood	1
+2	m10	g2_fire_likelihood	2
+2	m11	h1_first_segment	1
+2	m12	h1_first_segment	2
