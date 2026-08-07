@@ -403,8 +403,12 @@ arms:
   - run_id: i0_think_scorer
     axis: I
     desc: "thinking-tuned teacher scoring non-thinking text (the 'confiscated scratchpad' control)"
-    status: stock
-    note: "L1 of the conditioning ladder: identical to vanilla except the scorer is
+    status: shelved
+    note: "SHELVED 2026-08-07 (user decision): the I axis's teacher-SWAP cells step
+           out of the roster for now; the design (design-thinking-cells.md), the P1a
+           ceiling measurements, and gen_priv_cot machinery all stand, so re-enlisting
+           is a status flip. Original note: L1 of the conditioning ladder: identical
+           to vanilla except the scorer is
            4B-Thinking-2507, same size and generation as the mainline teacher, so the
            tuning effect is isolated from scale. Pre-registered falsifiable prediction:
            WORSE than vanilla (the 8B-inversion mechanism, cleanly). Held for Wave U
@@ -416,7 +420,9 @@ arms:
   - run_id: i1_priv_cot
     axis: I
     desc: "thinking teacher scores WITH its own precomputed think block in-context; student sees only probabilities"
-    status: needs
+    status: shelved
+    note: "SHELVED 2026-08-07 with i0 (user decision; was status=needs). The surgery
+           plan below remains the enlistment path."
     seam: "surgery per design-thinking-cells.md sec 2.2: inject cached cot_ids into the
            teacher scoring request between prompt and response; tail-length extraction
            expected offset-invariant (verification V1-V4 before enlistment); plus the

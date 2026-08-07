@@ -28,7 +28,7 @@ def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     pl = sub.add_parser("list")
-    pl.add_argument("--status", choices=["stock", "needs"])
+    pl.add_argument("--status", choices=["stock", "needs", "shelved"])
     pe = sub.add_parser("env")
     pe.add_argument("run_id")
     sub.add_parser("check")
@@ -46,6 +46,9 @@ def main():
         arm = next((a for a in arms if a["run_id"] == args.run_id), None)
         if arm is None:
             sys.exit(f"unknown arm '{args.run_id}'; see: python scripts/arm.py list")
+        if arm["status"] == "shelved":
+            sys.exit(f"arm '{args.run_id}' is SHELVED (out of the roster by dated decision — "
+                     f"see its note in configs/arms.yaml); flip status to re-enlist")
         if arm["status"] != "stock":
             sys.exit(f"arm '{args.run_id}' is not runnable yet — blocked on: {arm.get('seam', '?')}")
         print(f"export EXPERIMENT_NAME={arm['run_id']}")
@@ -55,7 +58,11 @@ def main():
     elif args.cmd == "check":
         stock = [a for a in arms if a["status"] == "stock"]
         needs = [a for a in arms if a["status"] == "needs"]
-        print(f"registry: {len(arms)} arms — {len(stock)} runnable on stock verl, {len(needs)} blocked\n")
+        shelved = [a for a in arms if a["status"] == "shelved"]
+        line = f"registry: {len(arms)} arms — {len(stock)} runnable on stock verl, {len(needs)} blocked"
+        if shelved:
+            line += f", {len(shelved)} shelved ({', '.join(a['run_id'] for a in shelved)})"
+        print(line + "\n")
         print("runnable now:")
         for a in stock:
             print(f"  {a['run_id']:<26} [{a['axis']}] {a['desc']}")

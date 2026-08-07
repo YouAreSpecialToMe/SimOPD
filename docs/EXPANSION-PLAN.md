@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|
 | **S 种子** | 17 臂 × 补 2 seeds = 34 runs | 68 | ~35h | 无 | **到卡即发,第一优先** |
 | **T 二档** | 8B 老师 × 17 臂 + vanilla_t8b×3 = 20 runs | 40 | ~35h | 无(D6 已量) | 与 S 同发 |
-| **U 条件化** | i0 三连(vanilla/c1/f1 × 4B-Thinking 素打分)| 6 | ~30h | P1a | P1a 完即发 |
+| ~~U 条件化~~ | **搁置(2026-08-07 用户决定)**:I 轴换老师格暂出臂表;P1a 测量照跑(annex 共用),复位=status 翻回 | — | — | — | 搁置 |
 | **锚点 16k** | vanilla + c1 + f1 @16384 | 6 | ~70h | 无 | S 波首批让卡后 |
 | **Annex-Think** | 配置 1:7 runs @16k(§4) | 14 | ~4d | P1-AIME + 两处 run-defining 改动 | S 波让卡后 |
 | **i1 手术格** | 配置 2b(§5) | 6 | ~30h | 手术 V1–V4 + 预生成 | 手术完 |
@@ -60,7 +60,7 @@
 - 备选 A 触发:P1-AIME 显示 4B-Thinking 净空 < 学生 avg@32 波动 → 老师升 8B(think)
 - 发车前 run-defining 改动(一次 repin):`ENABLE_THINKING` 旋钮入指纹;preflight 分 regime
 
-## 5. I 轴(配置 2a/2b)摘要(细节见 design-thinking-cells.md §1/§2)
+## 5. I 轴(配置 2a/2b)摘要 —— **搁置中(2026-08-07)**,设计与预生成机械保留(细节见 design-thinking-cells.md §1/§2)
 
 - 阶梯:L0 vanilla → L1 i0(素打分,预注册预测**更差**)→ L2 i1(带私有 CoT)
 - i1 手术:teacher 请求注入 `[prompt|cot|response]`;尾长抽取假设 + V1–V4 验证单;
