@@ -86,7 +86,8 @@
 cookbook 配方改用 Qwen3.5-9B←9B-Base;**博客的实验与数字仍是 32B→8B 对**,HF 开源
 权重不受平台退役影响,W 锚定发表实验、引用注明该编者注。其新配方为同尺寸
 后训练→Base 蒸馏,与我们阶梯中 1.7B-2507 同尺寸臂同构,该臂文献对齐价值加强。——
-**协议用我们的**:无 SFT init、**上限待决(2026-08-07 §3.8 后:留 8k=偏离自家协议,转 16k=卡数/时长重推,连同 4–6 卡/泳道估算)——发车前须用户拍板并 dated amendment**、250 步定点、一臂一旋钮、cell 内自带 vanilla。
+**协议用我们的**:无 SFT init、**16k 上限(2026-08-07 用户拍板,随 §3.8 全程一致)**、
+250 步定点、一臂一旋钮、cell 内自带 vanilla。
 定位 = 学生侧规模格(晋级标准的"≥2 设定"从此含学生规模维度),
 放弃 TM-faithful 复现(SFT init + 16k + AIME 轨迹对表)—— 若后续想要,单跑一个
 TM-faithful vanilla 即可,记为可选项不占波次。
@@ -94,11 +95,14 @@ TM-faithful vanilla 即可,记为可选项不占波次。
 **臂**:首批 = vanilla ×2 seeds + {c1, f1, b3, 主表最佳 D 臂}(规则同附表 §7.4)。
 **自动加宽触发**:首批判决与主表一致率 < 3/4(规模翻转多)→ 全 17 臂入 cell。
 
-**工程前置(此格的真实成本)**:
-- 泳道形状:8B actor 静态 ~128GB → actor FSDP 2 卡 + 32B teacher tp2 双卡 ≈ **4–6 卡/泳道**;
-  执行走 `GPUS_PER_RUN` 参数 + 独立 mini-manifest(现 launcher 已支持该 env)
-- 显存算术全部重推(0.45 是 1.7B 专属;此格独立指纹批,天然隔离)
-- 单 run ~160–240 GPU·h;首批 6 runs ≈ 1200 GPU·h
+**工程前置(16k 重推,2026-08-07;probe 前均为估算)**:
+- 泳道形状:16k 下 micro-batch 须容单条 17,408-token 序列;8B 统态 ~128GB 经 FSDP-2
+  分片后每卡余量仅 ~16GB,装不下 8B@17.4k 的激活 → **actor FSDP-4(统态 ~32GB/卡,
+  余量 ~48GB)+ 32B teacher tp2 = 6 卡/泳道为基线形状**;GPUS_PER_RUN=6 + 独立
+  mini-manifest(launcher 已支持)
+- 显存算术照例全部重推(0.45 为 1.7B@8k 专属;此格独立指纹批);**W 自己的
+  单泳道 16k probe 是发车闸门**(与主表 probe 分开做,8B 形状不同)
+- 单 run 估 ~320–480 GPU·h(≈55–80h 墙钟/6 卡泳道);首批 6 runs ≈ 2,000–2,900 GPU·h
 - 测量前置:32B 天花板+tp2 冒烟(P1c 已排)、**8B-Base 零点**(入 cornell 链尾)
 
 **变体定案(2026-08-06 追问后)**:学生 = 8B-**Base**(协议锁死:Base+非思考);
@@ -136,6 +140,22 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 结果有效。
 
 ## 8. 治理提醒(执行者须知)
+
+### 8.1 16k 过渡执行清单(2026-08-07 终审后;用户执行,按序)
+
+1. **DSW**:`git pull` → 等 wave-1 全泳道自然跑完(跑完不杀)
+2. **全 8k 名册迁移**:`python scripts/migrate_stale.py --suffix __pilot8k --apply --names <8k 全名册>`
+   (r5 陈旧六臂若已入默认名单可先单独 --apply;旧指纹 ckpt 若需续读,一次性
+   `RESUME=force` 并入 PIN_HISTORY 记录)
+3. `REASON="final audit + 16k batch" bash deploy/campaign.sh --repin`
+4. **主表 16k probe**:单泳道 `STEPS=50` 控制跑,验 17,408 token 预算显存 + 步时基线
+   (顺带用 `VAL_BEFORE_TRAIN=True` 铸 16k 步-0 锚)
+5. probe 绿 → daemon 放开,S 波发车(18 臂 ×3 seeds;vanilla_n8/j1 长跑另计)
+6. **cornell**:重提 a1 预生成(全前缀键版 gen_offpolicy)与 a2 冷启动
+   (新数据集 + seeded 保留;两个 8k 陈旧 job 已于 2026-08-07 撤销)
+7. 第一个 16k run 完成 → `eval_suite.py sweep` 首扫(GPU 全链路首验)
+8. **W 波前另有自己的 6 卡形状 probe**(§6.5)
+
 
 - 每次动 `src/ configs/arms.yaml run_opd_baseline.sh arm.py` → **repin**(REASON 入 PIN_HISTORY)
 - 新机器:`MACHINE=mX bash deploy/up.sh` 一次,此后免名;纯池子机器可直接入列
