@@ -130,6 +130,9 @@ def main():
     p.add_argument("--temperature", type=float, default=0.0, help="0 = greedy pass@1; 0.7 for avg@32; 1.0 for the panel")
     p.add_argument("--top-p", type=float, default=1.0)
     p.add_argument("--max-tokens", type=int, default=8192, help="match the run's training cap")
+    p.add_argument("--think", action="store_true",
+                   help="enable_thinking=True in the chat template (thinking-regime ceilings "
+                        "and the annex cells; pair with --max-tokens 16384)")
     p.add_argument("--tp", type=int, default=1)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
     p.add_argument("--parallel", type=int, default=None,
@@ -189,7 +192,7 @@ def main():
                     [{"role": "user", "content": q.strip() + " " + INSTRUCTION}],
                     tokenize=False,
                     add_generation_prompt=True,
-                    enable_thinking=False,
+                    enable_thinking=args.think,
                 )
                 for q in problems
             ]

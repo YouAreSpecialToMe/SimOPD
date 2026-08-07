@@ -124,3 +124,26 @@
   B(部分)、F(软压缩);
 - 自研臂防火墙:C 分位、E rank —— 同协议同预算;
 - 跨域列:Phase 3 三域(math/code/IFEval)验证 shortlist。
+
+---
+
+## 附录:冻结后清单增量与勘误(2026-08-06 复扫 chrisliu298 列表)
+
+**估计器核对工单已执行** → `docs/estimator-note.md`。结论:保留领域正典底座
+(sg-优势 + PPO 代理),k1 族梯度期望无偏,非 k1 臂为领域标准启发式代理
+(OPD+ 形式化其偏差);臂间同底同偏可比,limitations 措辞已备。
+
+**冻结(462 条)后的尾巴,分诊:**
+- 【必读】2607.23731 Outcome-Confounded Local Supervision —— outcome×局部信号混淆
+  批判;g1 判决措辞前必读,可能加 caveat
+- 【替→G】SPOT(2608.04419,verifier 稀疏探针)
+- 【替→D】Not All Tokens Deserve Equal Credit(2607.27888,反事实敏感度重分配)
+- 【落/discussion】2608.04408 可恢复错误回滚(KAT 同族,改采样分布);
+  Lightning 2.0 / SAF-OPD / β-OPSD(系统/混合 RL/自蒸馏门类)
+- 【落/门类】weak-to-strong 对(2607.26246/27770):teacher 构造门类,协议外
+
+**勘误(写对表段前必须吸收)**:此前对 2606.22793 survey 的"信用分配格全是假设"
+论断**不成立** —— KETCHUP(2504.19024,K 步 Bellman 序列级回报;原清单 adjacent 段,
+zoo 漏收,今补)与 Bridging(2606.00305,近未来窗口摊布)是该格的实证成员。
+对表段应写:"实证工作**集中**于即时信用(含本文全部臂),序列级信用有零星探索
+(KETCHUP、Bridging),GAE-OPD/CR-OPD 仍为假设。"

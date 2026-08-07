@@ -240,8 +240,13 @@ if [ "$MODE" = run ] || [ "$MODE" = control ]; then
     }
 fi
 
-rows | awk -v m="$MACHINE" '$2==m' | grep -q . || {
-    echo "FATAL: '$MACHINE' has no rows in $MANIFEST." >&2
+# A machine participates if the manifest names it OR the pool has rows -- a box with
+# zero named rows and an open pool is exactly what m4 will be on arrival, and the old
+# named-rows-only gate refused it outright. (The gate also produced a vacuously "green"
+# audit test: nothing was claimed because the run was refused, and an assertion that
+# checked for the claim's absence read that refusal as a successful release.)
+rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | grep -q . || {
+    echo "FATAL: '$MACHINE' has no rows in $MANIFEST and the pool is empty." >&2
     echo "       Known: $(rows | awk '{print $2}' | sort -u | tr '\n' ' ')" >&2
     exit 1
 }
@@ -470,6 +475,9 @@ n_pending=$(( n_mine + $(set -- $pool; echo $#) ))
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
 lanes=$(( n_free / GPUS_PER_RUN ))
 [ "$lanes" -gt "$n_pending" ] && lanes=$n_pending
+# control runs vanilla:0 regardless of pending, so an all-done manifest must not
+# clamp it to zero lanes -- that clamp is what made the mode unreachable in test.
+[ "$MODE" = control ] && [ "$lanes" -lt 1 ] && [ "$n_free" -ge "$GPUS_PER_RUN" ] && lanes=1
 
 echo "  GPUs         $n_free free of $(nvidia-smi 2>/dev/null -L | wc -l) ->$([ "$lanes" -gt 0 ] && echo " $lanes lanes" || echo " 0 lanes")"
 if [ "$lanes" -lt 1 ]; then
@@ -562,7 +570,7 @@ for i in $(seq 0 $((lanes - 1))); do
 done
 gpu_list="${gpu_list# }"
 _n_real=$(set -- $pending; echo $#)
-if [ "$_n_real" -lt "$lanes" ]; then
+if [ "$_n_real" -lt "$lanes" ] && [ "$MODE" != control ]; then
     lanes=$_n_real
     gpu_list=$(set -- $gpu_list; c=""; for i in $(seq 1 $lanes); do c="$c ${!i}"; done; echo "${c# }")
 fi

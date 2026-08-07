@@ -58,3 +58,32 @@
 # running it here means building the coldstart SFT ckpt on THIS fleet and re-pointing
 # both -- an arms.yaml edit, i.e. a pin move with a REASON in PIN_HISTORY.
 3	m1	a2_coldstart	0	needs=/scratch/zz865/simopd/ckpt/coldstart_sft
+
+# ---- wave 4: merged from main 2026-08-07, NOT yet assigned --------------------
+# Three arms and one model-pair cell arrived with the merge. None is given a machine
+# here: wave 1 owns all sixteen lanes until it drains, and each of these has a
+# prerequisite that is not met on this fleet. Listed so the manifest stays the whole
+# truth rather than the part that happens to be runnable.
+#
+#   b3_eopd_gate    B axis, adaptive member: routes per token between b1's reverse KL
+#                   (where the teacher is confident) and b2's forward KL (where it is
+#                   spread). Runnable as-is -- same pair, same protocol, stock status.
+#                   Worth running early: b2 collapsed to 0.002 by step 225 in wave 1,
+#                   and b3 uses forward KL only where b2 uses it everywhere.
+#   i0_think_scorer I axis (new), vanilla with the scorer swapped to
+#   i1_priv_cot     Qwen3-4B-Thinking-2507. BLOCKED: that model is not in the shared
+#                   HF cache and HF_HUB_OFFLINE=1 is fleet-wide (the 429 that killed
+#                   all sixteen first-launch lanes is why). i1 additionally needs a
+#                   precomputed think-block parquet that does not exist here, and its
+#                   path is /mnt/workspace/... -- registry status is 'needs'.
+#                   Before running either: Qwen3's template renders an assistant turn
+#                   differently depending on whether it is the LAST message (<think>
+#                   present vs stripped, measured 2026-08-07). Both arms turn on where
+#                   the think block sits in the scored sequence, so verify that first.
+#
+#   W wave          NOT an arm: a second teacher-student pair, Qwen3-8B-Base <- 32B,
+#                   running THESE arms under THIS protocol (docs/SimOPD-plan.md 6.5).
+#                   BLOCKED twice over here: neither model is in the cache, and an 8B
+#                   actor does not fit one card -- plan says 4-6 GPUs per lane against
+#                   the 2 this fleet's rows assume, so a machine holds 1-2 W lanes,
+#                   not 4. Needs its own in-cell vanilla; first batch is vanilla x2.

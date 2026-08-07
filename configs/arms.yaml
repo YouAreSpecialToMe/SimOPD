@@ -73,6 +73,24 @@ arms:
       DISTILLATION_LOSS_MODE: forward_kl_topk
       DISTILLATION_TOPK: "32"
 
+  - run_id: b3_eopd_gate
+    axis: B
+    desc: "per-token entropy routing: reverse KL where teacher is confident, forward KL where spread (EOPD 2603.07079, ICML 2026)"
+    status: stock
+    note: "src/simopd/topk_losses.py. Pre-registered addition 2026-08-06 from the
+           coverage sweep, before any of its data existed. The arm is a ROUTER between
+           two objectives that already exist as arms (vanilla/b1's sampled-token k1,
+           b2's clamped top-k forward KL), so the one knob is the routing itself.
+           Teacher entropy comes from its top-k (understated by the tail; teacher_mass
+           quantifies it); threshold is batch-relative like TIP/FiRe (same micro-batch
+           caveat, realised fraction logged). Hard switch per the paper's summary;
+           switch-vs-add is the internal ablation if the full text says otherwise"
+    env:
+      DISTILLATION_LOSS_MODE: eopd_entropy_gate
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_B3_HIGH_FRAC: "0.5"
+
   # ---- C: vocabulary support ----
   - run_id: c1_lsm_topk32_renorm
     axis: C
@@ -198,6 +216,34 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
       SIMOPD_FIRE_DROP_FRAC: "0.2"
+
+  # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
+  - run_id: i0_think_scorer
+    axis: I
+    desc: "thinking-tuned teacher scoring non-thinking text (the 'confiscated scratchpad' control)"
+    status: stock
+    note: "L1 of the conditioning ladder: identical to vanilla except the scorer is
+           4B-Thinking-2507, same size and generation as the mainline teacher, so the
+           tuning effect is isolated from scale. Pre-registered falsifiable prediction:
+           WORSE than vanilla (the 8B-inversion mechanism, cleanly). Held for Wave U
+           until P1a measures its ceilings"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      TEACHER_MODEL: Qwen/Qwen3-4B-Thinking-2507
+
+  - run_id: i1_priv_cot
+    axis: I
+    desc: "thinking teacher scores WITH its own precomputed think block in-context; student sees only probabilities"
+    status: needs
+    seam: "surgery per design-thinking-cells.md sec 2.2: inject cached cot_ids into the
+           teacher scoring request between prompt and response; tail-length extraction
+           expected offset-invariant (verification V1-V4 before enlistment); plus the
+           one-off gen_priv_cot.py precompute. The knob RELATIVE TO i0 is the private
+           CoT alone -- i0 is this arm's control, not vanilla"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      TEACHER_MODEL: Qwen/Qwen3-4B-Thinking-2507
+      SIMOPD_PRIV_COT: /mnt/workspace/simopd_data/priv_cot/train_cot.parquet
 
   # ---- H: sequence horizon ----
   - run_id: h1_first_segment

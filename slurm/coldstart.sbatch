@@ -28,8 +28,13 @@ export RAY_TMPDIR=/scratch/zz865/ray_tmp
 SFT_CKPT=${SFT_CKPT:-/scratch/zz865/simopd/ckpt/coldstart_sft}
 mkdir -p "$RAY_TMPDIR" "$SFT_CKPT"
 
-TEACHER=${TEACHER:-Qwen/Qwen3-1.7B}
-STUDENT=${STUDENT:-Qwen/Qwen3-0.6B-Base}
+# Tier defaults corrected 2026-08-06: this file predates the 2026-08-04 tier change
+# and still said 0.6B-Base <- 1.7B. Submitting it as-was would have generated the
+# cold-start data with the WRONG teacher and SFT'd the WRONG student -- an entire
+# wasted stage plus an a2 arm quietly trained off-tier. The audit habit that caught
+# it: read the assembled file before the first submit, not the diff that last touched it.
+TEACHER=${TEACHER:-Qwen/Qwen3-4B-Instruct-2507}
+STUDENT=${STUDENT:-Qwen/Qwen3-1.7B-Base}
 DATA_DIR=${DATA_DIR:-$HOME/data/simopd_math}
 
 echo "=== stage 1: teacher generations on the reserved prompt slice ==="

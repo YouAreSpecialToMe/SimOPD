@@ -86,6 +86,13 @@ max 16,384 token、τ=1.0、top-p=1.0、每 batch 一个 epoch。
 Reverse KL(默认)/ JSD-β / Forward KL。
 落选:EOPD 熵切换 (2603.07079) —— D2 诊断若显示熵剖面支持可复活。
 
+**B 轴增补(2026-08-06 预注册修订,依据当日文献扫描;数据存在之前登记):**
+`b3_eopd_gate` —— EOPD(2603.07079,ICML 2026)的逐 token 熵路由:老师低熵处反向 KL、
+高熵处前向 KL。在本注册表中它恰好是 **b1 家族 RKL 与 b2 FKL 之间的逐 token 路由器**,
+两个成分都是既有臂的目标,唯一新旋钮即路由本身 —— 2026 年 3–6 月出现的"自适应目标"
+家族(EOPD/SEAD/AOPD)此前在 16 臂中无成员,是扫描发现的唯一结构性缺口。SEAD/AOPD
+的选择器进 shadow 面板(测量先行),KAT 因改采样分布记入 discussion 不参赛。
+
 ### 轴 C — 支撑(词表轴)★含自研臂
 sampled-token(基线)/ teacher top-k+重归一化 (LSM 2603.25562) / teacher top-p /
 **分位预算分配 × margin∈{q, π, max(q,π)}(自研,QB 移植,无人占)** /
@@ -120,6 +127,12 @@ teacher 似然过滤 (FiRe-OPD 2606.02684)。
 此臂**有意**削监督预算(那正是它的主张),台账报预算而非配平。
 > 登记说明:h1 于 2026-08-05 进入 `configs/arms.yaml` 时未同步修订本计划,
 > §2 标题一直写着"7 轴"。此为文档滞后,非新增臂 —— 修正而非修订。
+
+### 轴 I — teacher conditioning(2026-08-06 预注册增补;设计稿 docs/design-thinking-cells.md)
+素打分(i0:thinking 老师被没收草稿纸)/ **带私有 CoT 打分(i1:老师先做一遍再判卷)**。
+三点阶梯 L0(vanilla)→L1(i0)→L2(i1) 同尺寸同族,相邻差各答一个单变量问题;
+学生侧字节不变,主表可比性无损。i1 待手术 + 预生成(V1–V4 验证清单)。
+配置 1(双 thinking 附表 Annex-Think)另册:7 runs @16k,S 波后。
 
 ### 固定约定(不进比赛)
 特殊 token 掩码、n=1 题目多样性(Demystifying 已判)、top-p rollout 采样。
