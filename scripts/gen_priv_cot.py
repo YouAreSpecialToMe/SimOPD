@@ -147,6 +147,8 @@ def main():
     out = pd.DataFrame(rows)
     dup = out["prefix_hash"].duplicated().sum()
     assert dup == 0, f"{dup} duplicate prefix hashes -- 16-token key insufficient, widen it"
+    if a.dry:
+        a.out = a.out + ".dry"   # C6: rehearsals never clobber the production cache
     out.to_parquet(a.out)
     n_tr = int(out["truncated"].sum())
     print(f"{len(out)} rows -> {a.out}")

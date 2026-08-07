@@ -47,6 +47,19 @@ def _load_cache():
 
         path = os.environ["SIMOPD_GKD_CACHE"]
         df = pd.read_parquet(path)
+        # Provenance check (audit S1): a cache generated at a smaller cap than the
+        # engine's response_length would silently shorten every off-policy sample.
+        if "gen_max_tokens" in df.columns:
+            _gen_cap = int(df["gen_max_tokens"].iloc[0])
+            _want = int(os.environ.get("MAX_RESPONSE_LENGTH", "16384"))
+            if _gen_cap < _want:
+                raise RuntimeError(
+                    f"gkd cache {path} was generated at max_tokens={_gen_cap} < "
+                    f"MAX_RESPONSE_LENGTH={_want}; regenerate it (gen_offpolicy.py)")
+        else:
+            print(f"[simopd] gkd_mix: cache {path} has no provenance columns "
+                  f"(pre-audit artifact) -- regenerate before trusting it",
+                  file=sys.stderr, flush=True)
         _cache = {r["prefix_hash"]: list(r["response_ids"]) for _, r in df.iterrows()}
         print(f"[simopd] gkd_mix: cache loaded, {len(_cache)} prompts, lambda={_lam()}",
               file=sys.stderr, flush=True)

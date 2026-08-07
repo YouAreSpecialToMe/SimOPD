@@ -94,11 +94,16 @@ def main():
         # The extraction is deliberate: these are numpy arrays of dicts, and an
         # isinstance(q, (list, tuple)) guard misses them, falls back to str(q), and
         # measures the repr -- which reported 44% overlong where the true figure is 14%.
+        # Uniform sample, NOT the head: the parquet is source-ordered and 74 of 81
+        # overlong rows live in the first quintile -- the head-500 estimate minted
+        # the wrong "effective ~12,478" that reached three docs (audit C4; true
+        # count 14,393, measured over all rows via the template path).
         n = min(len(df), 500)
+        df_s = df.sample(n=n, random_state=0) if len(df) > n else df
         over = sum(
             len(tok(q[0]["content"] if hasattr(q, "__len__") and len(q) and
                     isinstance(q[0], dict) else str(q)).input_ids) > a.max_prompt_length
-            for q in df["prompt"].iloc[:n]) if "prompt" in df else 0
+            for q in df_s["prompt"]) if "prompt" in df else 0
         if over:
             print(f"        {over}/{n} sampled prompts exceed max_prompt_length="
                   f"{a.max_prompt_length}; filter_overlong_prompts drops them, so the "

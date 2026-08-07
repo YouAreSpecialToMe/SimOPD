@@ -37,6 +37,10 @@ def main():
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(a.student)
+    tok_t = AutoTokenizer.from_pretrained(a.teacher)
+    assert tok.vocab_size == tok_t.vocab_size, (
+        "shared vocab is the protocol precondition (S6): teacher generates ids the "
+        "student engine must score")
     df = pd.read_parquet(a.train_parquet)
     if a.limit:
         df = df.iloc[: a.limit]
@@ -61,7 +65,16 @@ def main():
         responses = [list(o.outputs[0].token_ids) for o in outs]
 
     out = pd.DataFrame({"prefix_hash": keys, "response_ids": responses,
-                        "response_tokens": [len(r) for r in responses]})
+                        "response_tokens": [len(r) for r in responses],
+                        # provenance columns (audit S1): consumers can refuse a
+                        # stale-cap or wrong-teacher cache instead of degrading.
+                        "gen_max_tokens": a.max_tokens, "temperature": 1.0,
+                        "seed": a.seed, "teacher": a.teacher})
+    if a.dry:
+        # A rehearsal must never clobber the production cache with stub rows (C6):
+        # gkd_mix would inject [1,2,3] as "teacher rollouts" with only the mix-rate
+        # print to notice.
+        a.out = a.out + ".dry"
     out.to_parquet(a.out)
     print(f"{len(out)} rows -> {a.out}   resp len p50 "
           f"{out['response_tokens'].median():.0f}")

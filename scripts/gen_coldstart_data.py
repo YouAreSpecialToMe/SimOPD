@@ -32,6 +32,7 @@ MATH_SCORER_SOURCE = "DigitalLearningGmbH/MATH-lighteval"
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--teacher", default="Qwen/Qwen3-4B-Instruct-2507")
+    p.add_argument("--student", default="Qwen/Qwen3-1.7B-Base", help="tokenizer for the SFT-side overlong filter (S9)")
     p.add_argument("--train-parquet", default=os.path.expanduser("~/data/simopd_math/train.parquet"))
     p.add_argument("--out-dir", default=os.path.expanduser("~/data/simopd_math"))
     p.add_argument("--n-prompts", type=int, default=3000, help="reserved slice size")
@@ -48,8 +49,18 @@ def main():
     from vllm import LLM, SamplingParams
 
     df = pd.read_parquet(args.train_parquet)
-    reserved = df.iloc[: args.n_prompts].reset_index(drop=True)
-    remainder = df.iloc[args.n_prompts :].reset_index(drop=True)
+    # Sample, don't slice: the parquet is source-ordered, so iloc[:3000] made the
+    # SFT set deepscaler/acereason and the OPD remainder numinamath -- near-disjoint
+    # source distributions, a confound far beyond the registered "fewer distinct
+    # prompts" (audit 2026-08-07 C5). Exact-duplicate prompts are dropped first so
+    # no reserved question reappears verbatim in the remainder (C8: 3 pairs
+    # straddled the old boundary).
+    _content = df["prompt"].map(lambda q: q[0]["content"] if hasattr(q, "__len__") and len(q) else str(q))
+    n_dup = int(_content.duplicated(keep="first").sum())
+    df = df.loc[~_content.duplicated(keep="first")].reset_index(drop=True)
+    reserved = df.sample(n=args.n_prompts, random_state=args.seed)
+    remainder = df.drop(reserved.index).reset_index(drop=True)
+    reserved = reserved.reset_index(drop=True)
 
     tok = AutoTokenizer.from_pretrained(args.teacher)
     prompts = [
@@ -69,6 +80,10 @@ def main():
         user_msg = row["prompt"].tolist()[0]["content"]
         for comp in out.outputs:
             n_total += 1
+            if comp.finish_reason == "length":
+                # An unterminated completion is not a solution; even --keep-all
+                # (the no-verifier ablation) must not learn from a cut-off (S8).
+                continue
             if not args.keep_all:
                 score = default_compute_score(MATH_SCORER_SOURCE, comp.text, gt)
                 if isinstance(score, dict):
@@ -78,6 +93,22 @@ def main():
             n_kept += 1
             rows.append({"messages": [{"role": "user", "content": user_msg},
                                       {"role": "assistant", "content": comp.text}]})
+
+    # S9: at the 16k cap a row can exceed the SFT engine's max_length and
+    # truncation=error then kills training hours in; filter here, count in meta.
+    stu_tok = AutoTokenizer.from_pretrained(args.student)
+    sft_max = int(os.environ.get("SFT_MAX_LEN", "17408"))
+    def _row_len(r):
+        return len(stu_tok.apply_chat_template(r["messages"], tokenize=True, enable_thinking=False))
+    n_overlong = 0
+    if rows:
+        keep_rows = []
+        for r in rows:
+            if _row_len(r) <= sft_max:
+                keep_rows.append(r)
+            else:
+                n_overlong += 1
+        rows = keep_rows
 
     os.makedirs(args.out_dir, exist_ok=True)
     sft_path = os.path.join(args.out_dir, "coldstart_sft.parquet")
@@ -94,6 +125,14 @@ def main():
         "kept": n_kept,
         "accept_rate": round(n_kept / max(n_total, 1), 4),
         "verifier_filtered": not args.keep_all,
+        # Provenance guard (audit 2026-08-07 S1/C3): an artifact must carry the cap
+        # and seed it was born with, or a stale-cap regeneration race is invisible.
+        "gen_max_tokens": args.max_tokens,
+        "temperature": args.temperature,
+        "seed": args.seed,
+        "dedup_dropped": n_dup,
+        "overlong_dropped_sft": n_overlong,
+        "sft_max_len": sft_max,
     }
     with open(os.path.join(args.out_dir, "coldstart_meta.json"), "w") as f:
         json.dump(meta, f, indent=1)
