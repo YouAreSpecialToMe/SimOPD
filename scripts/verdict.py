@@ -42,6 +42,10 @@ CAVEATS = {
     # response-token mass is agreement-on-failure even under such filters. The
     # verdict may say "trajectory selection helps/hurts", never "purified signal".
     "g1_verified_only": "outcome-level gate only; no token-level localization claim (2607.23731)",
+    # n=1 degenerates GRPO to success-only REINFORCE (failures get zero gradient),
+    # so a null result may be the weak RL term, not the family. KDRL-faithful
+    # micro-cell (n=8 + vanilla_n8) is the V-wave trigger.
+    "g3_kdrl": "RL term is n=1 success-only REINFORCE, not group GRPO; mechanism verdict only",
 }
 
 ARMS = [  # ledger order: axis order from the plan

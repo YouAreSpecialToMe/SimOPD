@@ -332,11 +332,20 @@ arms:
            branch IS this objective (use_task_rewards=True => policy_loss +
            distillation_loss_coef * distill_loss), beta = their fixed main default
            2e-3; their annealing variant (5e-3 -> 1e-3, delta 5e-5/step) is the
-           pre-registered internal ablation, not the arm. Recorded deviations:
-           protocol n=1 makes GRPO's group baseline degenerate to the raw verifier
-           score (same signal g1 gates on; theirs uses group sampling), and their
-           regime is long-CoT R1-style models while ours is the audit tier --
-           true of every arm and stated once here"
+           pre-registered internal ablation, not the arm. Recorded deviations --
+           the first is LOAD-BEARING (2026-08-07, user catch): at protocol n=1,
+           true GRPO advantages are identically zero (single-member groups have no
+           contrast); verl's singleton special-case substitutes the raw verifier
+           score, so the RL term is SUCCESS-ONLY REINFORCE -- correct rollouts
+           pushed up, failed rollouts receive ZERO gradient. KDRL's group sampling
+           gives failures negative advantage; that half of their RL signal does not
+           exist here. This arm therefore audits the reward-as-co-objective
+           MECHANISM under the protocol (one-knob translation, same doctrine as
+           a1's lambda), NOT KDRL replication; the verdict is scoped by verdict.py
+           CAVEATS, and a KDRL-faithful micro-cell (n=8 + vanilla_n8 control) is
+           the pre-registered V-wave trigger if this arm promotes or lands
+           ambiguous. Second: their regime is long-CoT R1-style models while ours
+           is the audit tier -- true of every arm and stated once here"
     env:
       DISTILLATION_LOSS_MODE: k2_kdrl
       USE_POLICY_GRADIENT: "False"
