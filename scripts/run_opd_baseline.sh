@@ -284,6 +284,16 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=${use_remove_padding} \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=${actor_lr} \
+    $(: "PROTOCOL sec 3.6 (2026-08-07): these five rode verl defaults unregistered. "
+       "Values UNCHANGED -- pinned so a verl bump cannot drift them silently; verl "
+       "is not in the campaign pin set.") \
+    actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.0 \
+    actor_rollout_ref.actor.optim.lr_scheduler_type=constant \
+    actor_rollout_ref.actor.optim.weight_decay=0.01 \
+    "actor_rollout_ref.actor.optim.betas=[0.9,0.999]" \
+    actor_rollout_ref.actor.grad_clip=1.0 \
+    actor_rollout_ref.actor.clip_ratio=0.2 \
+    actor_rollout_ref.actor.ppo_epochs=1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \

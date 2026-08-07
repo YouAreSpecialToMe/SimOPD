@@ -221,6 +221,12 @@ Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 
      sbatch 已修,后续 run 入协议值。greedy pass@1(τ=0)与 τ=1.0 多样性面板为
      另两个注册用途,不受影响。
    - 部署条件列(官方 0.7/0.8/20):只配决赛配方,可选,不占波次。
+6. **优化器与 PPO 常量显式转正(2026-08-07,值零变化)**:AdamW(torch.optim)
+   weight_decay=0.01、betas=(0.9,0.999)、grad_clip=1.0、constant 调度、
+   **无 warmup(ratio=0.0,显式)**、PPO clip_ratio=0.2(全部 PG 臂生效)、
+   ppo_epochs=1(mini=train 单 epoch 纪律)。此前全部静默吃 verl 默认;verl 不在
+   pin 集,显式钉死防版本漂移。clip_ratio=0.2 为领域标准(TM/verl/KDRL 同);
+   wd/betas 为 AdamW 惯例,各被审论文均未报,记为"实现层常量,全臂同值同偏"。
 
 ## 4. 开口(精读时逐项关闭)
 
