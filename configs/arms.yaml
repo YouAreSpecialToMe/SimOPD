@@ -266,9 +266,16 @@ arms:
   # ---- F: signal regulation ----
   - run_id: f1_soft_log
     axis: F
-    desc: "soft log compression sign(d)*log(1+|d|) (Demystifying winner)"
+    desc: "soft log compression sign(d)*log(1+|d|) (Demystifying, winner at modest gap)"
     status: stock
-    note: "implemented in src/simopd/losses.py, registered via sitecustomize"
+    note: "implemented in src/simopd/losses.py, registered via sitecustomize.
+           AUDIT r5 2026-08-07 (paper-only; no code released, their impl is verl per
+           appendix): exact formula confirmed -- sign(dl)*log(1+|dl|) applied to the
+           per-token log-ratio ADVANTAGE. We apply it to the k1 LOSS, which is the
+           advantage negated; the transform is odd, so it commutes with the negation
+           and the two are identical. 'Winner' is conditional in the paper: preferred
+           when the teacher-student gap is MODEST (ours: 2.4x), with hard clip
+           favored at large gaps -- which is the pre-registered f1-vs-f2 reading"
     env:
       DISTILLATION_LOSS_MODE: k1_softlog
 
@@ -278,7 +285,12 @@ arms:
     status: stock
     note: "verl ships loss_max_clamp; pre-registered to enter only if D5 finds Mode B,
            but it is stock so it is smoked with the rest. Loss mode is inherited
-           (k1_rec) so the clamp is this arm's ONLY deviation from vanilla"
+           (k1_rec) so the clamp is this arm's ONLY deviation from vanilla.
+           AUDIT r5 2026-08-07: the paper's form is clip(dl, c_min, c_max) with NO
+           threshold values given -- +-10 symmetric is OUR registered choice, made
+           visible by the clip_hit_rate metric rather than defended a priori.
+           Symmetric clip is odd, so the loss-side application equals the paper's
+           advantage-side one (same argument as f1)"
     env:
       LOSS_MAX_CLAMP: "10.0"
 
