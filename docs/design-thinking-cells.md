@@ -130,3 +130,16 @@ D 轴臂**(以附表发车时刻的台账为准)—— 规则先于数据登记,
 **训练中曲线 val**:16k thinking 下全量 MATH500 单次 val 达小时级 → 附表 in-training
 val = MATH500-sub100(曲线形状用),判决量一律出自 final ckpt 离线 AIME/AMC avg@32。
 与主表"verl 曲线 / eval_offline 台账"两轨制同构。
+
+## 9. thinking 域资格测量与"倒置消失"预测(2026-08-06)
+
+**立场**:固定 4B-Thinking 为附表老师;测量不为重开选型,只服务备选 A 触发器与机理图。
+
+**预注册预测(可证伪)**:非思考倒置(4B-2507 0.896 > 8B 0.792)的机理是混合模型的
+"草稿纸税" → thinking 模式下税退还:8B 的 think−nothink 差值显著为正,8B(think)
+大概率回到 0.896 之上,**倒置随制度消失**。消失 = D6 机理解释被独立证实;
+不消失 = 单独成节。(4B-2507 无 think 模式,2×2 恰好只落在 8B 上。)
+
+**测量清单**:P1a(4B-T 双模式 + 学生零点)、P1-AIME(三模型 AIME,含 8B-think)、
+P1-8BT(8B-think MATH500,补 2×2)—— 全部入 cornell 队列;artifacts 落地后
+`d6_matrix.py` 出 thinking 版逐题矩阵(CPU)。
