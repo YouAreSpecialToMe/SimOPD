@@ -224,3 +224,6 @@
 5	m4	a2_coldstart	0
 5	m11	a2_coldstart	1
 5	m5	a2_coldstart	2
+5	m8	f3_power	0	promoted on main 9877304 mid-wave; joins the batch under the same tag
+5	m10	f3_power	1
+5	m11	f3_power	2
