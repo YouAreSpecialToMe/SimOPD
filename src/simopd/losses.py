@@ -115,15 +115,24 @@ def k1_with_recorder(config, distillation_config, model_output, data):
     DistillationLossSettings(names=["skew_kl_a0.1"], use_estimator=True)
 )  # type: ignore[arg-type]
 def skew_kl(config, distillation_config, model_output, data):
-    """B axis: skew-KL with alpha=0.1 (DistiLLM 2402.03898), the pre-registered value.
+    """B axis: DistiLLM's skew REVERSE KL, their default alpha=0.1 (2402.03898).
 
-    SKL_a(p||q) = KL(p || a*p + (1-a)*q). The mixture's log-density at the sampled
-    token is exactly computable from the two sampled-token logprobs we already have
-    -- logaddexp(log a + log p, log(1-a) + log q) -- so no top-k or full-vocab pass
-    is needed and this arm stays budget-matched with vanilla on the same C axis.
+    SRKL_a = KL(q || a*q + (1-a)*p) with q=student OUTER and the mixture mostly
+    teacher -- audited r5 against distillm/losses.py skewed_reverse_kl, which builds
+    `lam*student_probs + (1-lam)*teacher_probs` with the student as first argument,
+    lam=0.1: same sides, same value. (Their paper writes p=teacher, so naming this
+    SKL(p||...) as an earlier docstring did reads as skew FORWARD -- whose mixture
+    is mostly STUDENT -- exactly the alpha-side trap this audit exists to catch.)
 
-    Mixing toward the student bounds the estimator when the teacher assigns near-zero
-    mass, which is the mode-collapse failure DistiLLM targets.
+    SRKL rather than SKL because the outer distribution is what rollouts sample:
+    E_{y~q}[log q - log mix] IS SRKL, so the sampled-token estimator is unbiased
+    on-policy; SKL's outer is the teacher, which nothing here samples. The mixture's
+    log-density at the sampled token is logaddexp(log a + log q, log(1-a) + log p)
+    from logprobs we already have -- no top-k pass, budget-matched with vanilla.
+    DistiLLM computes the full-vocab sum offline; ours is the single-sample
+    estimator of the same quantity (recorded translation, same class as vanilla's
+    k1). Mixing a*q into the denominator bounds the integrand at -log a when the
+    teacher assigns near-zero mass -- the failure DistiLLM targets.
     """
     student, teacher, mask = _unpack(model_output, data)
     alpha = 0.1
@@ -138,6 +147,34 @@ def skew_kl(config, distillation_config, model_output, data):
 
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
     metrics.update(_delta_ell_metrics(losses, mask))
+    return losses, metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k2_kdrl"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k2_kdrl(config, distillation_config, model_output, data):
+    """G axis, g3: KDRL's KD term (2506.02208 Eq.8) -- the k2 estimator.
+
+    KDRL optimizes J_GRPO - beta*KL^k2(pi_theta || pi_T): GRPO on rule rewards
+    plus a DIRECTLY differentiated k2 KL estimate on the student's own rollouts,
+    0.5*R^2 with R = log pi_T - log pi_theta. Their ablation picks k2 over k3
+    (biased loss value, unbiased gradient). verl's combine branch is the same
+    shape -- policy_loss + distillation_loss_coef * distill_loss with
+    use_task_rewards=True -- so beta rides DISTILLATION_LOSS_COEF and this
+    function only supplies the k2 term (verl ships a bare "k2" mode; this one
+    adds the Delta-ell panel METRICS.md requires of every arm, k1_rec-style).
+
+    The panel quantiles are computed on the SIGNED k1 signal, not on the k2
+    losses: k2 is >= 0 by construction and publishing it as delta_ell would
+    destroy the cross-arm comparability the panel exists for.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    k1 = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+    losses = 0.5 * k1.square()
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(k1, mask))
     return losses, metrics
 
 
@@ -320,10 +357,6 @@ for _name, _extras in [
     # says governs that truncation's error. _topk_registry_fn reports the same
     # Eq.6/Eq.7 metrics and the panels.
     ("lsm_topk_renorm", ()),
-    # B axis adaptive member: a per-token router between b1-family reverse KL and
-    # b2's forward KL. signal="loss" -- the mixture is neither pure k1 nor a
-    # divergence, so publishing it as delta_ell would lie on the cross-arm panel.
-    ("eopd_entropy_gate", ("b3_high_frac", "b3_tau_ent")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),
@@ -339,15 +372,50 @@ for _name, _extras in [
     )
 
 
+_b3_base = _topk_registry_fn("b3_gate", "b3_missing", *_PANELS, signal="delta_ell")
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["eopd_entropy_gate"], use_topk=True)
+)  # type: ignore[arg-type]
+def _b3_registry_fn(config, distillation_config, model_output, data):
+    """EOPD (audit r5, against WLS04/EOPD): PG base + additive gated forward KL.
+
+    The returned losses are vanilla's sampled k1 -- the PG branch detaches them
+    into advantages, which is the official base -- so signal="delta_ell" is true
+    here, same as the D arms. The gated FKL must NOT ride along in those losses
+    (detach would strip its pathwise gradient); it is normalized to their exact
+    form -- sum over gated tokens / total valid tokens, one coefficient -- and
+    left in b3_additive.STASH for the wrapper around verl's distillation_loss to
+    add to the final scalar."""
+    from simopd import b3_additive, topk_losses
+
+    losses, metrics = _b3_base(config, distillation_config, model_output, data)
+    mask = data["response_mask"]
+    mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+    soft = no_padding_2_padding(model_output["b3_soft_kd"], data)
+    term = topk_losses.B3_SOFT_COEF * (soft * mask).sum() / (mask.sum() + 1e-8)
+    b3_additive.STASH["soft_kd"] = term
+    metrics["distillation/b3_soft_kd_term"] = Metric(aggregation=AggregationType.MEAN, value=term.detach())
+    return losses, metrics
+
+
 def _fire_registry_fn(config, distillation_config, model_output, data):
     """FiRe 2606.02684, both halves of the title (audit r4; Eq.4-8 verbatim).
 
     Eq.4 filter: s(y) = mean teacher logprob per trajectory, bottom FIRE_DROP_FRAC
     dropped. Eq.5-7 weights: c^T = 1 - H_T/max_batch(H_T), c^S = H_S/max_batch(H_S),
-    w = (1 + alpha c^T)(1 + beta c^S). Eq.8: w normalized by its per-trajectory mean,
-    applied to the advantage -- equivalently, to the signed k1 loss, since the
-    advantage is its negation. Their max is over the full batch; ours is the
-    micro-batch (recorded deviation, same population caveat as the filter threshold).
+    w = (1 + alpha c^T)(1 + beta c^S), applied to the advantage -- equivalently, to
+    the signed k1 loss, since the advantage is its negation.
+
+    Normalization (audit r5, paper-vs-code split resolved code-ward as with c1):
+    the paper's Eq.8 divides w by its PER-TRAJECTORY mean, but the official
+    dp_actor.py divides by the mean over ALL tokens that train (valid_weight_sum /
+    valid_token_count, post-filter) -- so a uniformly-confident trajectory keeps a
+    weight above 1 relative to the batch instead of being flattened to 1. The
+    numbers were produced by the code; batch-mean it is. Their max and mean are
+    over the full batch; ours the micro-batch (recorded deviation, same population
+    caveat as the filter threshold).
     """
     losses = no_padding_2_padding(model_output["distillation_losses"], data)
     t_ent = no_padding_2_padding(model_output["fire_t_ent"], data)
@@ -366,8 +434,11 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
     c_t = 1.0 - t_ent / t_max                                          # Eq.5
     c_s = s_ent / s_max                                                # Eq.6
     w = (1.0 + topk_losses.FIRE_ALPHA * c_t) * (1.0 + topk_losses.FIRE_BETA * c_s)   # Eq.7
-    w_mean = (w * mask).sum(dim=-1, keepdim=True) / lengths.unsqueeze(-1)
-    w_tilde = w / w_mean.clamp_min(1e-8)                               # Eq.8
+    # Official-code normalization: mean over the tokens that actually train
+    # (kept trajectories' response tokens), not the paper's per-trajectory mean.
+    train_mask = mask & keep_seq.unsqueeze(-1)
+    w_mean = (w * train_mask).sum() / train_mask.sum().clamp_min(1)
+    w_tilde = w / w_mean.clamp_min(1e-8)
     losses = losses * w_tilde
 
     losses, keep = _reweight_kept(losses, mask, keep_seq)

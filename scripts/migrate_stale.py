@@ -35,15 +35,21 @@ import sys
 import time
 
 # The stale set is the audit's, not a guess: arms whose configs/arms.yaml entry changed
-# meaning after their runs started (r3: optimizer branch; r4: g2's missing stage).
-# cornell's c1_lsm_topk32_renorm_s0 shares the diagnosis but lives on the other island;
-# pass --names there.
+# meaning after their runs started (r3: optimizer branch; r4: g2's missing stage;
+# r5: b3 additive form, D-axis selector parameters). c1 is NOT here -- r5 un-demoted
+# its PG run to the faithful result. cornell rows: pass --names there.
+# A name leaves this list the moment its canonical rerun exists: the migration
+# renamed the stale evidence away, the daemon relaunched the corrected config under
+# the same name, and from then on the name's evidence is VALID -- left listed, the
+# next --apply would migrate the correct run as if it were stale. b2/c2/e1 exited
+# on 2026-08-07 for exactly that reason.
 DEFAULT_STALE = [
-    "b2_forward_kl_s0",
-    "c2_quantile_budget_s0",
-    "e1_pl_rank_s0",
-    "b3_eopd_gate_s0",
-    "g2_fire_likelihood_s0",
+    "b3_eopd_gate_s0",       # r3-form run (pin 1ac5e4b) predates the r5 additive rewrite
+    "g2_fire_likelihood_s0",  # stage-1-only run still finishing
+    "d1_tip_s0",              # pre-r5 selector params (p98 clip)
+    "d2_selectkd_s0",         # pre-r5: top-32 window, hard mask
+    "d3_teachability_s0",     # pre-r5: min-max, 50% budget, top-32 compat
+    "h1_first_segment_s0",    # pre-r5: K=512 near-inert vs ESR's N=100
 ]
 
 # campaign.sh's exact grammar (grep -oE, PREFIX match): the real lines are

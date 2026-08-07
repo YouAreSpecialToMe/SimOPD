@@ -37,14 +37,26 @@ ALPHA = 0.05
 CAVEATS = {
     "c1_lsm_topk32_renorm": "ran on cornell; vanilla floor is DSW -- same-cluster control (TAG=xc) pending",
     "f1_soft_log": "completed at 150 steps under the old default; +100-step resume pending before fixed-step entry",
+    # 2607.23731 (Outcome-Confounded Local Supervision), read for this wording:
+    # outcome-level filtering does not localize token-level signal -- ~68% of
+    # response-token mass is agreement-on-failure even under such filters. The
+    # verdict may say "trajectory selection helps/hurts", never "purified signal".
+    "g1_verified_only": "outcome-level gate only; no token-level localization claim (2607.23731)",
+    "vanilla_n8": "n=8 cell control; its row vs vanilla measures the group-sampling knob alone",
+    "j1_kdrl": "judged vs vanilla_n8 (same cell); cross-cell comparison to the main table crosses the n boundary",
 }
 
 ARMS = [  # ledger order: axis order from the plan
-    "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "c1_lsm_topk32_renorm",
+    "a1_gkd_mix0.5", "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "b3_eopd_gate",
+    "c1_lsm_topk32_renorm",
     "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
     "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "g1_verified_only",
     "g2_fire_likelihood", "h1_first_segment",
+    "vanilla_n8", "j1_kdrl",
 ]
+# Arms judged against a non-vanilla base (self-contained mini-cells). The base row
+# itself still appears vs vanilla, which reads out the cell's boundary knob.
+BASE_OVERRIDES = {"j1_kdrl": "vanilla_n8"}
 TRANSFER = ("humanevalplus", "mbppplus", "ifeval", "amc23")
 
 
@@ -122,11 +134,14 @@ def main():
         if cur is None:
             emit(f"| {arm} | — | — | — | — | PENDING: `{eval_cmd(run_id, a.bench, a.step)}`{cav} |")
             continue
-        if base is None:
+        eff_base = base
+        if arm in BASE_OVERRIDES:
+            eff_base = load_correct(a.evals, f"{BASE_OVERRIDES[arm]}_s{a.seed}", a.bench, a.step)
+        if eff_base is None:
             emit(f"| {arm} | — | — | — | — | PENDING baseline artifact{cav} |")
             continue
-        common = base.index.intersection(cur.index)
-        vb, vc = base.loc[common], cur.loc[common]
+        common = eff_base.index.intersection(cur.index)
+        vb, vc = eff_base.loc[common], cur.loc[common]
         delta = float(vc.mean() - vb.mean())
         # Paired binaries: avg@k rates collapse to right/wrong at 0.5 for pairing, the
         # same convention d6_matrix uses; pass@1 artifacts are already 0/1.

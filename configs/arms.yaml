@@ -94,27 +94,29 @@ arms:
     axis: B
     desc: "per-token entropy routing: reverse KL where teacher is confident, forward KL where spread (EOPD 2603.07079, ICML 2026)"
     status: stock
-    note: "src/simopd/topk_losses.py. Pre-registered addition 2026-08-06 from the
-           coverage sweep, before any of its data existed. The arm is a ROUTER between
-           two objectives that already exist as arms (vanilla/b1's sampled-token k1,
-           b2's clamped top-k forward KL), so the one knob is the routing itself.
-           Teacher entropy comes from its top-k (understated by the tail; teacher_mass
-           quantifies it); threshold is batch-relative like TIP/FiRe (same micro-batch
-           caveat, realised fraction logged). Hard switch per the paper's summary;
-           switch-vs-add is the internal ablation if the full text says otherwise"
+    note: "AUDIT r5 2026-08-07, against the OFFICIAL CODE (WLS04/EOPD core_algos):
+           'augmenting' is literal -- pg_loss = pg_loss + soft_kd_loss. The reverse-KL
+           PG base (vanilla's sampled-k1 advantage, clipped surrogate) runs on EVERY
+           token, and high-teacher-entropy tokens ADD a top-k forward-KL term with a
+           FIXED absolute threshold (their default 0.8 nats) and coefficient 1.0,
+           normalized by total valid tokens. The 2026-08-06 registration pre-committed
+           to exactly this flip ('switch-vs-add is the internal ablation if the full
+           text says otherwise'), so this executes that clause; r3's where(fkl,rkl)
+           switch on the direct branch is superseded -- EOPD's own loss is PG-based
+           throughout, the additive term alone is directly differentiated (delivered
+           past the PG detach by simopd/b3_additive.py). Recorded deviations: teacher
+           entropy from top-k truncation (theirs is full-vocab from the ref pass;
+           under-shoots, so the 0.8 gate fires on fewer tokens -- b3_gate logs the
+           realised fraction, teacher_mass the unseen tail) and micro-batch
+           normalization of the additive term"
     env:
       DISTILLATION_LOSS_MODE: eopd_entropy_gate
-      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
-      # (its own comment cites GKD), not PG -- under PG the advantage is
-      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
-      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
-      # audit r3: direct branch => both sides distributional (EOPD's actual form);
-      # the sampled column is no longer consumed, KEEP_SAMPLED dropped.
-      SIMOPD_B3_HIGH_FRAC: "0.5"
+      # r5: PG branch (verl default) -- the official base; the sampled column is
+      # consumed again for the k1 base loss.
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_B3_ENT_THRESH: "0.8"
+      SIMOPD_B3_SOFT_COEF: "1.0"
 
   # ---- C: vocabulary support ----
   - run_id: c1_lsm_topk32_renorm
@@ -124,16 +126,20 @@ arms:
     note: "src/simopd/topk_losses.py. verl's top-k path hardcodes forward KL with no
            loss_mode dispatch, so we rebind compute_topk_loss at import; verl itself
            is still unmodified. SIMOPD_SUPPORT_MODE=renorm|tailbucket is the
-           pre-registered internal ablation of this arm"
+           pre-registered internal ablation of this arm.
+           AUDIT r5 2026-08-07, paper-vs-code split: LSM's official repo
+           (hhh675597/revisiting_opd, compute_opd_advantage) feeds the RAW negated
+           renorm-KL as the per-token advantage into a PPO clipped surrogate -- no
+           baseline, no whitening: the PG path, uniformly non-positive advantages
+           and all. The paper's Sec 3.2 reads as direct backprop. The numbers were
+           produced by the code, so the faithful arm is PG: r3's direct-branch move
+           is reversed for THIS arm (b2/c2/e1 unaffected -- verl's own citation and
+           our own designs respectively), and the cornell PG run is un-demoted to
+           the faithful result (its same-cluster-control caveat stands). The direct
+           form remains available as the paper-form ablation via USE_POLICY_GRADIENT"
     env:
       DISTILLATION_LOSS_MODE: lsm_topk_renorm
-      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
-      # (its own comment cites GKD), not PG -- under PG the advantage is
-      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
-      USE_POLICY_GRADIENT: "False"
+      # r5: PG branch (verl default) is the official-code form; see note.
       DISTILLATION_TOPK: "32"
       SIMOPD_SUPPORT_MODE: renorm
 
@@ -165,7 +171,15 @@ arms:
     status: stock
     note: "src/simopd/topk_losses.py. Entropy computed from student_logits in the kernel,
            not model_output['entropy'] -- switching that on via entropy_coeff would add
-           an entropy bonus and contaminate the arm. Needs SIMOPD_KEEP_SAMPLED=1"
+           an entropy bonus and contaminate the arm. Needs SIMOPD_KEEP_SAMPLED=1.
+           AUDIT r5 2026-08-07: soft-OR + plain batch min-max + deterministic top-rho
+           at rho=0.5 all confirmed as the paper's primary configuration; an earlier
+           p98 entropy clip was OUR silent fix of the method's acknowledged outlier
+           sensitivity -- removed. Their repo (HJSang/OPSD) ships uniform-token infra
+           with direct distributional KL; the TIP selector itself is not in the repo,
+           so the paper is the selector's authority. Recorded translations: base
+           objective = protocol's sampled-k1 PG (one-knob discipline: the SELECTOR is
+           the arm), divergence input teacher-top-k truncated, micro-batch population"
     env:
       DISTILLATION_LOSS_MODE: tip_select
       DISTILLATION_TOPK: 32
@@ -178,11 +192,21 @@ arms:
     status: stock
     note: "src/simopd/topk_losses.py, greedy Top-k variant. Retention is data-determined
            here, so unlike d1/d3 it is NOT budget-matched by construction; TAR is logged
-           and the ledger reports the realised budget rather than claiming a match"
+           and the ledger reports the realised budget rather than claiming a match.
+           AUDIT r5 2026-08-07 (paper-only; no official code released): verification
+           window is the paper's default k=5 -- checked against the first five of the
+           rank-ordered teacher payload, NOT the payload width 32, which had tripled
+           the acceptance window and inflated TAR -- and rejected tokens are
+           DOWN-WEIGHTED by their default beta=0.01 rather than masked (V_t in
+           {beta,1} multiplies the loss with full-batch normalization, no
+           selected-count rescale). Objective D is declared KL-family-agnostic in the
+           paper; ours is the protocol's sampled-k1 RKL, a member"
     env:
       DISTILLATION_LOSS_MODE: selectkd_verify
       DISTILLATION_TOPK: 32
       SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_SELECTKD_K: "5"
+      SIMOPD_SELECTKD_BETA: "0.01"
 
   - run_id: d3_teachability
     axis: D
@@ -191,22 +215,42 @@ arms:
     note: "src/simopd/topk_losses.py. Compatibility = teacher mass on the student's top-K,
            computable only over the intersection of the two top-k sets, i.e. a lower
            bound (exact when the student's top-K sits inside the teacher's, which
-           Rethinking reports is the common case). Deviation recorded"
+           Rethinking reports is the common case). Deviation recorded.
+           AUDIT r5 2026-08-07, against paper AND official code (wyy-code/TA-OPD,
+           tip_compat.py): normalization is their shipped default batch_quantile --
+           clip((z-Q05)/(Q95-Q05),0,1) -- not plain min-max; compatibility reads the
+           student's top-16 (their default; paper sweeps 8/16/32); budget set to the
+           paper's recommended 5% (the earlier 0.5 was our budget-matching
+           convenience with d1 -- faithfulness outranks matching, and the ledger
+           reports realised budgets instead). Their code feeds the mask into slime's
+           KL-as-advantage path and the paper explicitly blesses the sampled-token
+           base loss, so our k1-PG base is faithful, not a translation"
     env:
       DISTILLATION_LOSS_MODE: teachability_select
       DISTILLATION_TOPK: 32
       SIMOPD_KEEP_SAMPLED: "1"
-      SIMOPD_D_RETENTION: "0.5"
+      SIMOPD_TEACH_K: "16"
+      SIMOPD_D_RETENTION: "0.05"
 
   # ---- E: in-support objective ----
   - run_id: e1_pl_rank
     axis: E
-    desc: "PL-rank loss + small value anchor [OURS], form from PLD 2506.12542"
+    desc: "unweighted PL-rank loss + small value anchor [OURS; PL machinery as in PLD 2506.12542]"
     status: stock
     note: "src/simopd/topk_losses.py [OURS]. Plackett-Luce over the teacher's rank order
            (verl returns top-k already rank-sorted) plus a value-KL anchor whose
            coefficient is the internal ablation. Verified monotonic in disorder:
-           agreeing 0.34 < flat 1.10 < reversed 2.84"
+           agreeing 0.34 < flat 1.10 < reversed 2.84.
+           AUDIT r5 2026-08-07 vs PLD (NeurIPS25, Eq. in their Sec 4.2): 'form from
+           PLD' overclaimed and is retired from the desc. PLD weights every PL term
+           by the teacher's softmax confidence, puts the TRUE LABEL first in the
+           permutation, uses no length normalization, and ships standalone. Ours is
+           deliberately different on all four: terms unweighted (confidence weighting
+           would blend VALUES into the rank term, and this arm's design point is
+           rank/value separation -- values live in the anchor, whose coefficient is
+           the ablation), no label exists at token level (teacher top-1 leads), /k
+           normalization for cross-arm loss-scale comparability, anchor added. What
+           is PLD's: the suffix-logsumexp PL likelihood machinery itself"
     env:
       DISTILLATION_LOSS_MODE: pl_rank_anchor
       # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
@@ -222,9 +266,16 @@ arms:
   # ---- F: signal regulation ----
   - run_id: f1_soft_log
     axis: F
-    desc: "soft log compression sign(d)*log(1+|d|) (Demystifying winner)"
+    desc: "soft log compression sign(d)*log(1+|d|) (Demystifying, winner at modest gap)"
     status: stock
-    note: "implemented in src/simopd/losses.py, registered via sitecustomize"
+    note: "implemented in src/simopd/losses.py, registered via sitecustomize.
+           AUDIT r5 2026-08-07 (paper-only; no code released, their impl is verl per
+           appendix): exact formula confirmed -- sign(dl)*log(1+|dl|) applied to the
+           per-token log-ratio ADVANTAGE. We apply it to the k1 LOSS, which is the
+           advantage negated; the transform is odd, so it commutes with the negation
+           and the two are identical. 'Winner' is conditional in the paper: preferred
+           when the teacher-student gap is MODEST (ours: 2.4x), with hard clip
+           favored at large gaps -- which is the pre-registered f1-vs-f2 reading"
     env:
       DISTILLATION_LOSS_MODE: k1_softlog
 
@@ -234,14 +285,19 @@ arms:
     status: stock
     note: "verl ships loss_max_clamp; pre-registered to enter only if D5 finds Mode B,
            but it is stock so it is smoked with the rest. Loss mode is inherited
-           (k1_rec) so the clamp is this arm's ONLY deviation from vanilla"
+           (k1_rec) so the clamp is this arm's ONLY deviation from vanilla.
+           AUDIT r5 2026-08-07: the paper's form is clip(dl, c_min, c_max) with NO
+           threshold values given -- +-10 symmetric is OUR registered choice, made
+           visible by the clip_hit_rate metric rather than defended a priori.
+           Symmetric clip is odd, so the loss-side application equals the paper's
+           advantage-side one (same argument as f1)"
     env:
       LOSS_MAX_CLAMP: "10.0"
 
   # ---- G: trajectory gating ----
   - run_id: g1_verified_only
     axis: G
-    desc: "distil only rollouts passing the rule verifier (RG-OPD 2607.04037 family)"
+    desc: "distil only rollouts passing the rule verifier [OURS: plain verified-only member of the G axis; nearest published relative RG-OPD 2607.04037, whose rule differs]"
     status: stock
     note: "src/simopd/losses.py as a rescaled loss mask, not a batch filter, so it
            composes with other axes in the greedy rounds; the rescale keeps token-mean
@@ -249,9 +305,68 @@ arms:
            Gates on `advantages`: verl's trainer writes only advantages/returns back
            for the actor, so token_level_scores never reaches a loss fn. Under this
            protocol advantages derive from the verifier score alone, so positive total
-           advantage == verifier accepted; the arm asserts that rather than assuming it"
+           advantage == verifier accepted; the arm asserts that rather than assuming it.
+           AUDIT r5 2026-08-07: RG-OPD's actual rule (their Eq.2 + code UoC-tail/RG-OPD)
+           is a DIRECTIONAL alignment gate -- reward-positive trajectories distil only
+           when teacher likelihood exceeds the student's by delta, reward-NEGATIVE ones
+           also distil when the teacher likelihood is LOWER (negative teaching), base
+           loss top-50 RKL with tail correction. Ours keeps every pass and drops every
+           fail on a k1 base: NOT their method, the simpler canonical member of the
+           axis -- desc re-scoped accordingly. Verdict wording is bound by 2607.23731
+           (see verdict.py CAVEATS): an outcome-level gate localizes nothing at token
+           level, so no signal-purification claim"
     env:
       DISTILLATION_LOSS_MODE: k1_verified_only
+
+  # ---- J: reward coupling (axis added 2026-08-07 from the survey coverage diff;
+  # NOT gating -- G filters the distillation signal by outcome, J adds an
+  # independent RL objective. g1-vs-j1 is the cross-axis filter-vs-add contrast.
+  # The pair {vanilla_n8, j1_kdrl} is a self-contained n=8 mini-cell: KDRL's GRPO
+  # needs real groups (n=1 degenerates to success-only REINFORCE -- load-bearing,
+  # user catch 2026-08-07), so the cell runs n=8 x 32 prompts = 256 seqs/step
+  # (~2x tokens/step vs the main table; ~28-30h/lane) and carries its own control,
+  # so the objective contrast is one-knob INSIDE the cell while the n deviation
+  # lives at the cell boundary. j1 was briefly registered as g3_kdrl; renamed
+  # before any run existed -- the never-rename rule protects artifacts, and there
+  # were none. ----
+  - run_id: vanilla_n8
+    axis: "-"
+    desc: "vanilla OPD at n=8 (control of the j1 mini-cell; also measures the n knob vs vanilla)"
+    status: stock
+    note: "identical to vanilla except rollout.n=8 with 32 prompts/step (256 seqs,
+           mini=train discipline kept). Base for j1_kdrl in verdict.py
+           (BASE_OVERRIDES); its own row vs vanilla n=1 reads out the group-sampling
+           knob under pure OPD -- Demystifying's prompt-diversity claim, for free"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      ROLLOUT_N: "8"
+      TRAIN_BATCH_SIZE: "32"
+      PPO_MINI_BATCH_SIZE: "32"
+
+  - run_id: j1_kdrl
+    axis: J
+    desc: "dense k2-KL + sparse verifier reward via true GRPO groups, n=8 (KDRL 2506.02208)"
+    status: stock
+    note: "AUDITED against the paper (no code released, recorded): J_KDRL = J_GRPO -
+           beta*KL^k2 -- GRPO on rule-based outcome rewards plus a directly
+           differentiated k2 KL term on student rollouts, their ablation preferring
+           k2 over k3. Faithful mapping: verl's combine branch IS this objective
+           (use_task_rewards=True => policy_loss + distillation_loss_coef *
+           distill_loss), beta = their fixed main default 2e-3; the annealing
+           variant (5e-3 -> 1e-3, delta 5e-5/step) is the pre-registered internal
+           ablation. n=8 restores real group advantages (failures get negative
+           pressure -- the half of the RL signal that n=1 deletes); verdict base =
+           vanilla_n8, same cell. Remaining recorded deviations: 32-prompt steps
+           (2x tokens vs main table, cell-boundary deviation), and their long-CoT
+           R1-style regime vs the audit tier -- true of every arm"
+    env:
+      DISTILLATION_LOSS_MODE: k2_kdrl
+      USE_POLICY_GRADIENT: "False"
+      USE_TASK_REWARDS: "True"
+      DISTILLATION_LOSS_COEF: "0.002"
+      ROLLOUT_N: "8"
+      TRAIN_BATCH_SIZE: "32"
+      PPO_MINI_BATCH_SIZE: "32"
 
   - run_id: g2_fire_likelihood
     axis: G
@@ -265,7 +380,17 @@ arms:
            moved to the top-k path with the sampled column. Recorded deviations:
            micro-batch (not full-batch) max-normalization and thresholds; teacher
            entropy truncated to top-k (teacher_mass quantifies). Stays PG family:
-           FiRe's own setup is advantage-based with PPO clip"
+           FiRe's own setup is advantage-based with PPO clip.
+           AUDIT r5 2026-08-07, official code (YuYingLi0/FiRe-OPD dp_actor.py) vs
+           paper: eight of nine items match (filter statistic sum/len, skip
+           percentile 20, cT/cS with valid-token max, alpha=beta=1.0, weights
+           detached onto the RKL advantage; full-vocab teacher entropy remains our
+           recorded top-k truncation deviation). The ninth is a paper-vs-code split:
+           Eq.8 normalizes w by its PER-TRAJECTORY mean, the code by the mean over
+           ALL training tokens post-filter -- resolved code-ward as with c1, so a
+           uniformly-confident trajectory keeps weight above 1 instead of being
+           flattened. Their rollout-IS correction (threshold 5.0) is their infra,
+           not the arm, and is not imported"
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
       DISTILLATION_TOPK: 32
@@ -278,8 +403,12 @@ arms:
   - run_id: i0_think_scorer
     axis: I
     desc: "thinking-tuned teacher scoring non-thinking text (the 'confiscated scratchpad' control)"
-    status: stock
-    note: "L1 of the conditioning ladder: identical to vanilla except the scorer is
+    status: shelved
+    note: "SHELVED 2026-08-07 (user decision): the I axis's teacher-SWAP cells step
+           out of the roster for now; the design (design-thinking-cells.md), the P1a
+           ceiling measurements, and gen_priv_cot machinery all stand, so re-enlisting
+           is a status flip. Original note: L1 of the conditioning ladder: identical
+           to vanilla except the scorer is
            4B-Thinking-2507, same size and generation as the mainline teacher, so the
            tuning effect is isolated from scale. Pre-registered falsifiable prediction:
            WORSE than vanilla (the 8B-inversion mechanism, cleanly). Held for Wave U
@@ -291,7 +420,9 @@ arms:
   - run_id: i1_priv_cot
     axis: I
     desc: "thinking teacher scores WITH its own precomputed think block in-context; student sees only probabilities"
-    status: needs
+    status: shelved
+    note: "SHELVED 2026-08-07 with i0 (user decision; was status=needs). The surgery
+           plan below remains the enlistment path."
     seam: "surgery per design-thinking-cells.md sec 2.2: inject cached cot_ids into the
            teacher scoring request between prompt and response; tail-length extraction
            expected offset-invariant (verification V1-V4 before enlistment); plus the
@@ -310,7 +441,18 @@ arms:
     note: "src/simopd/losses.py; generation is NOT truncated -- the rollout-truncation
            form changes the sampling distribution and would confound with axis A.
            K via SIMOPD_FIRST_SEGMENT_K; this arm intentionally cuts the supervision
-           budget (that is its claim), so the ledger reports rather than matches it"
+           budget (that is its claim), so the ledger reports rather than matches it.
+           AUDIT r5 2026-08-07 (paper-only; no code released): ESR's default is
+           N=100, robust across their tested 50-200 -- our earlier 512 sat far
+           outside that range and, against this tier's response lengths, barely cut
+           anything: the arm was near-inert and its claim untested. K=100 imports
+           their default literally (the audit's convention, as with d3's 5% and
+           SelecTKD's k=5); firstseg_covered_frac reports what fraction it covers
+           HERE, since their N/teacher-median was ~9% and length contexts differ.
+           Also confirmed: they never test a loss-mask variant (their Sec 5.3
+           alternatives are token-selection rules), so this arm's fixed-distribution
+           form is our declared transformation, testing supervision locality WITHOUT
+           their rollout-cost/distribution change"
     env:
       DISTILLATION_LOSS_MODE: k1_firstseg
-      SIMOPD_FIRST_SEGMENT_K: "512"
+      SIMOPD_FIRST_SEGMENT_K: "100"

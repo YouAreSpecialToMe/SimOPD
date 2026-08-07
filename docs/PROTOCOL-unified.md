@@ -209,14 +209,54 @@ Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 
 3. 训练集用 Nemotron-Cascade 而非文献众数 DAPO-17K:锚点对齐优先;可选 spot-check。
 4. n=1(Demystifying/ESR)而非 4/8/16(thunlp/TIP):Demystifying 已消融 n,
    n=1 是其协议;我们不再扫描。
-5. AMC23 avg@32 采样参数暂用 thunlp 值(0.7/0.95),待 Demystifying 精读校正。
+5. **采样参数定案(2026-08-07,用户裁定"按 OPD prior work 统一")**:
+   - **训练 rollout:τ=1.0 / top_p=1.0,协议明文**。被审文献训练侧全同(GKD 原文
+     γ=1 "encourage diversity";TM/Demystifying/Rethinking 同);且 on-policy 无偏
+     性要求全支撑采样(top_p<1 截断使 IS ratio 未定义)。官方部署推荐(0.7/0.8/20,
+     4B-2507 卡,面向推理)不适用于训练——rollout 生成者是 1.7B-Base,无官方推荐值。
+   - **评测 avg@k:τ=0.7 / top_p=0.95,全 campaign 统一**(Rethinking 对齐;即原
+     暂用值转正)。Demystifying 精读结果为 τ1.0/top_p1.0——记为对表差异,不采纳:
+     已锚工件族(D6/AMC 矩阵、cornell_owed)全在 0.7/0.95。**P1-AIME 既有工件
+     top_p=1.0(漏传默认)属管线内测量,不与 avg@k 账本混用**(never-mix);其
+     sbatch 已修,后续 run 入协议值。greedy pass@1(τ=0)与 τ=1.0 多样性面板为
+     另两个注册用途,不受影响。
+   - 部署条件列(官方 0.7/0.8/20):只配决赛配方,可选,不占波次。
+6. **优化器与 PPO 常量显式转正(2026-08-07,值零变化)**:AdamW(torch.optim)
+   weight_decay=0.01、betas=(0.9,0.999)、grad_clip=1.0、constant 调度、
+   **无 warmup(ratio=0.0,显式)**、PPO clip_ratio=0.2(全部 PG 臂生效)、
+   ppo_epochs=1(mini=train 单 epoch 纪律)。此前全部静默吃 verl 默认;verl 不在
+   pin 集,显式钉死防版本漂移。clip_ratio=0.2 为领域标准(TM/verl/KDRL 同);
+   wd/betas 为 AdamW 惯例,各被审论文均未报,记为"实现层常量,全臂同值同偏"。
+8. **训练响应上限 8,192 → 16,384(2026-08-07 用户定案;run-defining,开新批次)**:
+   与协议锚对齐 —— Demystifying 训练即 16,384,TM cookbook 同;8k 是 v3.1 的筛查
+   经济性(c1 在 8k 有 5% 截断),百卡在途不再必要。**批次账**:已完成/在跑的 8k
+   run 全体转为 **pilot 批**(指纹自动分批);vanilla/c1/f1 两档并存 = **上限轴对照
+   白捡**(原"锚点 16k 波"由此吸收,见 EXPANSION-PLAN);S/T 波起全部 16k,
+   **新噪声底 vanilla×3@16k 重打**,8k 判决不与 16k 混。锚点:首个 16k vanilla 以
+   VAL_BEFORE_TRAIN=True 铸 16k 步-0 锚(0.468 是 8k 批锚)。联动:micro-batch
+   token 预算 12288→17408(须容单条全长序列),**上舰队前单泳道 probe 复验显存**;
+   评测预算 32,768 = 训练 2×,惯例保持。
+7. **正式评测曲线 = 加权套件 suite_acc(2026-08-07 用户定案;scripts/eval_suite.py)**:
+   AIME24+25 avg@32(题池并为一成分)+ AMC23 avg@32 + Minerva avg@3 + MATH500 avg@3,
+   全部 τ0.7/top_p0.95、**生成预算 32,768**(领域惯例=训练上限 2–4×);权重默认
+   等权宏平均 0.25×4(按题数池化会让 MATH500 占 57%,弃)。**离线跑在存档 ckpt 上**,
+   不进 verl 训练环(环内不支持逐基准 @k 与独立 val 长度,且 ~5.5k 条/点会吃掉泳道);
+   粒度 = save_freq = **25 步**(2026-08-07 用户定案:1.7B 小,全臂全存可负担;
+   ~11 点/run,~150GB/run 存档,campaign.sh 默认已翻);**评测在 run 完成后离线
+   一命令扫全($ eval_suite.py sweep)**,不与训练并发。verl 环内 greedy MATH500 保留为实时健康信号(Mode-A 检测),
+   与套件永不混用(0.468/0.474 同款纪律)。**判决仍按逐基准配对检验**(McNemar/
+   Wilcoxon 需逐题 0/1;加权标量无配对结构),suite_acc 只用于曲线与 ckpt 选择。
+   旧 greedy-500 曲线(r5 前全部 run)与套件曲线是两个家族,图内不混。
+
 
 ## 4. 开口(精读时逐项关闭)
 
-- [ ] Demystifying:lr/步数/评测采样参数/空 think 模板确切句法(HTML 已抽两轮,均 ABSENT
-  → 需查其 repo 或邮件作者)
-- [ ] SelecTKD 代码库定位 + 其 on-policy 变体的确切掩码规则
-- [ ] LSM 是否公开代码(论文 verl 系;fetch 未见 repo 链接)
+- [x] Demystifying 评测采样:**已关(r5)**——七基准,MATH500/Minerva pass@1,
+  AMC/AIME/HMMT avg@32 τ1.0/top_p1.0,训练 16,384(见 §3.5 采样定案);lr/步数仍 ABSENT
+- [x] SelecTKD:**已关(r5)**——无官方码(截至 2026-08-07);掩码规则依论文裁定
+  (k=5 验证窗、β=0.01 降权,见 arms.yaml d2)
+- [x] LSM 代码:**已关(r5)**——官方库 hhh675597/revisiting_opd;优化器论文≠代码
+  已裁(arms.yaml c1)
 - [ ] 各臂论文 arXiv 编号最终核验(案卷 v1 的已知风险)
 
 ## 评测路径与 step-0 锚点(2026-08-05)

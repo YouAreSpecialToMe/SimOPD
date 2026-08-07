@@ -84,12 +84,23 @@ ARM_ARGS=()
 
 train_batch_size=${TRAIN_BATCH_SIZE:-128}
 ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}   # = train batch: single epoch per rollout batch
+# j1 cell (audit r5 addendum): KDRL-faithful GRPO needs real groups; every other
+# arm keeps n=1. Group count rides TRAIN_BATCH_SIZE (prompts), sequences = bs*n.
+rollout_n=${ROLLOUT_N:-1}
 max_prompt_length=${MAX_PROMPT_LENGTH:-1024}
-max_response_length=${MAX_RESPONSE_LENGTH:-8192}  # v3.1 screening cap; anchor/final: 16384
+max_response_length=${MAX_RESPONSE_LENGTH:-16384} # PROTOCOL sec 3.8 (2026-08-07): campaign
+                                                  # cap = 16,384 -- Demystifying (the protocol
+                                                  # anchor) trains here, TM too; the old 8192
+                                                  # was the v3.1 screening economy, retired.
+                                                  # Runs at 8192 form the pilot batch.
 # 12288, not 20480: at the 1.7B tier the actor shares its GPU with the vLLM engine,
 # and weights + fp32 AdamW moments + master weights + grads are ~27GB before a single
 # activation. Verified on the 50-step probe at this value with no OOM.
-ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-12288}
+# 17408 = 1024 prompt + 16384 response: dynamic-bsz micro-batches must hold ONE full
+# sequence or verl asserts. 12288 was the 8k-era value, memory-verified on the 50-step
+# probe; 17408 is +42% activation budget on the same 1.7B statics -- re-verify with a
+# single-lane probe BEFORE the fleet inherits this default.
+ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-17408}
 
 actor_lr=${ACTOR_LR:-1e-6}
 # 150, not the v3.1 plan's 300 (pre-registration amended 2026-08-04 on measurement).
@@ -205,9 +216,16 @@ resume_mode=auto
 # model, and mixing the two would put each arm's first point on a different one).
 # The wiring check it also performed is now scripts/preflight.py, in ~20 seconds.
 val_before_train=${VAL_BEFORE_TRAIN:-False}
+# g3_kdrl (audit r5 addendum): KDRL's objective is J_GRPO - beta*KL, which is
+# exactly verl's use_task_rewards=True combine (policy_loss + distill*coef). Off
+# for every other arm; the coefficient default 1.0 is verl's and only bites when
+# task rewards are on.
+use_task_rewards=${USE_TASK_REWARDS:-False}
+distillation_loss_coef=${DISTILLATION_LOSS_COEF:-1.0}
 fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
+    "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
     "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
@@ -274,6 +292,16 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=${use_remove_padding} \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=${actor_lr} \
+    $(: "PROTOCOL sec 3.6 (2026-08-07): these five rode verl defaults unregistered. "
+       "Values UNCHANGED -- pinned so a verl bump cannot drift them silently; verl "
+       "is not in the campaign pin set.") \
+    actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.0 \
+    actor_rollout_ref.actor.optim.lr_scheduler_type=constant \
+    actor_rollout_ref.actor.optim.weight_decay=0.01 \
+    "actor_rollout_ref.actor.optim.betas=[0.9,0.999]" \
+    actor_rollout_ref.actor.grad_clip=1.0 \
+    actor_rollout_ref.actor.clip_ratio=0.2 \
+    actor_rollout_ref.actor.ppo_epochs=1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
@@ -283,9 +311,12 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_mem_util} \
-    actor_rollout_ref.rollout.n=1 \
+    actor_rollout_ref.rollout.n=${rollout_n} \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
+    $(: "1.0/1.0 is PROTOCOL (sec 3.5, 2026-08-07): every audited paper trains at "
+       "tau=1 -- GKD gamma=1 explicitly -- and on-policy unbiasedness needs full "
+       "support; the official 0.7/0.8 card values are deployment inference params") \
     actor_rollout_ref.rollout.max_model_len=${max_num_tokens} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
@@ -314,7 +345,8 @@ python3 -m verl.trainer.main_ppo \
     distillation.teacher_models.teacher_model.inference.max_model_len=${max_num_tokens} \
     distillation.distillation_loss.loss_mode=${distillation_loss_mode} \
     distillation.distillation_loss.topk=${distillation_topk} \
-    distillation.distillation_loss.use_task_rewards=False \
+    distillation.distillation_loss.use_task_rewards=${use_task_rewards} \
+    distillation.distillation_loss.distillation_loss_coef=${distillation_loss_coef} \
     distillation.distillation_loss.use_policy_gradient=${use_policy_gradient} \
     "${ARM_ARGS[@]+"${ARM_ARGS[@]}"}" \
     "$@"

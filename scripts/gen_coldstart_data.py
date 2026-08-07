@@ -37,7 +37,7 @@ def main():
     p.add_argument("--n-prompts", type=int, default=3000, help="reserved slice size")
     p.add_argument("--n-samples", type=int, default=4, help="teacher samples per prompt before filtering")
     p.add_argument("--temperature", type=float, default=1.0)
-    p.add_argument("--max-tokens", type=int, default=8192)
+    p.add_argument("--max-tokens", type=int, default=16384)  # PROTOCOL 3.8: follow the 16k cap
     p.add_argument("--keep-all", action="store_true", help="skip verifier filtering (ablation)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)

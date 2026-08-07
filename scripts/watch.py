@@ -394,7 +394,7 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     p.add_argument("--log-dir", default=os.environ.get("LOG_DIR", os.path.join(root, "logs")))
     p.add_argument("--ckpt-root", default=os.environ.get("CKPT_ROOT", "/scratch/zz865/simopd/ckpt"))
-    p.add_argument("--save-freq", type=int, default=int(os.environ.get("SAVE_FREQ", "50")))
+    p.add_argument("--save-freq", type=int, default=int(os.environ.get("SAVE_FREQ", "25")))
     p.add_argument("--watch", type=int, metavar="SEC", help="refresh every SEC seconds")
     p.add_argument("--run", help="show one run's validation trajectory")
     p.add_argument("--stale-hours", type=float, default=12.0,
