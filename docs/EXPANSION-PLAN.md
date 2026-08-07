@@ -17,15 +17,17 @@
 
 | 波 | 内容 | 卡 | 时长 | 前置 | 状态 |
 |---|---|---|---|---|---|
-| **S 种子** | **改案 2026-08-07**:16k 新批,全可跑臂 × **3 seeds 全新**(8k run 是 pilot,不可混种子)≈ 19×3=57 runs | ~114 | ~40h | 单泳道 16k probe | **probe 过后到卡即发** |
-| **T 二档** | 8B 老师 × 17 臂 + vanilla_t8b×3 = 20 runs | 40 | ~35h | 无(D6 已量) | 与 S 同发 |
+| **S 种子** | **改案 2026-08-07**:16k 新批,全可跑臂 × **3 seeds 全新**(8k run 是 pilot,不可混种子)= 18×3=54 runs(内含 n8 迷你 cell 2×3,~28–30h/泳道另计;a1 入列则 +3) | ~108 | ~40h | 单泳道 16k probe | **probe 过后到卡即发** |
+| ~~T 二档~~(暂停 2026-08-07,见下)| 8B 老师 × 17 臂 + vanilla_t8b×3 = 20 runs | 40 | ~35h | 无(D6 已量) | 与 S 同发 |
 | ~~U 条件化~~ | **搁置(2026-08-07 用户决定)**:I 轴换老师格暂出臂表;P1a 测量照跑(annex 共用),复位=status 翻回 | — | — | — | 搁置 |
 | ~~锚点 16k~~ | **被 3.8 吸收(2026-08-07)**:全 campaign 转 16k,8k 完成 run 即上限轴对照 | — | — | — | 吸收 |
-| **Annex-Think** | 配置 1:7 runs @16k(§4) | 14 | ~4d | P1-AIME + 两处 run-defining 改动 | S 波让卡后 |
-| **i1 手术格** | 配置 2b(§5) | 6 | ~30h | 手术 V1–V4 + 预生成 | 手术完 |
+| **Annex-Think** | 配置 1:6 runs @16k(§4) | 14 | ~4d | P1-AIME + 两处 run-defining 改动 | S 波让卡后 |
+| ~~i1 手术格~~ | 随 I 轴搁置(2026-08-07;§5) | — | — | — | 搁置 |
 | **V 决赛扩展** | 依判决结果(§6 触发表) | ~30 | — | 噪声底 + Phase 1 判决 | 判决后 |
 
-预算合计 ≈ 170 卡·天量级;100 卡下 S+T 同发满负荷,其余接力。
+**现役 pair(2026-08-07 裁定):仅 Qwen3-1.7B-Base ← 4B-Instruct-2507(主表)。**
+教师阶梯(§2)其余各档与学生侧候选(§3)一律暂停,复启=dated amendment。
+预算:S 波 54 runs ≈ 108 卡首发(n8 cell 长跑另计);~~原 S+T 同发算术~~ 作废。
 
 ## 2. 教师阶梯(全部候选与取舍,一次说完)
 
@@ -64,7 +66,7 @@
 
 - 阶梯:L0 vanilla → L1 i0(素打分,预注册预测**更差**)→ L2 i1(带私有 CoT)
 - i1 手术:teacher 请求注入 `[prompt|cot|response]`;尾长抽取假设 + V1–V4 验证单;
-  预生成 12,478 题 ×1 CoT(缓存);`SIMOPD_PRIV_COT` 入指纹
+  预生成 14,393(2026-08-07 全量实测;旧值 12,478 系 preflight 偏样) 题 ×1 CoT(缓存);`SIMOPD_PRIV_COT` 入指纹
 - 若 i1 > L0:头条级(思考监督穿制度注入);若 i1 ≈ i0:私有 CoT 无增益,同样入账
 
 ## 6. V 波触发表(判决出来后照查)
@@ -79,14 +81,18 @@
 | P1c 32B 冒烟失败(显存) | 32B 出局,阶梯止于 14B,照实报 |
 | ~~g3 触发~~ | **前置执行(2026-08-07,用户定案)**:j1_kdrl@n=8 + vanilla_n8 直接入列(J 轴迷你 cell),不再作触发项 |
 
-## 6.5 W 波:TM 模型对 × 我们的臂(2026-08-06 用户定案)
+## 6.5 W 波:TM 模型对 × 我们的臂 —— **整波暂停(2026-08-07 用户裁定:现役 pair
+仅主表 4B→1.7B)**。下文全部内容(16k 定案、6 卡形状、重推账、probe 闸门)保留为
+**复启基线**,复启走 dated amendment;已链上的测量(P1c 32B 天花板+tp2 冒烟、
+8B-Base 零点)若自然完成则入库存档,不再新排。(原定案 2026-08-06)
 
 **Cell**:`Qwen3-8B-Base ← Qwen3-32B`(TM 博客**发表实验**所用模型对)——
 溯源注(2026-08-07):TM 博客 2026-06 编者注将 32B/8B-Base 从 Tinker 平台线退役,
 cookbook 配方改用 Qwen3.5-9B←9B-Base;**博客的实验与数字仍是 32B→8B 对**,HF 开源
 权重不受平台退役影响,W 锚定发表实验、引用注明该编者注。其新配方为同尺寸
 后训练→Base 蒸馏,与我们阶梯中 1.7B-2507 同尺寸臂同构,该臂文献对齐价值加强。——
-**协议用我们的**:无 SFT init、8k 上限、250 步定点、一臂一旋钮、cell 内自带 vanilla。
+**协议用我们的**:无 SFT init、**16k 上限(2026-08-07 用户拍板,随 §3.8 全程一致)**、
+250 步定点、一臂一旋钮、cell 内自带 vanilla。
 定位 = 学生侧规模格(晋级标准的"≥2 设定"从此含学生规模维度),
 放弃 TM-faithful 复现(SFT init + 16k + AIME 轨迹对表)—— 若后续想要,单跑一个
 TM-faithful vanilla 即可,记为可选项不占波次。
@@ -94,11 +100,14 @@ TM-faithful vanilla 即可,记为可选项不占波次。
 **臂**:首批 = vanilla ×2 seeds + {c1, f1, b3, 主表最佳 D 臂}(规则同附表 §7.4)。
 **自动加宽触发**:首批判决与主表一致率 < 3/4(规模翻转多)→ 全 17 臂入 cell。
 
-**工程前置(此格的真实成本)**:
-- 泳道形状:8B actor 静态 ~128GB → actor FSDP 2 卡 + 32B teacher tp2 双卡 ≈ **4–6 卡/泳道**;
-  执行走 `GPUS_PER_RUN` 参数 + 独立 mini-manifest(现 launcher 已支持该 env)
-- 显存算术全部重推(0.45 是 1.7B 专属;此格独立指纹批,天然隔离)
-- 单 run ~160–240 GPU·h;首批 6 runs ≈ 1200 GPU·h
+**工程前置(16k 重推,2026-08-07;probe 前均为估算)**:
+- 泳道形状:16k 下 micro-batch 须容单条 17,408-token 序列;8B 统态 ~128GB 经 FSDP-2
+  分片后每卡余量仅 ~16GB,装不下 8B@17.4k 的激活 → **actor FSDP-4(统态 ~32GB/卡,
+  余量 ~48GB)+ 32B teacher tp2 = 6 卡/泳道为基线形状**;GPUS_PER_RUN=6 + 独立
+  mini-manifest(launcher 已支持)
+- 显存算术照例全部重推(0.45 为 1.7B@8k 专属;此格独立指纹批);**W 自己的
+  单泳道 16k probe 是发车闸门**(与主表 probe 分开做,8B 形状不同)
+- 单 run 估 ~320–480 GPU·h(≈55–80h 墙钟/6 卡泳道);首批 6 runs ≈ 2,000–2,900 GPU·h
 - 测量前置:32B 天花板+tp2 冒烟(P1c 已排)、**8B-Base 零点**(入 cornell 链尾)
 
 **变体定案(2026-08-06 追问后)**:学生 = 8B-**Base**(协议锁死:Base+非思考);
@@ -115,7 +124,7 @@ TM-faithful vanilla 即可,记为可选项不占波次。
 原延后理由(TransferQueue 手术不值)被 i1 的注入门派推翻:**rollout 注入**方案
 (学生 server 按 prompt-hash 掷币 λ=0.5,命中返回缓存 teacher 响应 + 学生引擎打分)
 不碰 trainer。GKD 是奠基双璧之一,缺席是审稿人一眼可见的洞。
-排序:i1 手术 → a1 手术(共享机械)→ 预生成(cornell)→ 随 S/T 波入列,A 轴齐装。
+排序(2026-08-07 修订:i1 搁置,a1 脱钩先行):a1 预生成(cornell,全前缀键版)→ 3 步彩排 → 随 S 波入列,A 轴齐装。
 PG-形式偏离照 estimator-note 论证入 note。
 
 ## 7. Phase 2/3 定型(依 plan §4,不变,列此备查)
@@ -136,6 +145,22 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 结果有效。
 
 ## 8. 治理提醒(执行者须知)
+
+### 8.1 16k 过渡执行清单(2026-08-07 终审后;用户执行,按序)
+
+1. **DSW**:`git pull` → 等 wave-1 全泳道自然跑完(跑完不杀)
+2. **全 8k 名册迁移**:`python scripts/migrate_stale.py --suffix __pilot8k --apply --names <8k 全名册>`
+   (r5 陈旧六臂若已入默认名单可先单独 --apply;旧指纹 ckpt 若需续读,一次性
+   `RESUME=force` 并入 PIN_HISTORY 记录)
+3. `REASON="final audit + 16k batch" bash deploy/campaign.sh --repin`
+4. **主表 16k probe**:单泳道 `STEPS=50` 控制跑,验 17,408 token 预算显存 + 步时基线
+   (顺带用 `VAL_BEFORE_TRAIN=True` 铸 16k 步-0 锚)
+5. probe 绿 → daemon 放开,S 波发车(18 臂 ×3 seeds;vanilla_n8/j1 长跑另计)
+6. **cornell**:重提 a1 预生成(全前缀键版 gen_offpolicy)与 a2 冷启动
+   (新数据集 + seeded 保留;两个 8k 陈旧 job 已于 2026-08-07 撤销)
+7. 第一个 16k run 完成 → `eval_suite.py sweep` 首扫(GPU 全链路首验)
+8. ~~W 波 6 卡形状 probe~~(随 W 波暂停,2026-08-07;复启时执行)
+
 
 - 每次动 `src/ configs/arms.yaml run_opd_baseline.sh arm.py` → **repin**(REASON 入 PIN_HISTORY)
 - 新机器:`MACHINE=mX bash deploy/up.sh` 一次,此后免名;纯池子机器可直接入列

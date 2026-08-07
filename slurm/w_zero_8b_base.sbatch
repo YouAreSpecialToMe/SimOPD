@@ -15,5 +15,5 @@ EVALS=$HOME/data/simopd_evals
 python scripts/eval_offline.py --model Qwen/Qwen3-8B-Base --run-id student_zero_8B-Base \
     --step 0 --benchmarks math500 --out-dir $EVALS
 python scripts/eval_offline.py --model Qwen/Qwen3-8B-Base --run-id student_zero_8B-Base \
-    --step 0 --benchmarks amc23 --n 32 --temperature 0.7 --out-dir $EVALS
+    --step 0 --benchmarks amc23 --n 32 --temperature 0.7 --top-p 0.95 --max-tokens 16384 --out-dir $EVALS
 echo W_ZERO_DONE

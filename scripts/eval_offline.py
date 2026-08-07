@@ -69,6 +69,17 @@ BENCHMARKS = {
 SUBSET_FILE = "data/math500_subset100.json"
 
 
+def _derived_max_len(model_path):
+    """The model's own max context (config.json), so vLLM never gets asked past it."""
+    try:
+        from transformers import AutoConfig
+
+        c = AutoConfig.from_pretrained(model_path)
+        return int(getattr(c, "max_position_embeddings", 1 << 30))
+    except Exception:
+        return 1 << 30
+
+
 def resolve_model(path):
     """Point at loadable weights, given a verl checkpoint directory.
 
@@ -114,7 +125,16 @@ def load_benchmark(name):
         assert len(ds) == 100, f"frozen subset resolved to {len(ds)} rows, expected 100"
         ids = ds["unique_id"]
     else:
-        ids = ds["id"] if "id" in ds.column_names else [f"{name}/{i}" for i in range(len(ds))]
+        # Stable ids where the dataset provides them: math500 ships unique_id, and a
+        # positional fallback would pair wrong problems across artifacts if the hub
+        # copy ever reorders (audit 2026-08-07 S2). The 16k batch regenerates all
+        # artifacts, so the id-scheme switch lands at the batch boundary.
+        if "unique_id" in ds.column_names:
+            ids = ds["unique_id"]
+        elif "id" in ds.column_names:
+            ids = ds["id"]
+        else:
+            ids = [f"{name}/{i}" for i in range(len(ds))]
 
     return list(ds[q_field]), [str(a) for a in ds[a_field]], [str(i) for i in ids]
 
@@ -129,7 +149,8 @@ def main():
     p.add_argument("--n", type=int, default=1, help="samples per problem (32 for avg@32, 8 for the panel)")
     p.add_argument("--temperature", type=float, default=0.0, help="0 = greedy pass@1; 0.7 for avg@32; 1.0 for the panel")
     p.add_argument("--top-p", type=float, default=1.0)
-    p.add_argument("--max-tokens", type=int, default=8192, help="match the run's training cap")
+    p.add_argument("--max-tokens", type=int, default=16384,
+                   help="the training cap (PROTOCOL 3.8: 16384; suite passes 32768, clamped to context)")
     p.add_argument("--think", action="store_true",
                    help="enable_thinking=True in the chat template (thinking-regime ceilings "
                         "and the annex cells; pair with --max-tokens 16384)")
@@ -137,10 +158,15 @@ def main():
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
     p.add_argument("--parallel", type=int, default=None,
                    help="evalplus unit-test workers (code benchmarks only); default = cpu count")
-    # Env first, Cornell path as the fallback -- same shape as progress.py's
-    # --ckpt-root. A bare literal here is unreachable on any other cluster, and
-    # unlike CKPT_ROOT nothing in simopd_env.sh could override it.
-    p.add_argument("--out-dir", default=os.environ.get("SIMOPD_EVAL_ROOT", "/scratch/zz865/simopd/evals"))
+    # One resolution chain for BOTH fleets, and it must match verdict.py's read dir
+    # or the writer strands artifacts the reader never finds: SIMOPD_EVAL_ROOT is
+    # what this fleet's simopd_env.sh has exported since 2026-08-07, SIMOPD_EVALS is
+    # cornell's name for the same thing (audit S1: /scratch is node-local there and
+    # strands artifacts), and the home path is the shared fallback.
+    p.add_argument("--out-dir", default=os.environ.get("SIMOPD_EVAL_ROOT",
+                   os.environ.get("SIMOPD_EVALS",
+                   os.path.expanduser("~/data/simopd_evals"))),
+                   help="default matches verdict.py's read dir")
     args = p.parse_args()
 
     from transformers import AutoTokenizer
@@ -154,7 +180,12 @@ def main():
         model=args.model,
         tensor_parallel_size=args.tp,
         gpu_memory_utilization=args.gpu_mem_util,
-        max_model_len=args.max_tokens + 1024,
+        # Clamp to the model's own context: Qwen3-1.7B-Base derives 32768, and
+        # asking for more makes vLLM refuse (or emit NaN logits past the limit
+        # under the env-var override). The honest budget is min(requested,
+        # context - prompt) -- Rethinking's 31,744 is exactly this convention
+        # (audit 2026-08-07 F3; PROTOCOL 3.7 note).
+        max_model_len=min(args.max_tokens + 1024, _derived_max_len(args.model)),
         seed=args.seed,
     )
     sampling = SamplingParams(
@@ -231,6 +262,8 @@ def main():
                         "step": args.step,
                         "benchmark": bench,
                         "problem_id": pid,
+                        "top_p": args.top_p,
+                        "max_tokens": args.max_tokens,
                         "sample_idx": sample_idx,
                         "resp_len": len(comp.token_ids),
                         "truncated": int(comp.finish_reason == "length"),

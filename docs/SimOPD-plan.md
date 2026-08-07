@@ -76,7 +76,7 @@ max 16,384 token、τ=1.0、top-p=1.0、每 batch 一个 epoch。
 
 ---
 
-## 2. 参赛臂(8 轴;预算配平:同轴内总监督量严格相等)
+## 2. 参赛臂(A–J 十轴,I 搁置 2026-08-07;预算立场 r5 修订:忠实优先于配平,账本报实际预算)
 
 ### 轴 A — rollout 来源与日程
 纯 on-policy (λ=1) / GKD λ∈{0, 0.5} / 离策略冷启动→OPD(Rethinking recipe 复核)。
@@ -132,7 +132,12 @@ teacher 似然过滤 (FiRe-OPD 2606.02684)。
 素打分(i0:thinking 老师被没收草稿纸)/ **带私有 CoT 打分(i1:老师先做一遍再判卷)**。
 三点阶梯 L0(vanilla)→L1(i0)→L2(i1) 同尺寸同族,相邻差各答一个单变量问题;
 学生侧字节不变,主表可比性无损。i1 待手术 + 预生成(V1–V4 验证清单)。
-配置 1(双 thinking 附表 Annex-Think)另册:7 runs @16k,S 波后。
+配置 1(双 thinking 附表 Annex-Think)另册:6 runs @16k,S 波后。
+**I 轴整轴搁置(2026-08-07 用户决定;复位=arms.yaml status 翻回)。**
+
+### 轴 J — 奖励耦合(2026-08-07 增设,survey 对表产物;细节 casefile §J)
+KDRL 统一目标(2506.02208):稠密 k2-KL + 稀疏 verifier 奖励共目标。j1_kdrl@n=8
+迷你 cell 自带 vanilla_n8 基线;与 g1 构成跨轴"滤 vs 加"对照。
 
 ### 固定约定(不进比赛)
 特殊 token 掩码、n=1 题目多样性(Demystifying 已判)、top-p rollout 采样。
@@ -301,7 +306,7 @@ code/IFEval **只验证不选择**(防配方过拟合 math)。约 25–30 runs�
 | 量 | 定值 | 依据 |
 |---|---|---|
 | step-0 锚点 | **0.468,记录不重测**(`val_before_train` 默认关) | 15 臂各测一遍 ≈19 GPU·h 换一个常数;取 verl-val 路径值(`eval_offline` 报 0.474,两条流水线,曲线必须全程一套)。接线检查由 `preflight.py` 承担(~20s) |
-| 有效训练集 | **~12,478 行**(14,476 中 14% 超 `max_prompt_length=1024` 被丢) | `filter_overlong_prompts=True`;此前无处记载 |
+| 有效训练集 | **~14,393(2026-08-07 全量实测;旧值 12,478 系 preflight 偏样) 行**(14,476 中 14% 超 `max_prompt_length=1024` 被丢) | `filter_overlong_prompts=True`;此前无处记载 |
 | IFEval 迁移列 | 生成上限 **4096** | 2048 下 21.4% 截断,且 IFEval 打分"至少 400 词"类约束 —— 截断答案恰好挂在被截掉的约束上;在任何臂的迁移列存在前统一,避免臂间不可比 |
 | rollout 显存份额 | **0.45 全场钉死** | 0.55 实测更快(Mode A 段 KV cache 并发回血),但第二个取值 = 第二批 = 第二个噪声底(~168 GPU·h),超过 0.55 全场省的 ~73;该量非数值中性(引擎级 seed,cache 尺寸→batch 组成→RNG 流),入指纹。0.55 留给 anchor 轮 |
 | 迁移列 selfcheck | HumanEval+ 163/164、MBPP+ 376/378、`MIN_TIME_LIMIT=4.0` | CPU 争用曾致 160/164 假阴性 |

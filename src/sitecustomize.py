@@ -145,6 +145,10 @@ if not _modelscope_wanted():
 
 def _after_verl_losses():
     import simopd.losses  # noqa: F401  (import side effect: registry population)
+    # The additive-term wrapper must arm BEFORE the first distillation_loss call:
+    # lazily imported from inside the registry fn, it installed one call too late
+    # and b3's first micro-batch silently dropped the EOPD term (audit 2026-08-07).
+    import simopd.b3_additive  # noqa: F401  (install() runs at import, idempotent)
 
 
 def _after_vllm_server():
@@ -164,17 +168,23 @@ def _after_vllm_server():
     """
     import traceback
 
+    # Attempt every install first (so one failure does not hide the others'
+    # status), then RAISE: a swallowed install here is the zmq-incident class --
+    # one socket end tagged, the other not, an 8-hour 0%-GPU hang with no error
+    # (audit 2026-08-07: the old print-only handler had silently revoked the
+    # raise-on-failure discipline for exactly this path).
+    errors = []
     for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server"),
                     ("gkd_mix", "install")):
         try:
             m = __import__(f"simopd.{mod}", fromlist=[fn])
             getattr(m, fn)()
-        except Exception:
-            print(f"[simopd] FATAL: simopd.{mod}.{fn}() failed. The other patches on "
-                  f"this path still applied, which for zmq_lane means one end of the "
-                  f"weight-transfer socket is tagged and the other is not -- the run "
-                  f"will hang at its first weight sync with no error.", file=sys.stderr)
+        except Exception as e:
             traceback.print_exc()
+            errors.append(f"simopd.{mod}.{fn}: {e!r}")
+    if errors:
+        raise RuntimeError("[simopd] FATAL install failure(s), all were attempted "
+                           "first: " + "; ".join(errors))
 
 
 def _after_vllm_rollout():
@@ -237,7 +247,9 @@ class _SimOPDInstallHook(MetaPathFinder):
 
         def exec_module(module):
             real_exec_module(module)
-            _TARGETS.pop(fullname, None)
+            # Pop only after the callback SUCCEEDS: popped-before, a raised callback
+            # plus any caught-and-retried import would re-execute the module with no
+            # hook and no patches (audit 2026-08-07 hardening).
             if not _TARGETS:
                 try:
                     sys.meta_path.remove(_hook)
@@ -255,6 +267,8 @@ class _SimOPDInstallHook(MetaPathFinder):
             # patch that quietly did not apply is worse than one that crashed, because
             # the crash is the only thing that reports it.
             callback()
+
+            _TARGETS.pop(fullname, None)
 
         spec.loader.exec_module = exec_module
         return spec

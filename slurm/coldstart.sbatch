@@ -42,6 +42,18 @@ TEACHER=${TEACHER:-Qwen/Qwen3-4B-Instruct-2507}
 STUDENT=${STUDENT:-Qwen/Qwen3-1.7B-Base}
 DATA_DIR=${DATA_DIR:-$HOME/data/simopd_math}
 
+
+# Cache preflight (audit S7, the P1-chain lesson): fail loudly BEFORE burning a GPU
+# slot if the model is not in the local HF cache.
+python - <<'PYEOF'
+from huggingface_hub import snapshot_download
+for m in ("Qwen/Qwen3-4B-Instruct-2507",):
+    try:
+        snapshot_download(m, local_files_only=True)
+    except Exception:
+        raise SystemExit(f"FATAL: {m} not in local HF cache -- prefetch it first")
+PYEOF
+
 echo "=== stage 1: teacher generations on the reserved prompt slice ==="
 python scripts/gen_coldstart_data.py \
     --teacher "$TEACHER" \
@@ -57,6 +69,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.sft_trainer \
     data.train_files="$DATA_DIR/coldstart_sft.parquet" \
     data.messages_key=messages \
+    data.custom_cls.path="$PROJ_DIR/src/simopd/sft_dataset.py" \
+    data.custom_cls.name=ColdstartSFTDataset \
     data.max_length="${SFT_MAX_LEN:-17408}" \
     data.train_batch_size="${SFT_BATCH:-128}" \
     model.path="$STUDENT" \

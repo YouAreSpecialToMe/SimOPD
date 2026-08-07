@@ -160,7 +160,13 @@ def install_sender():
            and getattr(mod, n).__module__ == mod.__name__
            and _wrap_init(getattr(mod, n), mutate)]
     print(f"[simopd] weight-transfer sender lane-scoped (patched {hit})", file=sys.stderr)
-    if not hit:
+    # Alarm iff NOTHING is patched -- neither newly (hit) nor already (marker). The
+    # old check false-fired on idempotent re-install (hit empty because everything
+    # was already marked) and stayed silent on the real miss (audit 2026-08-07 F7).
+    already = [n for n in dir(mod)
+               if isinstance(getattr(mod, n), type)
+               and getattr(getattr(mod, n).__init__, _MARK, False)]
+    if not hit and not already:
         print("[simopd] WARNING: no sender class patched. Lanes will share one socket "
               "path and delete each other's, which hangs weight sync with no error.",
               file=sys.stderr)
@@ -187,3 +193,13 @@ def install_server():
            and n == "vLLMHttpServer"
            and _wrap_init(getattr(mod, n), mutate)]
     print(f"[simopd] weight-transfer job id lane-scoped (patched {hit})", file=sys.stderr)
+    already = [n for n in ("vLLMHttpServer",)
+               if isinstance(getattr(mod, n, None), type)
+               and getattr(getattr(mod, n).__init__, _MARK, False)]
+    if not hit and not already:
+        # The receiver end unpatched while the sender end is = the asymmetric-socket
+        # fleet hang. This installer runs under the raise-path (sitecustomize), so
+        # raising is the correct loudness (audit 2026-08-07 F7).
+        raise RuntimeError("zmq_lane.install_server: vLLMHttpServer not found/patched "
+                           "-- verl moved it; receiver would run unpatched while the "
+                           "sender is lane-scoped (the 8h-hang asymmetry)")

@@ -73,4 +73,4 @@ def install():
     patched = _extract_with_sampled(module.extract_prompt_logprobs)
     patched._simopd_patched = True
     module.extract_prompt_logprobs = patched
-    print("[simopd] teacher scoring will retain the sampled token (tensors are (S, K+1))")
+    print("[simopd] teacher scoring will retain the sampled token (tensors are (S, K+1))", file=sys.stderr)

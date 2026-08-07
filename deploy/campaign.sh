@@ -280,6 +280,14 @@ rows | awk -v m="$MACHINE" -v A=any '$2==m || $2==A' | grep -q . || {
 # ---------------------------------------------------------------------------
 _head=$(git rev-parse HEAD 2>/dev/null || echo nogit)
 _ref_file="$CLAIM_DIR/CAMPAIGN_REF"
+# The pin gate compares two COMMITS; uncommitted edits to run-defining files would
+# otherwise be snapshotted into runs with no record (audit 2026-08-07 F7).
+_dirty=$(git status --porcelain -- src/ configs/arms.yaml scripts/run_opd_baseline.sh scripts/arm.py 2>/dev/null)
+if [ -n "$_dirty" ] && [ "$MODE" != plan ] && [ "$MODE" != repin ]; then
+    echo "FATAL: uncommitted changes in run-defining files -- commit (and repin) first:" >&2
+    echo "$_dirty" | sed 's/^/       /' >&2
+    exit 1
+fi
 
 # Re-pinning is sometimes correct -- 62b33e6 could not run on any machine, because
 # src/simopd/zmq_lane.py was missing from git. What must not happen is re-pinning
@@ -359,6 +367,14 @@ if [ -d "$LOG_DIR" ]; then
     # where two boxes starting in the same second would otherwise write one filename.
     for f in "$LOG_DIR"/lane*.log "$LOG_DIR"/*/lane*.log; do
         [ -f "$f" ] || continue
+        # done/FAIL evidence is fleet-wide (pool rows finish on other machines), but
+        # IN-FLIGHT must be machine-local: another box's fresh log otherwise satisfies
+        # the unknown-GPU-user cross-check and masks a local zombie -- the exact
+        # double-launch the guard exists to prevent (audit 2026-08-07 F3).
+        case "$f" in
+            "$LOG_DIR"/lane*.log|"$LOG_DIR/${MACHINE:-__none__}"/lane*.log) _mine_log=1 ;;
+            *) _mine_log=0 ;;
+        esac
         while read -r n; do done_ok="$done_ok$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> OK' "$f" 2>/dev/null | awk '{print $2}')
         while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 ))
@@ -374,7 +390,7 @@ if [ -d "$LOG_DIR" ]; then
         # then offers to start a second copy of it. Six hours clears the longest
         # legitimate silence with room; the GPU cross-check below is what catches a
         # genuine crash, and being conservative here errs toward not duplicating.
-        if [ -n "$(find "$f" -mmin -$(( ${INFLIGHT_HOURS:-6} * 60 )) 2>/dev/null)" ]; then
+        if [ "$_mine_log" = 1 ] && [ -n "$(find "$f" -mmin -$(( ${INFLIGHT_HOURS:-6} * 60 )) 2>/dev/null)" ]; then
             while read -r n; do recent="$recent$n "; done < <(
                 grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
         fi
@@ -522,7 +538,7 @@ if [ "$_expect" -gt "$_detected" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; 
     # each, and printing them all made vanilla_s1 appear four times -- which buried
     # the fact that mattered: two runs went quiet 490 and 492 minutes ago, within two
     # minutes of each other, which is one event and not two slow runs.
-    for _f in "$LOG_DIR"/lane*.log "$LOG_DIR"/*/lane*.log; do
+    for _f in "$LOG_DIR"/lane*.log "$LOG_DIR/${MACHINE:-__none__}"/lane*.log; do
         [ -f "$_f" ] || continue
         _last=$(grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$_f" 2>/dev/null | tail -1 | awk '{print $3}')
         [ -n "$_last" ] || continue

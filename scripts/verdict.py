@@ -57,20 +57,31 @@ ARMS = [  # ledger order: axis order from the plan
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.
 BASE_OVERRIDES = {"j1_kdrl": "vanilla_n8"}
-TRANSFER = ("humanevalplus", "mbppplus", "ifeval", "amc23")
+TRANSFER = ("humanevalplus", "mbppplus", "ifeval")  # amc23 is in-domain (suite); audit S3
+
+
+# The ledger's sampling era per benchmark: MATH500's registered metric is greedy
+# pass@1; the small benchmarks are the avg@k triple. Filenames carry no sampling
+# params, and four eras have already written the same names into one directory --
+# without this predicate, mtime silently decides which metric enters the paper
+# (audit 2026-08-07 F1: one touch of a stale file moved suite_acc by 0.17).
+LEDGER_TEMPERATURE = {"math500": 0.0, "minerva": 0.0}   # default for others: 0.7
 
 
 def load_correct(evals, run_id, bench, step):
-    """problem_id -> pass rate, from the newest matching artifact; None if absent."""
+    """problem_id -> pass rate, from the newest artifact of the RIGHT sampling era."""
     import pandas as pd
 
+    want_t = LEDGER_TEMPERATURE.get(bench.split("_")[0], 0.7)
     pats = [os.path.join(evals, f"{run_id}__{bench}__step{step}__*.parquet"),
             os.path.join(evals, f"{run_id}__{bench}__step{step}.parquet")]
     hits = [h for p in pats for h in glob.glob(p)]
-    if not hits:
-        return None
-    df = pd.read_parquet(max(hits, key=os.path.getmtime))
-    return df.groupby("problem_id")["correct"].mean()
+    for h in sorted(hits, key=os.path.getmtime, reverse=True):
+        df = pd.read_parquet(h)
+        t = float(df["temperature"].iloc[0]) if "temperature" in df else want_t
+        if abs(t - want_t) < 1e-6:
+            return df.groupby("problem_id")["correct"].mean()
+    return None
 
 
 def mcnemar_exact(b, c):
@@ -90,7 +101,11 @@ def eval_cmd(run_id, bench, step):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--evals", default=os.environ.get("SIMOPD_EVALS", "/home/zz865/data/simopd_evals"))
+    # Same chain as eval_offline.py's --out-dir, in the same order -- reader and
+    # writer resolving differently is how artifacts get stranded.
+    p.add_argument("--evals", default=os.environ.get("SIMOPD_EVAL_ROOT",
+                   os.environ.get("SIMOPD_EVALS",
+                   os.path.expanduser("~/data/simopd_evals"))))
     p.add_argument("--bench", default="math500")
     p.add_argument("--step", type=int, default=250)
     p.add_argument("--seed", type=int, default=0, help="arm seed compared against vanilla_s<seed>")
@@ -148,12 +163,16 @@ def main():
         b_ = int(((vb > 0.5) & (vc <= 0.5)).sum())
         c_ = int(((vb <= 0.5) & (vc > 0.5)).sum())
         pval = mcnemar_exact(b_, c_)
-        if floor is not None and abs(delta) < floor:
+        if len(common) == 0:
+            verdict = "NO-OVERLAP (no shared problem ids -- check id conventions)"
+        elif floor is None:
+            # Floor first: promoting before the noise floor exists publishes rows
+            # that flip to TIE when the third seed lands (audit 2026-08-07 F2).
+            verdict = f"AWAIT-FLOOR (p={'<' if pval < ALPHA else '≥'}{ALPHA})"
+        elif abs(delta) < floor:
             verdict = "TIE (|Δ| < floor)"
         elif pval < ALPHA:
             verdict = "**PROMOTE**" if delta > 0 else "**WORSE**"
-        elif floor is None:
-            verdict = f"AWAIT-FLOOR (p={'<' if pval < ALPHA else '≥'}{ALPHA})"
         else:
             verdict = "inconclusive"
         emit(f"| {arm} | {delta:+.4f} | {b_} | {c_} | {pval:.4f} | {verdict}{cav} |")

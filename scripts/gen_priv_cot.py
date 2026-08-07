@@ -65,7 +65,10 @@ def build_prefixes(tok, content, think_text):
 
 
 def prefix_hash(ids):
-    return hashlib.sha1(",".join(map(str, ids[:16])).encode()).hexdigest()[:16]
+    """FULL-prefix hash; MUST stay verbatim-identical to simopd.gkd_mix.prompt_key
+    (audit 2026-08-07 C1: the 16-token key collided on 635 real-data groups, 252
+    with conflicting ground truths)."""
+    return hashlib.sha1(",".join(map(str, list(ids))).encode()).hexdigest()[:16]
 
 
 def main():
@@ -144,6 +147,8 @@ def main():
     out = pd.DataFrame(rows)
     dup = out["prefix_hash"].duplicated().sum()
     assert dup == 0, f"{dup} duplicate prefix hashes -- 16-token key insufficient, widen it"
+    if a.dry:
+        a.out = a.out + ".dry"   # C6: rehearsals never clobber the production cache
     out.to_parquet(a.out)
     n_tr = int(out["truncated"].sum())
     print(f"{len(out)} rows -> {a.out}")

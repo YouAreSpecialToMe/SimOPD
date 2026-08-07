@@ -62,7 +62,9 @@ MODE_A_GROWTH = 1.5     # response length this many times its early value
 # val_before_train: 500 MATH500 problems, untrained base running to the cap, no output
 # until done. Measured ~37 min at 4.4 s/problem while two other lanes train, so the
 # patience before step 1 has to be far longer than the between-steps one.
-VAL0_MIN = float(os.environ.get("SIMOPD_VAL0_MIN", "75"))
+VAL0_MIN = float(os.environ.get("SIMOPD_VAL0_MIN", "150"))  # 16k re-derivation
+# (audit F8): the anchor-mint run's healthy val_before_train is ~74 min at the 16k
+# cap -- 75 was the 8k-era value sitting ON healthy behavior. Same 2x-headroom rule.
 # Log silence has now been wrong twice in both directions: it called a working
 # val_before_train a stall, and it called a genuine deadlock "still validating". GPU
 # utilisation is not ambiguous. A run holding tens of GB across its GPUs at 0% util is
@@ -351,6 +353,13 @@ def enforce(runs, ledger="logs/early_stops.tsv", kill=False):
     for r in sorted(runs.values(), key=lambda x: x["name"]):
         if r["status"] != "running":
             continue
+        # A log nobody has written for half a day is a corpse (void/abandoned/
+        # superseded), not a run to adjudicate: recording it would key the F-axis
+        # measurement to the wrong job and the name-dedup would then suppress the
+        # real run's entry forever (audit 2026-08-07 F6 -- a void cornell log did
+        # exactly this during the audit itself).
+        if time.time() - r["mtime"] > 12 * 3600:
+            continue
         stop, why, onset = stop_verdict(r["steps"], r["val"])
         if not stop:
             continue
@@ -361,7 +370,8 @@ def enforce(runs, ledger="logs/early_stops.tsv", kill=False):
         os.makedirs(os.path.dirname(ledger) or ".", exist_ok=True)
         if os.path.exists(ledger):
             with open(ledger) as f:
-                if any(f"\t{r['name']}\t" in ln for ln in f):
+                _jid = job.group(1) if job else "?"
+                if any(f"\t{r['name']}\t{_jid}\t" in ln for ln in f):
                     continue      # already stopped and recorded; do not cancel twice
         with open(ledger, "a") as f:
             f.write(line)

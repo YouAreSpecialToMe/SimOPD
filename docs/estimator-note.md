@@ -54,7 +54,7 @@ distillation_loss, _ = policy_loss_fn(          # 标准 PPO 代理:ratio + clip
 
 ## 5. 附:b3 的一条内部脚注
 
-b3 的 FKL 侧 token 与 b2 完全同底,故 b3-vs-b2 的对照**同偏可比**;
+~~(r5 前描述)~~ b3 现为叠加式(§7),其 FKL 项无 clamp(b2 有):b3-vs-b2 仍可比但非同底,差异入臂注;
 b3-vs-b1 的对照中路由到 RKL 的 token 与 vanilla 同底。b3 的三方读法不受影响。
 
 ## 6. 追加(2026-08-07 audit-r3):top-k 臂的优化器路径错配 —— 本页此前的盲区
@@ -94,3 +94,12 @@ LSM 官方库(hhh675597/revisiting_opd)的 `compute_opd_advantage`:renorm 截断
 形状发表了出来。审计的对象是文献做了什么,不是文献该做什么 —— 恒负优势在
 token-mean 聚合 + 裁剪下是"按 KL 大小差异化压制",其有效性本身就是 D6/机理面板
 该测量的经验问题,不是审计可以代答的。
+
+
+## 9. 记录(2026-08-07 终审):verl 首微批归一化怪癖(全臂同偏,不修)
+
+`global_batch_info` 由 `ppo_loss` 在**蒸馏损失之后**填充,故每个进程的第一个
+micro-batch 按微批 token 数归一(≈N_micro 倍权重),此后各 mini-batch 的首微批
+沿用上一批的计数(微漂)。全部臂(含基线)同承此偏,按 §3 同偏可比原则记录不修;
+b3 的叠加项已改全批归一(losses.py),不受此怪癖影响。日志里 step-1 的损失尺度
+异常即此。
