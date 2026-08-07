@@ -367,6 +367,9 @@ arms:
       ROLLOUT_N: "8"
       TRAIN_BATCH_SIZE: "32"
       PPO_MINI_BATCH_SIZE: "32"
+      # 4-card lane, same shape as vanilla_n8 (see its note); topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: g2_fire_likelihood
     axis: G

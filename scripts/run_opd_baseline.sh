@@ -230,6 +230,7 @@ fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
     "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
+    "ngpus=${NGPUS_PER_NODE}" "tws=${TEACHER_WORLD_SIZE}" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
     "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
