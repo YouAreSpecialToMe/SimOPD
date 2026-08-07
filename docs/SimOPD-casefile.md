@@ -79,13 +79,16 @@
 
 ### D — token 选择/加权(族 ~15)
 - 【审】uniform(基线)
-- 【审】TIP 高熵+自信错(2604.14084)—— 熵判据代表
+- 【审】TIP 高熵+自信错(2604.14084)—— 熵判据代表;分解旋钮 SIMOPD_TIP_MODE
+  (08-07 预注册:entropy_only@ρ=0.5 / divergence_only@ρ=0.1 各对其原文主张)
 - 【审】SelecTKD propose-verify(2510.24021)—— 秩验证判据代表
 - 【审】Teachability(2605.26844)—— 支撑落点判据代表
 - 【替】SEAD(2606.28562)、FiRe-OPD(2606.02684)、Evidence(2606.22830)、
   Rock Tokens(2605.09253)、Position-Bias IW(2606.22600)、
   Blockwise gating(2606.24084)
 - 【落】SafeSteer(安全域)、TRACE(需标注)、Prefix-fade(并入 H 轴族)
+- 【挂账 08-07】五【替】判据快读 → 可算者入影子面板(只记不训,V-wave Jaccard
+  出冗余判决;正交=晋升候选)。任务单 #7,provenance r6 增补有全案;等用户开闸
 
 ### E — 支撑内对齐目标 ★自研,防火墙臂
 - 【审】value 对齐 KL(基线)
