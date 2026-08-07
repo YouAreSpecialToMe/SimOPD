@@ -12,10 +12,11 @@ Two choices worth stating, because both are confounds a reviewer will look for:
   twice. The cost is that this arm's OPD phase sees fewer distinct prompts than
   the others (reported below; at 300x128 we are already multi-epoch, so the
   difference is in epochs seen, not in samples trained on).
-* Responses are rejection-sampled on the verifier. Rethinking's recipe SFTs on
-  teacher generations; filtering to correct ones is the common reading and the
-  one that matches our G-axis discipline that the verifier filters but never
-  enters the training input. --keep-all disables it for the ablation.
+* Responses are rejection-sampled on the verifier. Confirmed against the
+  official repo (audit r5, 2026-08-08): thunlp/OPD's vllm_rollout.py runs with
+  --enable-rejection-sampling true, so filtering is their recipe, not our
+  reading. It also matches our G-axis discipline that the verifier filters but
+  never enters the training input. --keep-all disables it for the ablation.
 """
 
 import argparse
@@ -30,7 +31,7 @@ MATH_SCORER_SOURCE = "DigitalLearningGmbH/MATH-lighteval"
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--teacher", default="Qwen/Qwen3-1.7B")
+    p.add_argument("--teacher", default="Qwen/Qwen3-4B-Instruct-2507")
     p.add_argument("--train-parquet", default=os.path.expanduser("~/data/simopd_math/train.parquet"))
     p.add_argument("--out-dir", default=os.path.expanduser("~/data/simopd_math"))
     p.add_argument("--n-prompts", type=int, default=3000, help="reserved slice size")
