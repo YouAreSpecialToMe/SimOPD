@@ -525,11 +525,21 @@ fi
 # that is exactly the shape of the accident: four lanes alive, four cards free.
 _busy_n=$(( $(nvidia-smi -L 2>/dev/null | wc -l) - n_free ))
 _expect=$(( _busy_n / GPUS_PER_RUN ))
-_detected=$(set -- $live; echo $#)
-if [ "$_expect" -gt "$_detected" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; then
+# Count what the LOGS say is alive on this box, not what surviving manifest rows
+# say: rows below BATCH_MIN_WAVE and rows whose tagged name differs from an
+# untagged log name are both invisible to $live by design, yet their runs hold
+# GPUs -- the release-day shape was nine boxes each refusing over its own
+# wave-2 straggler, which the guard itself LISTED two lines later. The
+# diagnostic and the decision must read the same evidence.
+_live_all=0
+for _n in $(printf '%s\n' $recent | sort -u); do
+    [ "${_started[$_n]:-0}" -gt "${_ended[$_n]:-0}" ] && _live_all=$(( _live_all + 1 ))
+done
+[ "$_live_all" -lt "$(set -- $live; echo $#)" ] && _live_all=$(set -- $live; echo $#)
+if [ "$_expect" -gt "$_live_all" ] && [ "${ALLOW_UNKNOWN_GPU_USERS:-0}" != 1 ]; then
     echo >&2
     echo "FATAL: $_busy_n GPUs are busy -- about $_expect run(s) -- but the lane logs" >&2
-    echo "       account for only $_detected. Something is training that this cannot name," >&2
+    echo "       account for only $_live_all. Something is training that this cannot name," >&2
     echo "       so a lane started now could be a second copy of it." >&2
     echo >&2
     echo "       Unfinished runs it found, with how long since their log last moved --" >&2
