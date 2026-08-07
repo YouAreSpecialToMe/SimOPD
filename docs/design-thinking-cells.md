@@ -37,14 +37,29 @@ A   = 配置1: 1.7B(hybrid, think ON) ← 4B-Thinking     制度整体切换(附
   (判卷人心里有数),且与 g1 的红线不冲突:红线是"verifier 答案不进**训练输入**",
   此处答案只进**老师的条件化**,即监督信号的构造,学生输入零污染。
 
-### 2.2 注入点(手术)
+### 2.1.5 三个设计参数定案(2026-08-06,动刀前)
 
-- **位置**:teacher 打分请求的构造处(`vllm_async_server` 一侧,`teacher_patch` 同一
-  模块 —— 复用其 sitecustomize 挂载与 loud-fail 纪律)。请求序列由
-  `[prompt_ids | response_ids]` 变为 `[prompt_ids | cot_ids | response_ids]`。
-- **对齐方案**:response 段 logprob 的抽取按**尾部长度**切(`lps[-len(response):]`,
-  informativeness.py 已验证的同一手法),对前缀长度天然不敏感 —— 预期**不需要**改
-  抽取端;此假设列为验证项 V2。
+1. **CoT 生成:greedy、单条、不验证。** 用 ground truth 筛选 CoT 会让 verifier 的
+   答案进入监督构造 —— g1 红线的近旁,不越。老师 CoT 的对错率(cot_correct)照测
+   照存,但**只用于预注册子分析**:错草稿题上的监督质量是否塌(逐题,D6 式)——
+   privileged-bias 文献(2607.05184 等)预言的失败模式,我们直接量。
+2. **think 上限 4096,截断则强补 `</think>`**,截断率报。
+3. **同形合同(取代原 §2.2 的"尾长抽取假设")**:server 侧前缀替换 + 抽取后裁行,
+   返回数组与无注入版逐位同形 —— trainer 侧无论头切尾切都不受影响。
+
+### 2.2 注入点(手术)—— 已由候选升级为确认(2026-08-06 读码)
+
+- **确认位置**:`vllm_async_server` 的 server 端 generate 处理器(~L595–650:
+  `prompt_ids` 装配进 `TokensPrompt` 之前替换;`extract_prompt_logprobs` 调用之后裁行)。
+  与 `teacher_patch` 同模块同 sitecustomize 钩子,复用 loud-fail 纪律。
+- **判别器**:`sampling_params.prompt_logprobs is not None` —— 只有打分请求带它,
+  学生生成路径从不带;注入被精确限定在打分调用,零误伤。
+- **替换语义**:缓存存 `{前16token哈希 → (原前缀ids, 替换前缀ids, cot_correct, truncated)}`;
+  命中则换前缀(空 think 块 → 真 CoT),响应尾原样;**未命中即 raise**(臂运行中每个
+  训练题都必须命中,miss = 缓存错位,响亮好过带病)。
+- **对齐方案(升级)**:抽取后在 server 侧删除注入段对应的行(含 teacher_patch 的
+  K+1 采样列,按行走所以结构自保),返回同形数组 —— 原"尾长假设"不再需要成立,
+  V2/V3 改为验证裁行本身。
 - **开关**:`SIMOPD_PRIV_COT=<parquet路径>`(空 = 完全不挂钩)。经 SIMOPD_* 通道
   自动入指纹。
 - **验证清单(动刀后、入列前)**:
