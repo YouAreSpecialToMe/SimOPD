@@ -81,6 +81,13 @@ arms:
            confound, so this arm is reported as forward-KL-topk, not plain forward KL"
     env:
       DISTILLATION_LOSS_MODE: forward_kl_topk
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "32"
 
   - run_id: b3_eopd_gate
@@ -97,6 +104,13 @@ arms:
            switch-vs-add is the internal ablation if the full text says otherwise"
     env:
       DISTILLATION_LOSS_MODE: eopd_entropy_gate
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_B3_HIGH_FRAC: "0.5"
@@ -112,6 +126,13 @@ arms:
            pre-registered internal ablation of this arm"
     env:
       DISTILLATION_LOSS_MODE: lsm_topk_renorm
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "32"
       SIMOPD_SUPPORT_MODE: renorm
 
@@ -125,6 +146,13 @@ arms:
            Verified adaptive (budget p5/p50/p95 = 6/9/12 at target 8), not fixed-k in disguise"
     env:
       DISTILLATION_LOSS_MODE: qb_quantile_budget
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 64
       SIMOPD_QB_TARGET_BUDGET: "8"
       SIMOPD_QB_MARGIN: max
@@ -180,6 +208,13 @@ arms:
            agreeing 0.34 < flat 1.10 < reversed 2.84"
     env:
       DISTILLATION_LOSS_MODE: pl_rank_anchor
+      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
+      # (its own comment cites GKD), not PG -- under PG the advantage is
+      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
+      # token with no replacement direction. The literature (LSM/GKD/EOPD)
+      # optimizes these objectives directly; PG-for-topk was the artifact
+      # behind uniformly negative early results.
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
       SIMOPD_PL_ANCHOR_COEF: "0.1"
 

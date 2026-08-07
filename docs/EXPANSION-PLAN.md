@@ -118,6 +118,14 @@ PG-形式偏离照 estimator-note 论证入 note。
 - 贪心 R1=单轴筛(即主表);R2+:vanilla 起逐加最优 trick,增益<噪声底停;后向删
 - Phase 3:三域验证(code/IFEval 训练域扩展**只配最终配方**)+ Gemma3 族内对 + 终审 3 seeds
 
+## 6.7 优化器路径修正(2026-08-07 audit-r3,重大)
+
+散度值臂(b2/c1/c2/e1/b3)改 `USE_POLICY_GRADIENT=False`(verl 直接反传分支,
+GKD 引文;各臂论文原式)。**处置**:在跑的 b2/c2/e1 **跑完不杀**,完结后 ckpt/日志
+迁移 `*_pgab`(意外获得的 PG-vs-direct 消融,保留不作判决);直接路径版以正名重发
+(指纹含 pg,自动区分);cornell c1 同理重跑。**c1 无-Mode-A 头条降级待复核。**
+d1/d2/d3 底损失为带符号采样 k1,PG 正确,**结果有效,继续跑**。
+
 ## 8. 治理提醒(执行者须知)
 
 - 每次动 `src/ configs/arms.yaml run_opd_baseline.sh arm.py` → **repin**(REASON 入 PIN_HISTORY)

@@ -56,3 +56,15 @@ distillation_loss, _ = policy_loss_fn(          # 标准 PPO 代理:ratio + clip
 
 b3 的 FKL 侧 token 与 b2 完全同底,故 b3-vs-b2 的对照**同偏可比**;
 b3-vs-b1 的对照中路由到 RKL 的 token 与 vanilla 同底。b3 的三方读法不受影响。
+
+## 6. 追加(2026-08-07 audit-r3):top-k 臂的优化器路径错配 —— 本页此前的盲区
+
+verl 的 `distillation_loss` 有两条出口,注释自证血统:PG(TM 引文)与**直接反传
+(GKD 引文,2306.13649)**。散度值 ≥0 的臂(b2/c1/c2/e1/b3)在 PG 下退化为
+"advantage = −KL ≤ 0 恒负"的无差别打压 —— 无替代方向的抑制(恰是 CR-OPD 批判的形态),
+预测症状:负增益、输出变短、熵塌 —— 与观察一致。**这些臂的论文原式全部为直接优化**,
+故审计保真要求它们走直接分支;k1 家族(含 D 轴的采样 token 底损失)维持 PG(Demystifying
+协议)。本页 §1–3 的"全臂共用 PG"论述当时未质疑 top-k 的归属,是审计盲区,记此为改。
+
+**连带**:c1(cornell, PG 路径)的无-Mode-A 结果降级为"待直接路径复核" —— 短输出可能
+部分是打压伪影。PG 版 run 保留为意外的 PG-vs-direct 消融,不作臂判决。
