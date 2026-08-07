@@ -3,7 +3,7 @@
 #   loss: reverse-KL sampled-token (k1) as per-token advantage Delta-l_t, PG formulation
 #   data: nvidia/Nemotron-Cascade-RL-Math (verl parquet via scripts/prep_nemotron_math.py)
 #   val:  MATH500 pass@1 (greedy)
-# Screening default: 1.7B-Base <- 4B-Instruct-2507, 8k response cap, 150 steps.
+# Screening default: 1.7B-Base <- 4B-Instruct-2507, 16,384 response cap, 250 steps (protocol 3.8 / plan sec 4).
 # Anchor run:  MAX_RESPONSE_LENGTH=16384 TOTAL_TRAINING_STEPS=-1 \
 #              EXPERIMENT_NAME=anchor_1.7b_from_4b2507
 #              (same models as screening now -- the anchor cell IS the screening cell)

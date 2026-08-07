@@ -19,9 +19,9 @@
 # GPU-hours against the ~73 that 0.55 saves over 13 runs. One batch also lets all 15
 # arms share one floor instead of two weaker ones.
 #
-# a1_gkd_mix0.5 is deliberately absent -- registry status 'needs'. Interleaving
-# teacher-generated responses lands inside the TransferQueue agent loop, which is
-# trainer surgery, and a2_coldstart already gives axis A an off-policy arm.
+# a1_gkd_mix0.5 is absent -- registry status 'needs': blocked on the gen_offpolicy
+# precompute + a 3-step GPU rehearsal (the rollout-injection code landed 2026-08-06;
+# the old TransferQueue-surgery reason is obsolete). Targeted to join with wave S.
 
 # ---- wave 1 -------------------------------------------------------------------
 # m1 and cornell are already in flight; listed so the manifest is the whole truth

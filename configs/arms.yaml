@@ -84,9 +84,9 @@ arms:
       # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
       # (its own comment cites GKD), not PG -- under PG the advantage is
       # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
+      # token with no replacement direction. (r5 note: LSM's and EOPD's official
+      # code turned out to be PG -- see c1/b3 -- so the citation here is verl's
+      # own GKD reference and our own registered designs, nothing else.)
       USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "32"
 
@@ -156,9 +156,9 @@ arms:
       # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
       # (its own comment cites GKD), not PG -- under PG the advantage is
       # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
+      # token with no replacement direction. (r5 note: LSM's and EOPD's official
+      # code turned out to be PG -- see c1/b3 -- so the citation here is verl's
+      # own GKD reference and our own registered designs, nothing else.)
       USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 64
       SIMOPD_QB_TARGET_BUDGET: "8"
@@ -256,9 +256,9 @@ arms:
       # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
       # (its own comment cites GKD), not PG -- under PG the advantage is
       # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
+      # token with no replacement direction. (r5 note: LSM's and EOPD's official
+      # code turned out to be PG -- see c1/b3 -- so the citation here is verl's
+      # own GKD reference and our own registered designs, nothing else.)
       USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
       SIMOPD_PL_ANCHOR_COEF: "0.1"

@@ -91,7 +91,7 @@ ESR 评测集在 BENCHMARKS §1(列了 HumanEval)与本表(MATH500 avg@4)口径�
 ### Rollout
 - **n=1**/prompt,τ=1.0,top-p=1.0(Demystifying 对齐;注意 LSM 用 0.9 —— 那是
   他们 C 轴主张的一部分,作为 C 轴消融存在,不进默认协议)
-- max prompt 1024;max response **8192(筛选)/ 16384(锚点与 Phase 3 终审)**;
+- max prompt 1024;max response ~~8192(筛选)/16384(锚点终审)~~ **16384 全程(§3.8,2026-08-07;既有 8192 run = pilot 批)**;
   截断率必报(飞行记录仪)。
 
 **输出上限文献对照**(2026-07-31 实测;释义:训练帽 7k-16k 是 math OPD 的文献包络):
@@ -129,7 +129,7 @@ ESR 评测集在 BENCHMARKS §1(列了 HumanEval)与本表(MATH500 avg@4)口径�
   bf16 是 2026 事实标准)。gradient checkpointing 开。
 
 ### 训练长度与种子
-- 筛选(贪心 R1-R4):**150 步上限 + 预注册早停**(plan §4;2026-08-04 从 300 步改),
+- 筛选(贪心 R1-R4):**~~150 步上限 + 预注册早停~~ **250 步定视界,早停只记录(plan §4,2026-08-06)****(plan §4;2026-08-04 从 300 步改),
   单 seed;判据 = MATH500 逐题配对 McNemar p<0.05,|Δ|<噪声底判平。
   跨臂比较取**最小公共步**,每臂的停步记入 `logs/early_stops.tsv`。
   ⚠ 150 这个上限是在**已废弃的 0.6B 档**上标定的;1.7B 到第 50 步仍在涨、
@@ -142,7 +142,7 @@ ESR 评测集在 BENCHMARKS §1(列了 HumanEval)与本表(MATH500 avg@4)口径�
 ### 评测(全部 run 统一)
 - 训练内 val:**MATH500 pass@1,greedy(τ=0)**,每 25 步(筛选)/ 每 5 步(锚点前期)。
 - checkpoint 终评:**AMC23 avg@32,τ=0.7/top-p=0.95**(thunlp 惯例;
-  若 Demystifying 精读给出确切参数则改从其,改动记台账)。
+  ~~若 Demystifying 精读给出确切参数则改从其~~ **已读:τ1.0/1.0,裁定不采纳(§3.5)**,改动记台账)。
 - AIME24/25 avg@32:全档(学生统一为 1.7B 后不再有地板问题;这正是换档的收益之一)。
 - code(HumanEval+/MBPP+ pass@1)与 IFEval:**每臂 final ckpt 的迁移列**(METRICS §2)。
 - eval 用训练同款非思考模板。
@@ -167,8 +167,7 @@ overlap_ratio(verl 内建打点)、student/teacher 逐 token mass、Δℓ 分布
   重归一化 + KL=Σp(log p−log q) 与我们一致 ✓;**但他们多一层 `> -1e15` 填充位掩码,
   我们原先没有 —— 已补**(padded slot 若进入归一化会静默压低所有概率)。
 
-**尚未对照(实现前必做)**:TIP(HJSang/OPSD fork)、Teachability(wyy-code/TA-OPD)、
-FiRe、RG-OPD。SelecTKD / LSM 仓库地址待查。
+~~尚未对照(实现前必做)~~ **已全部对照(r4/r5 终审,2026-08-07)**:TIP/TA-OPD/FiRe/RG-OPD/EOPD/DistiLLM/LSM 官方库逐项(SelecTKD 无码,记录)——判决与偏离全录 arm-provenance-r4.md
 
 
 | 臂 | 参考实现 | 移植方式 |
@@ -276,7 +275,7 @@ tokenizer 和 parquet 头):非思考模板渲染、师生词表一致、数据�
 比例、loss mode 是否真的注册(`PYTHONPATH` 掉了会让 `k1_rec` 静默退化成 stock `k1`)。
 
 **有效训练集**:`train.parquet` 14476 行,其中约 **14%** 超过 `max_prompt_length=1024`,
-被 `filter_overlong_prompts=True` 丢弃,实际训练约 **12478 行**。`truncation='error'`
+被 `filter_overlong_prompts=True` 丢弃,实际训练约 **14393 行**。`truncation='error'`
 保证漏网的会报错而非静默截断。
 
 ## 多机运行(2026-08-06)
