@@ -27,6 +27,10 @@ import sys
 # The verl-path value. eval_offline.py reports 0.4740 for the same model, and the two
 # are different pipelines; the curve's later points come from verl's validation, so its
 # step-0 has to as well or the first segment of every arm mixes two measurements.
+# 8k-BATCH anchor. The 16k batch (PROTOCOL 3.8, 2026-08-07) mints its own: the first
+# 16k vanilla launches with VAL_BEFORE_TRAIN=True once, and that number replaces this
+# for 16k-batch curves. Greedy non-thinking rarely nears either cap, so they may
+# coincide -- measured, not assumed.
 STEP0_MATH500 = 0.468
 
 

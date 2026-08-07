@@ -227,6 +227,15 @@ Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 
    ppo_epochs=1(mini=train 单 epoch 纪律)。此前全部静默吃 verl 默认;verl 不在
    pin 集,显式钉死防版本漂移。clip_ratio=0.2 为领域标准(TM/verl/KDRL 同);
    wd/betas 为 AdamW 惯例,各被审论文均未报,记为"实现层常量,全臂同值同偏"。
+8. **训练响应上限 8,192 → 16,384(2026-08-07 用户定案;run-defining,开新批次)**:
+   与协议锚对齐 —— Demystifying 训练即 16,384,TM cookbook 同;8k 是 v3.1 的筛查
+   经济性(c1 在 8k 有 5% 截断),百卡在途不再必要。**批次账**:已完成/在跑的 8k
+   run 全体转为 **pilot 批**(指纹自动分批);vanilla/c1/f1 两档并存 = **上限轴对照
+   白捡**(原"锚点 16k 波"由此吸收,见 EXPANSION-PLAN);S/T 波起全部 16k,
+   **新噪声底 vanilla×3@16k 重打**,8k 判决不与 16k 混。锚点:首个 16k vanilla 以
+   VAL_BEFORE_TRAIN=True 铸 16k 步-0 锚(0.468 是 8k 批锚)。联动:micro-batch
+   token 预算 12288→17408(须容单条全长序列),**上舰队前单泳道 probe 复验显存**;
+   评测预算 32,768 = 训练 2×,惯例保持。
 7. **正式评测曲线 = 加权套件 suite_acc(2026-08-07 用户定案;scripts/eval_suite.py)**:
    AIME24+25 avg@32(题池并为一成分)+ AMC23 avg@32 + Minerva avg@3 + MATH500 avg@3,
    全部 τ0.7/top_p0.95、**生成预算 32,768**(领域惯例=训练上限 2–4×);权重默认

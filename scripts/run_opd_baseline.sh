@@ -88,11 +88,19 @@ ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}   # = train batch: single epoch 
 # arm keeps n=1. Group count rides TRAIN_BATCH_SIZE (prompts), sequences = bs*n.
 rollout_n=${ROLLOUT_N:-1}
 max_prompt_length=${MAX_PROMPT_LENGTH:-1024}
-max_response_length=${MAX_RESPONSE_LENGTH:-8192}  # v3.1 screening cap; anchor/final: 16384
+max_response_length=${MAX_RESPONSE_LENGTH:-16384} # PROTOCOL sec 3.8 (2026-08-07): campaign
+                                                  # cap = 16,384 -- Demystifying (the protocol
+                                                  # anchor) trains here, TM too; the old 8192
+                                                  # was the v3.1 screening economy, retired.
+                                                  # Runs at 8192 form the pilot batch.
 # 12288, not 20480: at the 1.7B tier the actor shares its GPU with the vLLM engine,
 # and weights + fp32 AdamW moments + master weights + grads are ~27GB before a single
 # activation. Verified on the 50-step probe at this value with no OOM.
-ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-12288}
+# 17408 = 1024 prompt + 16384 response: dynamic-bsz micro-batches must hold ONE full
+# sequence or verl asserts. 12288 was the 8k-era value, memory-verified on the 50-step
+# probe; 17408 is +42% activation budget on the same 1.7B statics -- re-verify with a
+# single-lane probe BEFORE the fleet inherits this default.
+ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN_PER_GPU:-17408}
 
 actor_lr=${ACTOR_LR:-1e-6}
 # 150, not the v3.1 plan's 300 (pre-registration amended 2026-08-04 on measurement).
