@@ -58,8 +58,12 @@ arms:
            cannot be credited to seeing the same questions twice; the cost is that
            this arm sees fewer distinct prompts (reported in coldstart_meta.json)"
     env:
-      STUDENT_MODEL: /scratch/zz865/simopd/ckpt/coldstart_sft
-      DATA_DIR: /home/zz865/data/simopd_math
+      # Fleet-local paths (2026-08-08, was /scratch/zz865 + /home/zz865 -- Cornell).
+      # Each fleet supplies its own stage-1 artifact; this one was built and verified
+      # on this fleet 2026-08-07 (SFT to step 98, merged HF export under hf/ -- the
+      # PARENT dir holds only FSDP shards and loads in nothing).
+      STUDENT_MODEL: /mgfs/shared/Group_GY/changhao/simopd_data/ckpt/coldstart_sft/hf
+      DATA_DIR: /mgfs/shared/Group_GY/changhao/simopd_data/simopd_math
       TRAIN_FILE_BASENAME: train_coldstart_remainder.parquet
 
   # ---- B: divergence ----
