@@ -36,7 +36,8 @@ for name, c in curves.items():
     a, s = arm_seed(name)
     by_arm[a][s] = c
 
-for STEP in (25, 50, 100):
+STEPS = [int(x) for x in sys.argv[1:]] or [25, 50, 100]
+for STEP in STEPS:
     van = [c[STEP] for s, c in sorted(by_arm.get("vanilla", {}).items()) if STEP in c]
     if not van:
         continue
