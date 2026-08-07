@@ -126,16 +126,20 @@ arms:
     note: "src/simopd/topk_losses.py. verl's top-k path hardcodes forward KL with no
            loss_mode dispatch, so we rebind compute_topk_loss at import; verl itself
            is still unmodified. SIMOPD_SUPPORT_MODE=renorm|tailbucket is the
-           pre-registered internal ablation of this arm"
+           pre-registered internal ablation of this arm.
+           AUDIT r5 2026-08-07, paper-vs-code split: LSM's official repo
+           (hhh675597/revisiting_opd, compute_opd_advantage) feeds the RAW negated
+           renorm-KL as the per-token advantage into a PPO clipped surrogate -- no
+           baseline, no whitening: the PG path, uniformly non-positive advantages
+           and all. The paper's Sec 3.2 reads as direct backprop. The numbers were
+           produced by the code, so the faithful arm is PG: r3's direct-branch move
+           is reversed for THIS arm (b2/c2/e1 unaffected -- verl's own citation and
+           our own designs respectively), and the cornell PG run is un-demoted to
+           the faithful result (its same-cluster-control caveat stands). The direct
+           form remains available as the paper-form ablation via USE_POLICY_GRADIENT"
     env:
       DISTILLATION_LOSS_MODE: lsm_topk_renorm
-      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
-      # (its own comment cites GKD), not PG -- under PG the advantage is
-      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
-      USE_POLICY_GRADIENT: "False"
+      # r5: PG branch (verl default) is the official-code form; see note.
       DISTILLATION_TOPK: "32"
       SIMOPD_SUPPORT_MODE: renorm
 

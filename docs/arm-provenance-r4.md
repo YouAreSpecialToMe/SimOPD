@@ -92,3 +92,22 @@ full text says otherwise")—— r5 执行的正是该条款。r3 把 b3 归直�
 estimator-note §7 已更正;b2/c1/c2/e1 的直接分支归属不受影响(各自论文确为直接优化)。
 CPU 验证:kernel 逐位对拍(raw k1/截断 FKL/固定阈门控)、STASH 项 0.00e+00、
 梯度流回 student_logits 且未门控 token 零梯度、包装器叠加与先清残留语义。
+
+## C 轴(词表支撑)
+
+### c1_lsm_topk32_renorm —— LSM (2603.25562) × 官方库 `hhh675597/revisiting_opd` × EasyOPD 参考实现
+| 项 | 论文 | 官方码 | 我们 | 判定 |
+|---|---|---|---|---|
+| 方向 | Eq.8:π̂_θ 加权 log(π̂_θ/q̂) = **KL(student‖teacher)** | `student_probs_norm*(student−teacher)`,student 在外 | `kl_divergence(log_p=stu_n)`(verl 语义:log_p 在外) | ✅ 三方同向(EasyOPD on-policy 分支亦同) |
+| 双侧 renorm | Eq.7 支撑集内独立 softmax | `log_softmax(ref_logits_k)` 双侧 | 双侧 logsumexp 归一;r4 对 EasyOPD 数值 5e-7 | ✅ |
+| k | **32**(Table A1 默认,全实验) | 同 | 32 | ✅(EasyOPD 框架默认 256 是框架值,非论文值) |
+| clip | — | `clip_log_ratio` ±5 **默认 False** | 无 | ✅(默认侧一致;其内部选项记录) |
+| **优化器** | §3.2 行文读作直接反传 | **`compute_opd_advantage`:原始 −KL 作优势,无基线无白化,PPO 裁剪** | r3 曾改直接;**r5 回 PG(以码为准)** | ⚠️→✅ **论文≠代码,判决以码;r3 改判撤销** |
+
+**连带**:cornell c1 PG run(0.598,无 Mode-A)恢复为忠实结果;直接版从必做重跑降为
+可选 paper-form 消融。estimator-note §8 记方法论教训:r3 的先验批量改判,五臂里两臂
+(b3、c1)的原作者恰恰发表了"病态"形状 —— 审计对象是文献做了什么,不是该做什么。
+
+### c2_quantile_budget [自研]
+无外部出处,审计=设计↔实现:分位预算自适应(6/9/12@8)r2 数值精确;直接分支为
+r3 注册的自研选择,LSM 之发现不外推(自研臂的"忠实"即注册文本)。✅
