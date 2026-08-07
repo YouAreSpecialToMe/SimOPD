@@ -24,9 +24,9 @@ PYEOF
 done
 EVALS=$HOME/data/simopd_evals
 python scripts/eval_offline.py --model Qwen/Qwen3-4B-Thinking-2507 --run-id teacher_ceiling_Qwen3-4B-Thinking-2507_think \
-    --step -1 --benchmarks aime24,aime25 --think --max-tokens 16384 --n 32 --temperature 0.7 --out-dir $EVALS
+    --step -1 --benchmarks aime24,aime25 --think --max-tokens 16384 --n 32 --temperature 0.7 --top-p 0.95 --out-dir $EVALS
 python scripts/eval_offline.py --model Qwen/Qwen3-1.7B --run-id student_hybrid_1p7b_think \
-    --step 0 --benchmarks aime24,aime25 --think --max-tokens 16384 --n 32 --temperature 0.7 --out-dir $EVALS
+    --step 0 --benchmarks aime24,aime25 --think --max-tokens 16384 --n 32 --temperature 0.7 --top-p 0.95 --out-dir $EVALS
 python scripts/eval_offline.py --model Qwen/Qwen3-8B --run-id teacher_ceiling_Qwen3-8B_think \
-    --step -1 --benchmarks aime24,aime25 --think --max-tokens 16384 --n 32 --temperature 0.7 --out-dir $EVALS
+    --step -1 --benchmarks aime24,aime25 --think --max-tokens 16384 --n 32 --temperature 0.7 --top-p 0.95 --out-dir $EVALS
 echo P1AIME_DONE

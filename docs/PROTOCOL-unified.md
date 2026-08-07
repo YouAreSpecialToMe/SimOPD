@@ -209,14 +209,27 @@ Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 
 3. 训练集用 Nemotron-Cascade 而非文献众数 DAPO-17K:锚点对齐优先;可选 spot-check。
 4. n=1(Demystifying/ESR)而非 4/8/16(thunlp/TIP):Demystifying 已消融 n,
    n=1 是其协议;我们不再扫描。
-5. AMC23 avg@32 采样参数暂用 thunlp 值(0.7/0.95),待 Demystifying 精读校正。
+5. **采样参数定案(2026-08-07,用户裁定"按 OPD prior work 统一")**:
+   - **训练 rollout:τ=1.0 / top_p=1.0,协议明文**。被审文献训练侧全同(GKD 原文
+     γ=1 "encourage diversity";TM/Demystifying/Rethinking 同);且 on-policy 无偏
+     性要求全支撑采样(top_p<1 截断使 IS ratio 未定义)。官方部署推荐(0.7/0.8/20,
+     4B-2507 卡,面向推理)不适用于训练——rollout 生成者是 1.7B-Base,无官方推荐值。
+   - **评测 avg@k:τ=0.7 / top_p=0.95,全 campaign 统一**(Rethinking 对齐;即原
+     暂用值转正)。Demystifying 精读结果为 τ1.0/top_p1.0——记为对表差异,不采纳:
+     已锚工件族(D6/AMC 矩阵、cornell_owed)全在 0.7/0.95。**P1-AIME 既有工件
+     top_p=1.0(漏传默认)属管线内测量,不与 avg@k 账本混用**(never-mix);其
+     sbatch 已修,后续 run 入协议值。greedy pass@1(τ=0)与 τ=1.0 多样性面板为
+     另两个注册用途,不受影响。
+   - 部署条件列(官方 0.7/0.8/20):只配决赛配方,可选,不占波次。
 
 ## 4. 开口(精读时逐项关闭)
 
-- [ ] Demystifying:lr/步数/评测采样参数/空 think 模板确切句法(HTML 已抽两轮,均 ABSENT
-  → 需查其 repo 或邮件作者)
-- [ ] SelecTKD 代码库定位 + 其 on-policy 变体的确切掩码规则
-- [ ] LSM 是否公开代码(论文 verl 系;fetch 未见 repo 链接)
+- [x] Demystifying 评测采样:**已关(r5)**——七基准,MATH500/Minerva pass@1,
+  AMC/AIME/HMMT avg@32 τ1.0/top_p1.0,训练 16,384(见 §3.5 采样定案);lr/步数仍 ABSENT
+- [x] SelecTKD:**已关(r5)**——无官方码(截至 2026-08-07);掩码规则依论文裁定
+  (k=5 验证窗、β=0.01 降权,见 arms.yaml d2)
+- [x] LSM 代码:**已关(r5)**——官方库 hhh675597/revisiting_opd;优化器论文≠代码
+  已裁(arms.yaml c1)
 - [ ] 各臂论文 arXiv 编号最终核验(案卷 v1 的已知风险)
 
 ## 评测路径与 step-0 锚点(2026-08-05)

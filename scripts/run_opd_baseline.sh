@@ -296,6 +296,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=${rollout_n} \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
+    $(: "1.0/1.0 is PROTOCOL (sec 3.5, 2026-08-07): every audited paper trains at "
+       "tau=1 -- GKD gamma=1 explicitly -- and on-policy unbiasedness needs full "
+       "support; the official 0.7/0.8 card values are deployment inference params") \
     actor_rollout_ref.rollout.max_model_len=${max_num_tokens} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
