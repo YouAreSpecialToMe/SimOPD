@@ -760,8 +760,10 @@ def compute_jsd_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, c
     """B axis, b4 (supplement cohort): GKD's generalized JSD-beta on the teacher's
     renormalized top-k support (2306.13649; TRL's canonical interpolation, audited
     r5: mixture m = beta*teacher + (1-beta)*student, jsd = beta*KL(teacher||m) +
-    (1-beta)*KL(student||m); beta=0.5 is symmetric JSD, beta->0 recovers c1-style
-    renorm RKL, beta->1 the renorm FKL). The plan's own axis-B text promised JSD
+    (1-beta)*KL(student||m); beta=0.5 is symmetric JSD. Endpoints degenerate to
+    zero; the SCALED limits jsd/beta -> renorm FKL(T||S) and jsd/(1-beta) ->
+    renorm RKL(S||T) are verified numerically to 5e-4 -- the first draft stated
+    them backwards and its own limit test caught it). The plan's axis-B text promised JSD
     and skew-KL displaced it -- this arm pays the debt. Distributional both sides
     (JSD's teacher-outer half is not sampled-estimable), DIRECT branch per GKD;
     support truncation is the recorded C-axis-style deviation, teacher_mass
