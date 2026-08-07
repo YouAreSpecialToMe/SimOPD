@@ -223,6 +223,43 @@ def k1_first_segment(config, distillation_config, model_output, data):
     return losses, metrics
 
 
+POWER_ALPHA = float(os.environ.get("SIMOPD_POWER_ALPHA", "1.0"))
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_power"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_power(config, distillation_config, model_output, data):
+    """F axis, f3: PowerOPD's bounded power reward (2606.17199; no code released).
+
+    r^a = sg[pi_T^a - pi_theta^a], a Box-Cox family whose a->0 limit is the
+    log-ratio and whose members are natively bounded in [-1, 1]. The paper's OWN
+    form is the PG reward (grad J = sum r * grad log pi), so this arm is PG-branch
+    faithful by construction: verl takes advantages = -losses, so we return
+    losses = pi_theta^a - pi_T^a = exp(a*s) - exp(a*t), fp32 (large a underflows
+    small probabilities to exactly 0 -- that is the design: focus on confident
+    tokens -- and power_dead_frac makes the dead fraction visible).
+
+    Registered a=1 (the family's canonical member, r = p_T - p_theta): the paper
+    reports best-per-metric over a in {0.1..500} and names no default -- a
+    multiple-comparisons practice the audit records rather than imports.
+    SIMOPD_POWER_ALPHA is the pre-registered internal ablation. The delta_ell
+    panel reads the raw k1 signal, not the transformed loss (F6 discipline).
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    a = POWER_ALPHA
+    s32, t32 = student.float(), teacher.float()
+    losses = (torch.exp(a * s32) - torch.exp(a * t32)).to(student.dtype)
+
+    k1 = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(k1, mask))
+    with torch.no_grad():
+        dead = (losses[mask].abs() < 1e-6).float().mean()
+        metrics["distillation/power_dead_frac"] = Metric(aggregation=AggregationType.MEAN, value=dead)
+    return losses, metrics
+
+
 @register_distillation_loss(
     DistillationLossSettings(names=["k1_softlog"], use_estimator=True)
 )  # type: ignore[arg-type]
