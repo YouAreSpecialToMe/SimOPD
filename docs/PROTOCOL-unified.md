@@ -227,6 +227,17 @@ Cornell 的两张卡只做 DSW 不做的欠账(迁移列端到端验证、AMC23 
    ppo_epochs=1(mini=train 单 epoch 纪律)。此前全部静默吃 verl 默认;verl 不在
    pin 集,显式钉死防版本漂移。clip_ratio=0.2 为领域标准(TM/verl/KDRL 同);
    wd/betas 为 AdamW 惯例,各被审论文均未报,记为"实现层常量,全臂同值同偏"。
+7. **正式评测曲线 = 加权套件 suite_acc(2026-08-07 用户定案;scripts/eval_suite.py)**:
+   AIME24+25 avg@32(题池并为一成分)+ AMC23 avg@32 + Minerva avg@3 + MATH500 avg@3,
+   全部 τ0.7/top_p0.95、**生成预算 32,768**(领域惯例=训练上限 2–4×);权重默认
+   等权宏平均 0.25×4(按题数池化会让 MATH500 占 57%,弃)。**离线跑在存档 ckpt 上**,
+   不进 verl 训练环(环内不支持逐基准 @k 与独立 val 长度,且 ~5.5k 条/点会吃掉泳道);
+   粒度 = save_freq(现 50 步,6 点/run 含 0 与 250;要 25 步粒度翻 SAVE_FREQ=25,
+   代价 +~150GB/run 存档)。verl 环内 greedy MATH500 保留为实时健康信号(Mode-A 检测),
+   与套件永不混用(0.468/0.474 同款纪律)。**判决仍按逐基准配对检验**(McNemar/
+   Wilcoxon 需逐题 0/1;加权标量无配对结构),suite_acc 只用于曲线与 ckpt 选择。
+   旧 greedy-500 曲线(r5 前全部 run)与套件曲线是两个家族,图内不混。
+
 
 ## 4. 开口(精读时逐项关闭)
 
