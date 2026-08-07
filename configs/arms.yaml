@@ -235,12 +235,22 @@ arms:
   # ---- E: in-support objective ----
   - run_id: e1_pl_rank
     axis: E
-    desc: "PL-rank loss + small value anchor [OURS], form from PLD 2506.12542"
+    desc: "unweighted PL-rank loss + small value anchor [OURS; PL machinery as in PLD 2506.12542]"
     status: stock
     note: "src/simopd/topk_losses.py [OURS]. Plackett-Luce over the teacher's rank order
            (verl returns top-k already rank-sorted) plus a value-KL anchor whose
            coefficient is the internal ablation. Verified monotonic in disorder:
-           agreeing 0.34 < flat 1.10 < reversed 2.84"
+           agreeing 0.34 < flat 1.10 < reversed 2.84.
+           AUDIT r5 2026-08-07 vs PLD (NeurIPS25, Eq. in their Sec 4.2): 'form from
+           PLD' overclaimed and is retired from the desc. PLD weights every PL term
+           by the teacher's softmax confidence, puts the TRUE LABEL first in the
+           permutation, uses no length normalization, and ships standalone. Ours is
+           deliberately different on all four: terms unweighted (confidence weighting
+           would blend VALUES into the rank term, and this arm's design point is
+           rank/value separation -- values live in the anchor, whose coefficient is
+           the ablation), no label exists at token level (teacher top-1 leads), /k
+           normalization for cross-arm loss-scale comparability, anchor added. What
+           is PLD's: the suffix-logsumexp PL likelihood machinery itself"
     env:
       DISTILLATION_LOSS_MODE: pl_rank_anchor
       # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
