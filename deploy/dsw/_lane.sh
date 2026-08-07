@@ -140,9 +140,28 @@ for entry in $LANE_RUNS; do
         export TOTAL_TRAINING_STEPS=$LANE_STEPS
         export TEST_FREQ=$LANE_TEST_FREQ
         export SAVE_FREQ=$LANE_SAVE_FREQ
+        # EXTRA_HYDRA: overrides for a cell the pinned launcher cannot express.
+        # Appended LAST, because hydra applies overrides left to right and the last
+        # assignment to a key wins -- so this can override a value run_opd_baseline.sh
+        # hardcodes, without editing that file. It lands in the resume fingerprint
+        # too (run_opd_baseline.sh hashes `extra=$*`), so a changed override is
+        # refused rather than spliced into an existing curve.
+        #
+        # Unquoted on purpose: several overrides in one variable have to word-split.
+        # Unset expands to nothing under `set -u`, so every lane that does not set it
+        # runs the exact command it ran before this line existed.
+        #
+        # What needs it today is the W pair. run_opd_baseline.sh pins the teacher's
+        # tensor_model_parallel_size to 1, and Qwen3-32B is 61G of bf16 weights: on
+        # an 80G card at gpu_memory_utilization=0.85 that leaves 7.0G of KV cache,
+        # about three concurrent sequences of 9217 tokens. TP=2 halves the weights
+        # and turns that into 37.5G / 33 sequences. run_opd_baseline.sh is inside the
+        # campaign pin (deploy/campaign.sh:309) and twenty-eight lanes are flying, so
+        # it is not the file to edit for a second model pair.
         bash "$SNAP"/scripts/run_opd_baseline.sh \
             data.seed="$SEED" \
-            actor_rollout_ref.rollout.seed="$SEED"
+            actor_rollout_ref.rollout.seed="$SEED" \
+            ${EXTRA_HYDRA:-}
     ) &
     RUN_PGID=$!
     set +m

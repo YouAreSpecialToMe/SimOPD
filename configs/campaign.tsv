@@ -84,10 +84,23 @@
 #
 #   W wave          NOT an arm: a second teacher-student pair, Qwen3-8B-Base <- 32B,
 #                   running THESE arms under THIS protocol (docs/SimOPD-plan.md 6.5).
-#                   BLOCKED twice over here: neither model is in the cache, and an 8B
-#                   actor does not fit one card -- plan says 4-6 GPUs per lane against
-#                   the 2 this fleet's rows assume, so a machine holds 1-2 W lanes,
-#                   not 4. Needs its own in-cell vanilla; first batch is vanilla x2.
+#                   UNBLOCKED 2026-08-07 -- both models are now in the shared cache
+#                   (32B 62G, 8B-Base 16G) and vanilla_s0_w is running on m12/dsw262.
+#                   Its size is settled by measurement, not by the plan's 4-6 estimate:
+#                   ONE W run takes a WHOLE MACHINE, 8 GPUs, split 4 student + 4
+#                   teacher. 8.19B x 16 B/param = 122G of training state, so FSDP over
+#                   2 GPUs is 61G/GPU before vLLM and cannot fit; over 4 it is 30.5G.
+#                   The teacher cannot take one card either: 61G of bf16 weights leaves
+#                   7.0G of KV at util 0.85, about three concurrent 9217-token
+#                   sequences, so it runs TP=2 x 2 replicas.
+#                   These rows therefore do NOT belong in this manifest as written --
+#                   every row here assumes a 2-GPU lane and campaign.sh packs four to a
+#                   box. W lanes launch through simopd_data/w_pair_launch.sh, which
+#                   pins the whole cell's config (ROLLOUT_GPU_MEM_UTIL=0.40, teacher
+#                   TP=2, TAG=w) in one place. Measured: 81 s/step, ~5.5h for 250.
+#                   The cell has its own step-0 MATH500, 0.664, measured on the verl
+#                   path 2026-08-07 -- NOT the 0.468 in scripts/preflight.py, which is
+#                   Qwen3-1.7B-Base. Every W curve starts from 0.664.
 
 # ---- wave 2: seed replication ------------------------------------------------
 # Every runnable arm at seeds 1 and 2, so each has the three-point spread vanilla
