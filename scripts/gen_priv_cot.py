@@ -65,7 +65,10 @@ def build_prefixes(tok, content, think_text):
 
 
 def prefix_hash(ids):
-    return hashlib.sha1(",".join(map(str, ids[:16])).encode()).hexdigest()[:16]
+    """FULL-prefix hash; MUST stay verbatim-identical to simopd.gkd_mix.prompt_key
+    (audit 2026-08-07 C1: the 16-token key collided on 635 real-data groups, 252
+    with conflicting ground truths)."""
+    return hashlib.sha1(",".join(map(str, list(ids))).encode()).hexdigest()[:16]
 
 
 def main():

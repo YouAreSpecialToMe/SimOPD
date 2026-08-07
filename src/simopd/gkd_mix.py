@@ -30,7 +30,7 @@ import sys
 
 _MARK = "_simopd_gkd"
 _cache = None
-_stats = {"hit": 0, "miss": 0, "pass": 0}
+_stats = {"hit": 0, "decline": 0, "miss": 0, "pass": 0}
 
 
 # Semantics note (provenance r4): SIMOPD_GKD_LAMBDA is P(off-policy) here, which is
@@ -54,7 +54,12 @@ def _load_cache():
 
 
 def prompt_key(prompt_ids):
-    return hashlib.sha1(",".join(map(str, list(prompt_ids)[:16])).encode()).hexdigest()[:16]
+    """FULL-prefix hash (audit 2026-08-07 C1): the first-16-token key collided on 635
+    groups of the real training set -- 252 with conflicting answers -- because
+    Nemotron problems share long boilerplate openings. Full ids make key equality
+    imply prompt equality. MUST stay verbatim-identical to gen_priv_cot.prefix_hash
+    (re-implemented here because the server cannot import scripts/)."""
+    return hashlib.sha1(",".join(map(str, list(prompt_ids))).encode()).hexdigest()[:16]
 
 
 def coin(key, step, lam):
@@ -98,18 +103,30 @@ def install():
         cached = cache.get(key)
         step = getattr(self, "global_steps", 0) or 0
         if cached is None or not coin(key, step, _lam()):
-            _stats["miss" if cached is None else "hit"] += 0  # counted below either way
-            if cached is None:
-                _stats["miss"] += 1
-                if _stats["miss"] % 500 == 1:
-                    tot = _stats["hit"] + _stats["miss"]
-                    print(f"[simopd] gkd_mix: {_stats['hit']}/{tot} routed off-policy "
-                          f"(misses are val/unseen prompts)", file=sys.stderr, flush=True)
+            _stats["miss" if cached is None else "decline"] += 1
+            seen = _stats["hit"] + _stats["decline"] + _stats["miss"]
+            if seen % 500 == 1:
+                elig = _stats["hit"] + _stats["decline"]
+                lam = _stats["hit"] / elig if elig else 0.0
+                print(f"[simopd] gkd_mix: realised lambda {lam:.3f} over {elig} eligible "
+                      f"(hit {_stats['hit']} / declined {_stats['decline']}); "
+                      f"{_stats['miss']} cache misses (val/unseen)", file=sys.stderr, flush=True)
             return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
 
         _stats["hit"] += 1
         max_tokens = sampling_params.get("max_tokens") if isinstance(sampling_params, dict) else None
         resp = cached if max_tokens is None else cached[:max_tokens]
+        # This verl's agent loop sends no max_tokens, so clamp against the engine
+        # shape ourselves: the scoring prompt is prompt+resp and needs 1 token of
+        # generation headroom, or an 8k-pilot engine meeting a 16k cache raises
+        # "no room to generate" on every hit (audit 2026-08-07 F5).
+        cfg = getattr(self, "config", None)
+        rl = getattr(cfg, "response_length", None)
+        if rl:
+            resp = resp[: int(rl)]
+        mml = getattr(cfg, "max_model_len", None)
+        if mml:
+            resp = resp[: max(int(mml) - len(prompt_ids) - 1, 0)]
         score_params = dict(sampling_params) if isinstance(sampling_params, dict) else {}
         score_params.update({"max_tokens": 1, "prompt_logprobs": 0, "logprobs": None,
                              "temperature": 0.0, "n": 1})
@@ -117,10 +134,17 @@ def install():
         from verl.workers.rollout.replica import TokenOutput
 
         extra = dict(getattr(scored, "extra_fields", None) or {})
+        # An aborted scoring call has no prompt_logprobs (verl's abort path returns
+        # early); pass the abort through instead of KeyError-ing inside the server
+        # actor (audit 2026-08-07 F4).
+        if getattr(scored, "stop_reason", None) == "aborted" or "prompt_logprobs" not in extra:
+            return scored
         lps = tail_logprobs(extra, len(resp))
         extra.pop("prompt_logprobs", None); extra.pop("prompt_ids", None)
-        return TokenOutput(token_ids=list(resp), log_probs=lps, routed_experts=None,
-                           stop_reason="stop", extra_fields=extra)
+        # "completed" is verl's vocabulary for a finished generation ("stop" was ours
+        # alone and one future == check away from being silently dropped).
+        return TokenOutput(token_ids=[int(t) for t in resp], log_probs=lps, routed_experts=None,
+                           stop_reason="completed", extra_fields=extra)
 
     setattr(generate, _MARK, True)
     cls.generate = generate
