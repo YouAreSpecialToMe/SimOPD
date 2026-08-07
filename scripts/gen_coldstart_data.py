@@ -13,7 +13,7 @@ Two choices worth stating, because both are confounds a reviewer will look for:
   the others (reported below; at 300x128 we are already multi-epoch, so the
   difference is in epochs seen, not in samples trained on).
 * Responses are rejection-sampled on the verifier. Confirmed against the
-  official repo (audit r5, 2026-08-08): thunlp/OPD's vllm_rollout.py runs with
+  official repo (audit r5, 2026-08-07): thunlp/OPD's vllm_rollout.py runs with
   --enable-rejection-sampling true, so filtering is their recipe, not our
   reading. It also matches our G-axis discipline that the verifier filters but
   never enters the training input. --keep-all disables it for the ablation.
