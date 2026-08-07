@@ -59,4 +59,5 @@
 # failed, and been retried forever.
 3	cornell	a2_coldstart	0	needs=/scratch/zz865/simopd/ckpt/coldstart_sft
 3	any	b3_eopd_gate	0	EOPD ICML26 replication; added 2026-08-06 post-sweep
-3	any	g3_kdrl	0	KL+RL coupling member; added 2026-08-07 from survey coverage diff
+3	any	vanilla_n8	0	j1 mini-cell control; launch before or with j1
+3	any	j1_kdrl	0	KL+RL coupling (axis J); base = vanilla_n8, added 2026-08-07

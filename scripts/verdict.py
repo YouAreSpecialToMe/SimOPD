@@ -42,10 +42,8 @@ CAVEATS = {
     # response-token mass is agreement-on-failure even under such filters. The
     # verdict may say "trajectory selection helps/hurts", never "purified signal".
     "g1_verified_only": "outcome-level gate only; no token-level localization claim (2607.23731)",
-    # n=1 degenerates GRPO to success-only REINFORCE (failures get zero gradient),
-    # so a null result may be the weak RL term, not the family. KDRL-faithful
-    # micro-cell (n=8 + vanilla_n8) is the V-wave trigger.
-    "g3_kdrl": "RL term is n=1 success-only REINFORCE, not group GRPO; mechanism verdict only",
+    "vanilla_n8": "n=8 cell control; its row vs vanilla measures the group-sampling knob alone",
+    "j1_kdrl": "judged vs vanilla_n8 (same cell); cross-cell comparison to the main table crosses the n boundary",
 }
 
 ARMS = [  # ledger order: axis order from the plan
@@ -53,7 +51,11 @@ ARMS = [  # ledger order: axis order from the plan
     "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
     "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "g1_verified_only",
     "g2_fire_likelihood", "h1_first_segment",
+    "vanilla_n8", "j1_kdrl",
 ]
+# Arms judged against a non-vanilla base (self-contained mini-cells). The base row
+# itself still appears vs vanilla, which reads out the cell's boundary knob.
+BASE_OVERRIDES = {"j1_kdrl": "vanilla_n8"}
 TRANSFER = ("humanevalplus", "mbppplus", "ifeval", "amc23")
 
 
@@ -131,11 +133,14 @@ def main():
         if cur is None:
             emit(f"| {arm} | — | — | — | — | PENDING: `{eval_cmd(run_id, a.bench, a.step)}`{cav} |")
             continue
-        if base is None:
+        eff_base = base
+        if arm in BASE_OVERRIDES:
+            eff_base = load_correct(a.evals, f"{BASE_OVERRIDES[arm]}_s{a.seed}", a.bench, a.step)
+        if eff_base is None:
             emit(f"| {arm} | — | — | — | — | PENDING baseline artifact{cav} |")
             continue
-        common = base.index.intersection(cur.index)
-        vb, vc = base.loc[common], cur.loc[common]
+        common = eff_base.index.intersection(cur.index)
+        vb, vc = eff_base.loc[common], cur.loc[common]
         delta = float(vc.mean() - vb.mean())
         # Paired binaries: avg@k rates collapse to right/wrong at 0.5 for pairing, the
         # same convention d6_matrix uses; pass@1 artifacts are already 0/1.

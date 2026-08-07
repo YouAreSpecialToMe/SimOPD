@@ -264,3 +264,17 @@ objectives 与我们 8 轴 diff 后的唯一可审计缺口 —— G 轴原来�
 与 g1 构成 G 轴的干净对照:**同一 verifier 信号,滤 vs 加**。campaign.tsv 第 3 波
 any 行入列;run_opd_baseline.sh 新旋钮(use_task_rewards / distillation_loss_coef)
 入指纹。注册表现为 20 臂(18 可跑)。
+
+## r5 增补修订(2026-08-07 同日,两次用户裁定):g3 → **j1_kdrl,J 轴,n=8 迷你 cell**
+
+用户两问定型:(1) "n=1 的 RL 项对吗" —— 不对到值得改设计:真 GRPO 在单例组优势恒 0,
+verl 特判后 RL 项退化为"只奖成功、失败零梯度",KDRL 奖励信号的负压半边消失。忠实微格
+从 V 波触发**前置为即刻执行**。(2) "不一定归 G" —— 对:G=奖励**过滤**蒸馏信号,
+KDRL=奖励作**独立共目标**,增设 **J 轴(奖励耦合)**;g1↔j1 跨轴构成"滤 vs 加"对照。
+改名发生在任何 run 存在之前(不违"永不改名"——该规则护的是工件)。
+
+**Cell 设计**:{vanilla_n8, j1_kdrl},n=8 × 32 prompts = 256 seqs/步(~2× 主表
+token/步,~28–30h/泳道);cell 内一旋钮(目标),n 偏离压在 cell 边界;
+verdict.py 新增 BASE_OVERRIDES:j1 对 vanilla_n8 判,vanilla_n8 自身对 vanilla 判
+(白捡组采样旋钮在纯 OPD 下的读数 —— Demystifying 的 prompt-diversity 主张顺带受审)。
+ROLLOUT_N 入指纹。注册表 21 臂(19 可跑)。

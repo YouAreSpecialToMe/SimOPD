@@ -84,6 +84,9 @@ ARM_ARGS=()
 
 train_batch_size=${TRAIN_BATCH_SIZE:-128}
 ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}   # = train batch: single epoch per rollout batch
+# j1 cell (audit r5 addendum): KDRL-faithful GRPO needs real groups; every other
+# arm keeps n=1. Group count rides TRAIN_BATCH_SIZE (prompts), sequences = bs*n.
+rollout_n=${ROLLOUT_N:-1}
 max_prompt_length=${MAX_PROMPT_LENGTH:-1024}
 max_response_length=${MAX_RESPONSE_LENGTH:-8192}  # v3.1 screening cap; anchor/final: 16384
 # 12288, not 20480: at the 1.7B tier the actor shares its GPU with the vLLM engine,
@@ -214,7 +217,7 @@ distillation_loss_coef=${DISTILLATION_LOSS_COEF:-1.0}
 fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
-    "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" \
+    "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
     "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
@@ -290,7 +293,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_mem_util} \
-    actor_rollout_ref.rollout.n=1 \
+    actor_rollout_ref.rollout.n=${rollout_n} \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
     actor_rollout_ref.rollout.max_model_len=${max_num_tokens} \

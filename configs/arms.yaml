@@ -318,39 +318,55 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_verified_only
 
-  - run_id: g3_kdrl
-    axis: G
-    desc: "dense k2-KL + sparse verifier reward, jointly (KDRL 2506.02208)"
+  # ---- J: reward coupling (axis added 2026-08-07 from the survey coverage diff;
+  # NOT gating -- G filters the distillation signal by outcome, J adds an
+  # independent RL objective. g1-vs-j1 is the cross-axis filter-vs-add contrast.
+  # The pair {vanilla_n8, j1_kdrl} is a self-contained n=8 mini-cell: KDRL's GRPO
+  # needs real groups (n=1 degenerates to success-only REINFORCE -- load-bearing,
+  # user catch 2026-08-07), so the cell runs n=8 x 32 prompts = 256 seqs/step
+  # (~2x tokens/step vs the main table; ~28-30h/lane) and carries its own control,
+  # so the objective contrast is one-knob INSIDE the cell while the n deviation
+  # lives at the cell boundary. j1 was briefly registered as g3_kdrl; renamed
+  # before any run existed -- the never-rename rule protects artifacts, and there
+  # were none. ----
+  - run_id: vanilla_n8
+    axis: "-"
+    desc: "vanilla OPD at n=8 (control of the j1 mini-cell; also measures the n knob vs vanilla)"
     status: stock
-    note: "ADDED 2026-08-07 from the survey coverage diff (2606.22793 'outcome/verifier
-           coupling'; nick7nlp sec 4.3 RL-augmented objectives): the G axis had reward
-           as FILTER (g1) but not reward as CO-OBJECTIVE, and this family carries
-           multiple published claims. Audited against the paper (no code released,
-           recorded): J_KDRL = J_GRPO - beta*KL^k2 -- GRPO on rule-based outcome
-           rewards plus a directly-differentiated k2 KL term on student rollouts,
-           their ablation preferring k2 over k3. Faithful mapping: verl's combine
-           branch IS this objective (use_task_rewards=True => policy_loss +
-           distillation_loss_coef * distill_loss), beta = their fixed main default
-           2e-3; their annealing variant (5e-3 -> 1e-3, delta 5e-5/step) is the
-           pre-registered internal ablation, not the arm. Recorded deviations --
-           the first is LOAD-BEARING (2026-08-07, user catch): at protocol n=1,
-           true GRPO advantages are identically zero (single-member groups have no
-           contrast); verl's singleton special-case substitutes the raw verifier
-           score, so the RL term is SUCCESS-ONLY REINFORCE -- correct rollouts
-           pushed up, failed rollouts receive ZERO gradient. KDRL's group sampling
-           gives failures negative advantage; that half of their RL signal does not
-           exist here. This arm therefore audits the reward-as-co-objective
-           MECHANISM under the protocol (one-knob translation, same doctrine as
-           a1's lambda), NOT KDRL replication; the verdict is scoped by verdict.py
-           CAVEATS, and a KDRL-faithful micro-cell (n=8 + vanilla_n8 control) is
-           the pre-registered V-wave trigger if this arm promotes or lands
-           ambiguous. Second: their regime is long-CoT R1-style models while ours
-           is the audit tier -- true of every arm and stated once here"
+    note: "identical to vanilla except rollout.n=8 with 32 prompts/step (256 seqs,
+           mini=train discipline kept). Base for j1_kdrl in verdict.py
+           (BASE_OVERRIDES); its own row vs vanilla n=1 reads out the group-sampling
+           knob under pure OPD -- Demystifying's prompt-diversity claim, for free"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      ROLLOUT_N: "8"
+      TRAIN_BATCH_SIZE: "32"
+      PPO_MINI_BATCH_SIZE: "32"
+
+  - run_id: j1_kdrl
+    axis: J
+    desc: "dense k2-KL + sparse verifier reward via true GRPO groups, n=8 (KDRL 2506.02208)"
+    status: stock
+    note: "AUDITED against the paper (no code released, recorded): J_KDRL = J_GRPO -
+           beta*KL^k2 -- GRPO on rule-based outcome rewards plus a directly
+           differentiated k2 KL term on student rollouts, their ablation preferring
+           k2 over k3. Faithful mapping: verl's combine branch IS this objective
+           (use_task_rewards=True => policy_loss + distillation_loss_coef *
+           distill_loss), beta = their fixed main default 2e-3; the annealing
+           variant (5e-3 -> 1e-3, delta 5e-5/step) is the pre-registered internal
+           ablation. n=8 restores real group advantages (failures get negative
+           pressure -- the half of the RL signal that n=1 deletes); verdict base =
+           vanilla_n8, same cell. Remaining recorded deviations: 32-prompt steps
+           (2x tokens vs main table, cell-boundary deviation), and their long-CoT
+           R1-style regime vs the audit tier -- true of every arm"
     env:
       DISTILLATION_LOSS_MODE: k2_kdrl
       USE_POLICY_GRADIENT: "False"
       USE_TASK_REWARDS: "True"
       DISTILLATION_LOSS_COEF: "0.002"
+      ROLLOUT_N: "8"
+      TRAIN_BATCH_SIZE: "32"
+      PPO_MINI_BATCH_SIZE: "32"
 
   - run_id: g2_fire_likelihood
     axis: G
