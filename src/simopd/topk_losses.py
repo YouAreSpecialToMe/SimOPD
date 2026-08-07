@@ -269,7 +269,13 @@ def _stat_mask(teacher_topk_log_probs, data, total):
               f"{len(full_lens)} seqs vs response {len(resp_lens)} seqs, packed {total}); "
               f"falling back to full population", file=_sys.stderr, flush=True)
         return None
-    m = torch.zeros(total, dtype=torch.bool)
+    # ON THE KERNEL'S DEVICE. Without device= this mask was born on CPU while
+    # every tensor it gates lives on cuda, and the first `keep & mask` killed
+    # every stat-mask consumer (d1/d2/d3 directly, every kernel via the shadow
+    # panel) on its first training step -- 2026-08-08, three runs down in the
+    # opening minutes of wave 5. The CPU suite structurally cannot catch this:
+    # with data=None (its documented harness path) the mask is never built.
+    m = torch.zeros(total, dtype=torch.bool, device=teacher_topk_log_probs.device)
     pos = 0
     for fl, rl in zip(full_lens, resp_lens):
         rl = min(int(rl), int(fl))
