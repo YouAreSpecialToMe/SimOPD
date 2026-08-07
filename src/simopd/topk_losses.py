@@ -574,8 +574,55 @@ def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_
     return _topk_by_score(score, D_RETENTION), {"teach_compatibility": compatibility}
 
 
+# B axis, adaptive member (EOPD 2603.07079, ICML 2026; pre-registered addition
+# 2026-08-06 after the coverage sweep, BEFORE any of its data existed). Reverse KL's
+# mode-seeking is precise where the teacher is confident and unstable where the
+# teacher is spread out; EOPD routes per token on teacher entropy -- reverse KL in
+# low-entropy regions, forward KL in high-entropy ones. In this registry the arm is
+# exactly a per-token ROUTER between two objectives that already exist as arms:
+# vanilla/b1's sampled-token reverse KL and b2's teacher-top-k forward KL (same
+# clamp_min(0) as verl gives b2, so the components stay comparable arm-to-arm).
+B3_HIGH_FRAC = float(os.environ.get("SIMOPD_B3_HIGH_FRAC", "0.5"))
+
+
+def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
+    student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+
+    # Same -inf floor as the D-axis kernels: one unfound sampled token would NaN the batch.
+    finite = torch.isfinite(sampled_lp)
+    if (~finite).sum() > 0:
+        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
+
+    # Teacher entropy from its top-k -- understated by the unseen tail, exactly as the
+    # entropy panel documents; teacher_mass in the diagnostics says by how much.
+    t_ent = -(t_lp.exp() * t_lp).sum(dim=-1)
+    # Batch-relative threshold, the same convention (and the same micro-batch-noise
+    # caveat) as TIP's and FiRe's; the realised fraction is emitted so it is visible.
+    tau = torch.quantile(t_ent.float().flatten(), 1.0 - B3_HIGH_FRAC)
+    gate = t_ent >= tau   # True -> high-entropy -> forward KL
+
+    rkl = _weighted_sampled_token_loss(
+        student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
+    )
+    fkl = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1).clamp_min(0.0)
+    losses = torch.where(gate, fkl, rkl)
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
+    out["distillation_losses"] = losses
+    out["b3_high_frac"] = gate.float()
+    out["b3_tau_ent"] = torch.full_like(t_ent, float(tau))
+    return out
+
+
 TOPK_DISPATCH.update(
     {
+        "eopd_entropy_gate": compute_eopd_gate_topk,
         "qb_quantile_budget": compute_quantile_budget_topk,
         "pl_rank_anchor": compute_pl_rank_topk,
         "tip_select": _d_axis_kernel(_tip_score),

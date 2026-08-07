@@ -86,6 +86,13 @@ max 16,384 token、τ=1.0、top-p=1.0、每 batch 一个 epoch。
 Reverse KL(默认)/ JSD-β / Forward KL。
 落选:EOPD 熵切换 (2603.07079) —— D2 诊断若显示熵剖面支持可复活。
 
+**B 轴增补(2026-08-06 预注册修订,依据当日文献扫描;数据存在之前登记):**
+`b3_eopd_gate` —— EOPD(2603.07079,ICML 2026)的逐 token 熵路由:老师低熵处反向 KL、
+高熵处前向 KL。在本注册表中它恰好是 **b1 家族 RKL 与 b2 FKL 之间的逐 token 路由器**,
+两个成分都是既有臂的目标,唯一新旋钮即路由本身 —— 2026 年 3–6 月出现的"自适应目标"
+家族(EOPD/SEAD/AOPD)此前在 16 臂中无成员,是扫描发现的唯一结构性缺口。SEAD/AOPD
+的选择器进 shadow 面板(测量先行),KAT 因改采样分布记入 discussion 不参赛。
+
 ### 轴 C — 支撑(词表轴)★含自研臂
 sampled-token(基线)/ teacher top-k+重归一化 (LSM 2603.25562) / teacher top-p /
 **分位预算分配 × margin∈{q, π, max(q,π)}(自研,QB 移植,无人占)** /

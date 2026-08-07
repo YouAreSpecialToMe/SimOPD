@@ -348,6 +348,10 @@ for _name, _extras in [
     # says governs that truncation's error. _topk_registry_fn reports the same
     # Eq.6/Eq.7 metrics and the panels.
     ("lsm_topk_renorm", ()),
+    # B axis adaptive member: a per-token router between b1-family reverse KL and
+    # b2's forward KL. signal="loss" -- the mixture is neither pure k1 nor a
+    # divergence, so publishing it as delta_ell would lie on the cross-arm panel.
+    ("eopd_entropy_gate", ("b3_high_frac", "b3_tau_ent")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),

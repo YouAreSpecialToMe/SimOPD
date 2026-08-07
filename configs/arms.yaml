@@ -73,6 +73,24 @@ arms:
       DISTILLATION_LOSS_MODE: forward_kl_topk
       DISTILLATION_TOPK: "32"
 
+  - run_id: b3_eopd_gate
+    axis: B
+    desc: "per-token entropy routing: reverse KL where teacher is confident, forward KL where spread (EOPD 2603.07079, ICML 2026)"
+    status: stock
+    note: "src/simopd/topk_losses.py. Pre-registered addition 2026-08-06 from the
+           coverage sweep, before any of its data existed. The arm is a ROUTER between
+           two objectives that already exist as arms (vanilla/b1's sampled-token k1,
+           b2's clamped top-k forward KL), so the one knob is the routing itself.
+           Teacher entropy comes from its top-k (understated by the tail; teacher_mass
+           quantifies it); threshold is batch-relative like TIP/FiRe (same micro-batch
+           caveat, realised fraction logged). Hard switch per the paper's summary;
+           switch-vs-add is the internal ablation if the full text says otherwise"
+    env:
+      DISTILLATION_LOSS_MODE: eopd_entropy_gate
+      DISTILLATION_TOPK: 32
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_B3_HIGH_FRAC: "0.5"
+
   # ---- C: vocabulary support ----
   - run_id: c1_lsm_topk32_renorm
     axis: C
