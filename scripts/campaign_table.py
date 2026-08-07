@@ -52,6 +52,46 @@ for name, c in curves.items():
 
 STEPS = [25, 50, 100, 150, 200, 250]
 
+
+def support_family():
+    """arm -> which tokens the loss is computed over.
+
+    Resolved from the loss registry (`use_topk`) and the arm's own env, never from
+    the arm's name: c1_lsm_topk32_renorm says topk in its name, f2_hard_clip does not
+    say sampled in its, and neither is where the truth lives. SIMOPD_KEEP_SAMPLED=1
+    makes the teacher tensors carry one extra column holding the sampled token on top
+    of the top-k (src/simopd/teacher_patch.py, topk_losses.py:200), which is a third
+    family and not a variant of either.
+    """
+    import subprocess
+    try:
+        import simopd  # noqa: F401  -- registers our loss modes
+        from verl.trainer.distillation.losses import get_distillation_loss_settings
+    except Exception:
+        return {}
+    env = {**os.environ, "PYTHONPATH": "src"}
+    out = {}
+    names = subprocess.run([sys.executable, "scripts/arm.py", "list"],
+                           capture_output=True, text=True, env=env).stdout.split()
+    for a in names:
+        blk = subprocess.run([sys.executable, "scripts/arm.py", "env", a],
+                             capture_output=True, text=True, env=env).stdout
+        e = dict(re.findall(r"^export (\w+)=(.*)$", blk, re.M))
+        try:
+            topk = get_distillation_loss_settings(e.get("DISTILLATION_LOSS_MODE", "k1_rec")).use_topk
+        except Exception:
+            continue
+        if not topk:
+            out[a] = "sampled"
+        elif e.get("SIMOPD_KEEP_SAMPLED") == "1":
+            out[a] = "topk+samp"
+        else:
+            out[a] = "topk"
+    return out
+
+
+FAM = support_family()
+
 def cell(arm_seeds, step):
     vals = [c[step] for _, c in sorted(arm_seeds.items()) if step in c]
     if not vals:
@@ -69,8 +109,8 @@ for is_w, title, note in [
     van = arms.get("vanilla", {})
     ranked = sorted(arms, key=lambda a: -(cell(arms[a], 200)[1] or cell(arms[a], 150)[1] or -1))
     print(f"\n### {title}\n\n_{note}_\n")
-    print("| arm | " + " | ".join(f"s{s}" for s in STEPS) + " | now | seeds |")
-    print("|---|" + "---|" * (len(STEPS) + 2))
+    print("| arm | support | " + " | ".join(f"s{s}" for s in STEPS) + " | now | seeds |")
+    print("|---|---|" + "---|" * (len(STEPS) + 2))
     for a in ranked:
         row = []
         for s in STEPS:
@@ -90,5 +130,5 @@ for is_w, title, note in [
             row.append(txt.strip() or "–")
         steps_now = prog[is_w][a]
         now = "/".join(str(steps_now[k]) for k in sorted(steps_now))
-        print(f"| {'**' + a + '**' if a == 'vanilla' else a} | " + " | ".join(row) +
-              f" | {now} | {len(arms[a])} |")
+        print(f"| {'**' + a + '**' if a == 'vanilla' else a} | {FAM.get(a, '?')} | " +
+              " | ".join(row) + f" | {now} | {len(arms[a])} |")
