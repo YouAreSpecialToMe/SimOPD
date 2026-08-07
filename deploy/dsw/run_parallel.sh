@@ -51,7 +51,7 @@ export PYTHONUNBUFFERED=1
 # `wandb sync`, and watch.py reads the console logger rather than wandb anyway.
 if [ -z "${WANDB_API_KEY:-}" ] && ! grep -qs "api.wandb.ai" "$HOME/.netrc"; then
     export WANDB_MODE=${WANDB_MODE:-offline}
-    echo "wandb: no credentials found -> WANDB_MODE=offline (sync later with: wandb sync $WANDB_DIR)"
+    echo "wandb: no credentials found -> WANDB_MODE=offline (sync later with: wandb sync ${WANDB_DIR:-<set WANDB_DIR>})"
 fi
 
 REHEARSAL=0
@@ -219,7 +219,6 @@ for lane in $(seq 0 $((LANES - 1))); do
     echo "            log: $log"
 
     CUDA_VISIBLE_DEVICES="$devices" \
-    SIMOPD_LANE_TAG="${RAY_TMPDIR_TAG:-}${lane}" \
     RAY_TMPDIR="${RAY_TMPDIR:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}${lane}" \
     LANE_RUNS="$lane_runs" LANE_STEPS="$STEPS" LANE_TEST_FREQ="$TEST_FREQ" \
     LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" SNAP="$SNAP" \

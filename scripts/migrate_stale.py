@@ -151,8 +151,9 @@ def main():
             continue
         for f, counts in hosting:
             if set(counts) == {name}:
-                act(f"mv {f} -> {f}.pgab (sole occupant; drops out of the lane*.log glob)",
-                    lambda f=f: os.rename(f, f + ".pgab"))
+                ext = "." + a.suffix.lstrip("_")
+                act(f"mv {f} -> {f}{ext} (sole occupant; drops out of the lane*.log glob)",
+                    lambda f=f, ext=ext: os.rename(f, f + ext))
             else:
                 act(f"rewrite {f}: marker lines {name} -> {name}{a.suffix} "
                     f"(other runs' evidence kept verbatim)",

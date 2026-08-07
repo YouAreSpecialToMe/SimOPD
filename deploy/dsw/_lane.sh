@@ -92,7 +92,12 @@ for entry in $LANE_RUNS; do
     set -m
     (
         set -e
-        eval "$(python "$SNAP"/scripts/arm.py env "$ARM")"
+        # Assignment-then-eval, NOT eval "$(...)": a command substitution used as an
+        # argument discards its exit status, so a refused arm (shelved/needs/typo)
+        # would eval "" and run VANILLA under the arm's name, recorded OK forever --
+        # the false-OK class this campaign treats as worse than failure.
+        _arm_env=$(python "$SNAP"/scripts/arm.py env "$ARM")
+        eval "$_arm_env"
         export EXPERIMENT_NAME="$NAME"
         export TOTAL_TRAINING_STEPS=$LANE_STEPS
         export TEST_FREQ=$LANE_TEST_FREQ

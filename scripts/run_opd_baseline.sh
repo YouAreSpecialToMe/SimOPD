@@ -227,7 +227,7 @@ fingerprint=$(printf '%s\n' \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
     "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
-    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS)=' | LC_ALL=C sort | tr '\n' ' ')" \
+    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
     "prompt=$max_prompt_length" "resp=$max_response_length" \
     "data=$train_files" "pad=$use_remove_padding" \
