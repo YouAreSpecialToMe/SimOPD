@@ -94,6 +94,23 @@ for entry in $LANE_RUNS; do
         set -e
         eval "$(python "$SNAP"/scripts/arm.py env "$ARM")"
         export EXPERIMENT_NAME="$NAME"
+        # The wandb GROUP is the cell a run belongs to: model pair x seed. Runs
+        # inside one group are the OPD methods being compared; groups are what you
+        # compare across. verl's tracking.py calls wandb.init() with no group=
+        # argument, but wandb reads WANDB_RUN_GROUP from the environment -- verified
+        # end to end on 0.28.1, so no verl patch is needed.
+        #
+        # Set AFTER arm.py's env eval, because that is the step that can swap the
+        # pair for a given arm (a2_coldstart replaces STUDENT_MODEL with its SFT
+        # checkpoint, and the I-axis arms replace TEACHER_MODEL).
+        #
+        # The two defaults are MIRRORED from run_opd_baseline.sh:65-66, which is
+        # where they actually live. If they are changed there and not here, this
+        # label goes stale -- visibly, since the group name would stop matching the
+        # run's own config, but stale all the same. Duplicated rather than sourced
+        # because run_opd_baseline.sh runs from the snapshot and resolves them long
+        # after this point.
+        export WANDB_RUN_GROUP="$(basename "${STUDENT_MODEL:-Qwen/Qwen3-1.7B-Base}")__from__$(basename "${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}")__s${SEED}"
         export TOTAL_TRAINING_STEPS=$LANE_STEPS
         export TEST_FREQ=$LANE_TEST_FREQ
         export SAVE_FREQ=$LANE_SAVE_FREQ

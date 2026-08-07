@@ -41,6 +41,7 @@
 1	m2	c2_quantile_budget	0	pairs with c1 on m4
 1	m2	d1_tip	0
 1	m2	e1_pl_rank	0
+1	m2	b3_eopd_gate	0	promoted from wave 4 2026-08-07: same pair, stock status, and it is the direct read on b2's collapse
 
 1	m3	f2_hard_clip	0	pairs with f1 on m1
 1	m3	g1_verified_only	0
@@ -65,11 +66,11 @@
 # prerequisite that is not met on this fleet. Listed so the manifest stays the whole
 # truth rather than the part that happens to be runnable.
 #
-#   b3_eopd_gate    B axis, adaptive member: routes per token between b1's reverse KL
-#                   (where the teacher is confident) and b2's forward KL (where it is
-#                   spread). Runnable as-is -- same pair, same protocol, stock status.
-#                   Worth running early: b2 collapsed to 0.002 by step 225 in wave 1,
-#                   and b3 uses forward KL only where b2 uses it everywhere.
+#   b3_eopd_gate    PROMOTED to wave 1 on m2 (2026-08-07), into the lane e1_pl_rank
+#                   freed. Same pair, same protocol, stock status -- nothing to wait
+#                   for. Run early because it is the direct read on b2's collapse
+#                   (0.502@100 -> 0.002@225): b3 uses forward KL only where the
+#                   teacher is spread, b2 uses it everywhere.
 #   i0_think_scorer I axis (new), vanilla with the scorer swapped to
 #   i1_priv_cot     Qwen3-4B-Thinking-2507. BLOCKED: that model is not in the shared
 #                   HF cache and HF_HUB_OFFLINE=1 is fleet-wide (the 429 that killed
