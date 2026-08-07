@@ -63,8 +63,17 @@ STEPS=${STEPS:-250}   # fixed horizon (2026-08-06): every arm runs the full 250 
                       # curves share one x-axis; the early-stop rule records, not kills.
                       # f1_soft_log got 150 from the old default here -- needs +100 resume.
 TEST_FREQ=${TEST_FREQ:-25}
-SAVE_FREQ=${SAVE_FREQ:-50}
+SAVE_FREQ=${SAVE_FREQ:-25}   # protocol 3.7 (2026-08-08): a checkpoint every 25 so the
+                             # offline suite can sweep the whole curve; was 50 in the 8k era.
 TAG=${TAG:-}
+
+# Keep ALL ten every-25 checkpoints (user decision 2026-08-08): the official accuracy
+# is now eval_suite.py's post-hoc sweep over saved checkpoints, and verl's retention
+# is newest-N FIFO -- at the old default of 2, a finished run keeps steps 225+250 and
+# the suite has no curve left to measure. 10 x 27G = 270G per 1.7B run against 87T
+# free. Exported HERE, not in _lane.sh: this is also where the disk pre-flight below
+# reads it, so the warning and the behavior cannot disagree.
+export MAX_CKPT_KEEP=${MAX_CKPT_KEEP:-10}
 
 # Ray sizes its object store at DEFAULT_OBJECT_STORE_MEMORY_PROPORTION (0.3) of
 # AVAILABLE host memory -- PER INSTANCE. Each lane starts its own Ray, each sees a
