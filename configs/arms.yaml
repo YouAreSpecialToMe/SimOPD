@@ -171,7 +171,15 @@ arms:
     status: stock
     note: "src/simopd/topk_losses.py. Entropy computed from student_logits in the kernel,
            not model_output['entropy'] -- switching that on via entropy_coeff would add
-           an entropy bonus and contaminate the arm. Needs SIMOPD_KEEP_SAMPLED=1"
+           an entropy bonus and contaminate the arm. Needs SIMOPD_KEEP_SAMPLED=1.
+           AUDIT r5 2026-08-07: soft-OR + plain batch min-max + deterministic top-rho
+           at rho=0.5 all confirmed as the paper's primary configuration; an earlier
+           p98 entropy clip was OUR silent fix of the method's acknowledged outlier
+           sensitivity -- removed. Their repo (HJSang/OPSD) ships uniform-token infra
+           with direct distributional KL; the TIP selector itself is not in the repo,
+           so the paper is the selector's authority. Recorded translations: base
+           objective = protocol's sampled-k1 PG (one-knob discipline: the SELECTOR is
+           the arm), divergence input teacher-top-k truncated, micro-batch population"
     env:
       DISTILLATION_LOSS_MODE: tip_select
       DISTILLATION_TOPK: 32
@@ -184,11 +192,21 @@ arms:
     status: stock
     note: "src/simopd/topk_losses.py, greedy Top-k variant. Retention is data-determined
            here, so unlike d1/d3 it is NOT budget-matched by construction; TAR is logged
-           and the ledger reports the realised budget rather than claiming a match"
+           and the ledger reports the realised budget rather than claiming a match.
+           AUDIT r5 2026-08-07 (paper-only; no official code released): verification
+           window is the paper's default k=5 -- checked against the first five of the
+           rank-ordered teacher payload, NOT the payload width 32, which had tripled
+           the acceptance window and inflated TAR -- and rejected tokens are
+           DOWN-WEIGHTED by their default beta=0.01 rather than masked (V_t in
+           {beta,1} multiplies the loss with full-batch normalization, no
+           selected-count rescale). Objective D is declared KL-family-agnostic in the
+           paper; ours is the protocol's sampled-k1 RKL, a member"
     env:
       DISTILLATION_LOSS_MODE: selectkd_verify
       DISTILLATION_TOPK: 32
       SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_SELECTKD_K: "5"
+      SIMOPD_SELECTKD_BETA: "0.01"
 
   - run_id: d3_teachability
     axis: D
@@ -197,12 +215,22 @@ arms:
     note: "src/simopd/topk_losses.py. Compatibility = teacher mass on the student's top-K,
            computable only over the intersection of the two top-k sets, i.e. a lower
            bound (exact when the student's top-K sits inside the teacher's, which
-           Rethinking reports is the common case). Deviation recorded"
+           Rethinking reports is the common case). Deviation recorded.
+           AUDIT r5 2026-08-07, against paper AND official code (wyy-code/TA-OPD,
+           tip_compat.py): normalization is their shipped default batch_quantile --
+           clip((z-Q05)/(Q95-Q05),0,1) -- not plain min-max; compatibility reads the
+           student's top-16 (their default; paper sweeps 8/16/32); budget set to the
+           paper's recommended 5% (the earlier 0.5 was our budget-matching
+           convenience with d1 -- faithfulness outranks matching, and the ledger
+           reports realised budgets instead). Their code feeds the mask into slime's
+           KL-as-advantage path and the paper explicitly blesses the sampled-token
+           base loss, so our k1-PG base is faithful, not a translation"
     env:
       DISTILLATION_LOSS_MODE: teachability_select
       DISTILLATION_TOPK: 32
       SIMOPD_KEEP_SAMPLED: "1"
-      SIMOPD_D_RETENTION: "0.5"
+      SIMOPD_TEACH_K: "16"
+      SIMOPD_D_RETENTION: "0.05"
 
   # ---- E: in-support objective ----
   - run_id: e1_pl_rank

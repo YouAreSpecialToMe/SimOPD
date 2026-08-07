@@ -111,3 +111,32 @@ CPU 验证:kernel 逐位对拍(raw k1/截断 FKL/固定阈门控)、STASH 项 0.
 ### c2_quantile_budget [自研]
 无外部出处,审计=设计↔实现:分位预算自适应(6/9/12@8)r2 数值精确;直接分支为
 r3 注册的自研选择,LSM 之发现不外推(自研臂的"忠实"即注册文本)。✅
+
+## D 轴(token 选择)—— 三臂全有参数级修正
+
+### d1_tip —— TIP (2604.14084) × 官方库 `HJSang/OPSD_OnPolicyDistillation`
+| 项 | 论文 | 官方库 | 我们(r5 后) | 判定 |
+|---|---|---|---|---|
+| 分数 | soft-OR:s=ĥ+δ̂−ĥδ̂,**纯批级 min-max**(论文自陈离群敏感为局限) | **选择器不在库里**(库=均匀 token 基建 + 直接分布式 KL;另有 entropy 加权 multinomial 工具) | soft-OR + 纯 min-max;**p98 熵裁剪删除**(r5:那是我们替被审方法悄悄修 bug) | ✅ 修正后一致(论文为准) |
+| 选择 | 确定性 top-ρ,**ρ=0.5 主配置** | — | 同 | ✅ |
+| 底损失 | ℒ=1/|T|·Σ D_KL(P_S‖P_T)(分布式直接) | 直接分布式 | 协议采样 k1-PG + 按选中数 rescale(≡1/|T| 归一) | ⚠️ 记录翻译:一臂一旋钮,受审的是**选择器**;归一等价 |
+
+### d2_selectkd —— SelecTKD (2510.24021),无官方码(截至 2026-08-07)
+| 项 | 论文 | 我们 r5 前 | r5 后 |
+|---|---|---|---|
+| 接受规则 | student argmax ∈ teacher top-**k=5**(默认且消融最优) | ∈ top-**32**(载荷宽度,窗宽 6×,TAR 虚高) | ✅ 前 5 列(载荷有序,可切片) |
+| 拒绝 token | **β=0.01 降权**(默认;掩码是变体) | 硬掩码 + rescale | ✅ V_t∈{β,1} 直乘,全批归一,无 rescale |
+| 目标 D | KL 族不限(KL/RKL/SKL/SRKL) | 采样 k1 RKL | ✅ 族内成员(声明) |
+| Spec-k 变体 | 学生采 k 个候选按 min(1,p/q) 验收 | 未实现 | 声明未实现(greedy 变体臂) |
+
+### d3_teachability —— TA-OPD (2605.26844) × 官方库 `wyy-code/TA-OPD`(tip_compat.py)
+| 项 | 论文+官方码 | 我们 r5 前 | r5 后 |
+|---|---|---|---|
+| 归一 | **batch_quantile 默认:clip((z−Q05)/(Q95−Q05),0,1)**(码:`opd_metric_q_low/high`=0.05/0.95;min-max 只是备选) | 纯 min-max | ✅ `_robust_norm` |
+| 兼容性 | teacher 质量落在 student **top-16**(默认;扫 8/16/32);码 `Cmass=Σ t_probs[s_ids]` | student top-32 | ✅ top-16(SIMOPD_TEACH_K);交集下界告诫保留 |
+| 预算 | **论文推荐 5%**(其多 seed 聚合脚本名即 ratio005;码内框架默认 1.0=不选) | 50%(与 d1 预算对齐的自选) | ✅ 0.05 —— 忠实优先于配平,账本报实际预算 |
+| 底损失 | 码走 slime 的 KL-as-advantage(PG);**论文明文认可采样位 k1 形式** | 采样 k1-PG | ✅ **忠实,非翻译** |
+
+CPU 验证:_robust_norm 手算、d2 β 权重直乘 + TAR@5<TAR@载荷宽(窗变严实证)、
+d3 5% 预算 + 按选中数 rescale、d1 无裁剪 minmax,全部逐位对拍;shadow 面板适配
+selectkd 的权重集(≥1 为其集合)。

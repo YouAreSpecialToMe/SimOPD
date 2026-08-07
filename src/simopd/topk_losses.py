@@ -342,6 +342,10 @@ def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
     for name, fn in (("tip", _tip_score), ("teach", _teachability_score),
                      ("selectkd", _selectkd_score)):
         keep, _ = fn(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids)
+        # selectkd returns weights in {beta, 1} since audit r5; its SET, for
+        # redundancy comparison, is the fully-supervised tokens.
+        if keep.dtype.is_floating_point:
+            keep = keep >= 1.0
         masks[name] = keep
         out[f"shadow_{name}"] = keep.float()
     names = list(masks)
@@ -516,13 +520,24 @@ def _d_axis_kernel(score_fn, extra_fn=None):
         raw = _weighted_sampled_token_loss(
             student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
         )
-        losses = _rescale_selection(raw, keep)
+        # Two selector families (audit r5): boolean masks are rescaled by selected
+        # count -- both TIP's and TA-OPD's losses normalize over SELECTED tokens, and
+        # without the rescale a selector is indistinguishable from a learning-rate
+        # cut. Float weights (SelecTKD's V_t in {beta, 1}) multiply the loss as-is:
+        # their sum_t V_t * D_t keeps full-batch normalization, and rescaling would
+        # un-do the very down-weighting under audit.
+        if keep.dtype.is_floating_point:
+            losses = raw * keep
+            selected = (keep >= 1.0).float()
+        else:
+            losses = _rescale_selection(raw, keep)
+            selected = keep.float()
 
         out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
         if SHADOW_ENABLED:
             out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
         out["distillation_losses"] = losses
-        out["d_selected_frac"] = keep.float()
+        out["d_selected_frac"] = selected
         out["d_sampled_missing"] = (~finite).float()
         out.update(diag)
         return out
@@ -530,47 +545,77 @@ def _d_axis_kernel(score_fn, extra_fn=None):
     return kernel
 
 
-def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
-    """TIP 2604.14084: soft-OR of student entropy and teacher-weighted divergence.
+# Audit r5, against each paper's own defaults and (where released) official code:
+# SelecTKD verifies against the teacher's top-5, not the payload width, and its
+# rejected tokens are DOWN-WEIGHTED (beta=0.01 default), not masked; TA-OPD
+# normalizes with a Q05/Q95 robust clip (tip_compat.py: opd_metric_q_low/high
+# default 0.05/0.95), reads compatibility over the student's top-16, and its paper
+# recommends a 5% budget (set in the arm's env, not here).
+SELECTKD_K = int(os.environ.get("SIMOPD_SELECTKD_K", "5"))
+SELECTKD_BETA = float(os.environ.get("SIMOPD_SELECTKD_BETA", "0.01"))
+TEACH_K = int(os.environ.get("SIMOPD_TEACH_K", "16"))
 
-    s = h_hat + d_hat - h_hat*d_hat on min-max normalised inputs, with the top 2%
-    of entropy clipped within the batch, then the top D_RETENTION fraction kept.
-    """
+
+def _robust_norm(x):
+    """TA-OPD's batch-relative robust scaling: clip((z - Q05)/(Q95 - Q05), 0, 1).
+
+    Their tip_compat.py default ('batch_quantile'); plain min-max is the fallback
+    they ship but not the shipped default. Same micro-batch-population caveat as
+    _minmax."""
+    flat = x.float().flatten()
+    lo = torch.quantile(flat, 0.05)
+    hi = torch.quantile(flat, 0.95)
+    return ((x - lo) / (hi - lo).clamp_min(1e-8)).clamp(0.0, 1.0)
+
+
+def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
+    """TIP 2604.14084: soft-OR of student entropy and teacher-student divergence.
+
+    s = h_hat + d_hat - h_hat*d_hat on plain min-max normalised inputs, top
+    D_RETENTION fraction kept (0.5 = the paper's primary configuration). An
+    earlier version clipped entropy at p98 first; the paper specifies plain
+    min-max and even names its outlier sensitivity as a limitation, so the clip
+    was this repo quietly fixing the audited method -- removed (audit r5). The
+    divergence is teacher-top-k truncated (recorded; teacher_mass quantifies)."""
     h = _student_entropy(student_log_probs)
-    h_clip = torch.quantile(h.float().flatten(), 0.98)
-    h = h.clamp(max=h_clip)
-    delta = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)  # forward divergence at this token
+    delta = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
     h_n, d_n = _minmax(h), _minmax(delta)
     score = h_n + d_n - h_n * d_n
     return _topk_by_score(score, D_RETENTION), {"tip_entropy_mean": h}
 
 
 def _selectkd_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
-    """SelecTKD 2510.24021 (greedy Top-k): the student proposes its top-1, the
-    teacher verifies by whether that token is inside its own top-k.
+    """SelecTKD 2510.24021 (greedy Top-k variant): the student proposes its top-1,
+    the teacher verifies membership in its own top-k -- k = the paper's default 5,
+    checked against the FIRST five of the rank-ordered payload, not all 32 (audit
+    r5: verifying against the payload width tripled the effective acceptance
+    window and would have inflated TAR).
 
-    Unlike the other two D-axis selectors this arm's retention is data-determined,
-    not tunable, so it is not budget-matched with them by construction. The
-    acceptance rate (the paper's TAR) is logged so the ledger can report the
-    realised budget instead of pretending it matches.
-    """
+    Rejected tokens are down-weighted by beta=0.01 (their stated default), not
+    masked: V_t in {beta, 1} multiplies the base loss directly, with no
+    selected-count rescale -- their L = sum_t V_t * D_t keeps the full-batch
+    normalization. Retention is data-determined; TAR is logged."""
     student_top1 = stu_topk_ids[..., :1]
-    accepted = (t_id == student_top1).any(dim=-1)
-    return accepted, {"selectkd_tar": accepted.float()}
+    accepted = (t_id[..., :SELECTKD_K] == student_top1).any(dim=-1)
+    weights = torch.where(accepted, 1.0, SELECTKD_BETA).to(student_log_probs.dtype)
+    return weights, {"selectkd_tar": accepted.float()}
 
 
 def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids):
-    """Teachability 2605.26844: s = disagreement x compatibility.
+    """TA-OPD 2605.26844: s = disagreement x compatibility, Q05/Q95-normalized.
 
-    Compatibility is the teacher's probability mass on the student's top-K. The
-    teacher only reports its own top-k, so this is the mass on the intersection --
-    a lower bound, exact whenever the student's top-K sits inside the teacher's,
-    which Rethinking reports is the common case. Recorded as a deviation.
-    """
+    Compatibility is the teacher's mass on the student's top-K, K=16 (their
+    default; the paper sweeps 8/16/32). The teacher only reports its own top-k,
+    so this is the mass on the intersection -- a lower bound, exact whenever the
+    student's top-16 sits inside the teacher's top-32, which Rethinking reports
+    is the common case. Recorded as a deviation. The arm's budget lives in its
+    env (paper-recommended 5%), and the paper explicitly blesses the
+    sampled-token base loss this kernel family uses."""
     disagreement = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
-    in_student_topk = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)
+    stu_topK = stu_topk_ids[..., :TEACH_K]
+    in_student_topk = (t_id.unsqueeze(-1) == stu_topK.unsqueeze(-2)).any(dim=-1)
     compatibility = (t_lp.exp() * in_student_topk).sum(dim=-1)
-    score = _minmax(disagreement) * _minmax(compatibility)
+    score = _robust_norm(disagreement) * _robust_norm(compatibility)
     return _topk_by_score(score, D_RETENTION), {"teach_compatibility": compatibility}
 
 
