@@ -38,7 +38,12 @@ import time
 from datetime import datetime, timezone
 
 STEP_RE = re.compile(r"step:(\d+) - (.*)")
-KV_RE = re.compile(r"([\w/@\-.]+):(?:np\.float64\()?(-?[\d.eE+]+)\)?")
+# The value pattern must accept a NEGATIVE exponent. `[\d.eE+]+` has no `-` after
+# its first character, so it captures "2.5253701702846836e" out of "...e-05"; the
+# float() below then raises and the `except` hands back None. The metric does not
+# appear wrong, it appears ABSENT -- and delta_ell_p50, which sits near zero, is
+# written in that form on most steps.
+KV_RE = re.compile(r"([\w/@\-.]+):(?:np\.float64\()?(-?\d*\.?\d+(?:[eE][+-]?\d+)?)\)?")
 RUN_RE = re.compile(r"#+ RUN: (\S+) #+")
 # verl prints this once initialisation is done. What follows, with val_before_train
 # on, is a full MATH500 validation that emits nothing until it finishes -- 500

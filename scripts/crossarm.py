@@ -27,12 +27,37 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 RUN_RE = re.compile(r"#+ RUN: (\S+) #+")
 STEP_RE = re.compile(r"step:(\d+) - (.*)")
-VAL_RE = re.compile(r"val-core/\S+?/acc/mean@1:(?:np\.float64\()?(-?[\d.eE+]+)")
+VAL_RE = re.compile(r"val-core/\S+?/acc/mean@1:(?:np\.float64\()?" + r"(-?\d*\.?\d+(?:[eE][+-]?\d+)?)")
+
+
+# A float, INCLUDING a negative exponent. `[\d.eE+]+` -- the obvious spelling, and
+# the one watch.py uses -- has no `-` after the first character, so it eats
+# "2.5253701702846836e" out of "...e-05" and stops. delta_ell_p50 sits near zero
+# and is routinely written that way, so this is not an edge case.
+NUM = r"(-?\d*\.?\d+(?:[eE][+-]?\d+)?)"
 
 
 def num(blob, key):
-    m = re.search(re.escape(key) + r":(?:np\.float64\()?(-?[\d.eE+]+)", blob)
+    m = re.search(re.escape(key) + r":(?:np\.float64\()?" + NUM, blob)
     return float(m.group(1)) if m else None
+
+
+def signal(blob, stat):
+    """The per-token signal panel, whichever name this arm reports it under.
+
+    METRICS.md §3 forbids the two from sharing a key: only the k1 family's loss
+    equals -Delta-ell, so C/E-axis arms (a divergence, or a rank loss) publish
+    loss_* and never delta_ell_*. Reading only delta_ell_* therefore prints "-"
+    for precisely the arms whose signal is most worth seeing -- and an empty cell
+    reads as "not measured" rather than "measured under the other name".
+
+    Returned with the family, because the two columns are NOT comparable across
+    it: -0.5 of Delta-ell and 0.5 of a KL are different quantities.
+    """
+    v = num(blob, f"actor/distillation/delta_ell_{stat}")
+    if v is not None:
+        return v, "dl"
+    return num(blob, f"actor/distillation/loss_{stat}"), "loss"
 
 
 def collect(log_dir):
@@ -64,13 +89,16 @@ def collect(log_dir):
                         continue
                     step, blob = int(m.group(1)), m.group(2)
                     v = VAL_RE.search(blob)
+                    absmean, fam = signal(blob, "absmean")
+                    p5, _ = signal(blob, "p5")
                     arms[current][step] = {
                         "val": float(v.group(1)) if v else None,
                         "entropy": num(blob, "actor/entropy"),
                         "len": num(blob, "response_length/mean"),
                         "clip": num(blob, "response_length/clip_ratio"),
-                        "dl_absmean": num(blob, "actor/distillation/delta_ell_absmean"),
-                        "dl_p5": num(blob, "actor/distillation/delta_ell_p5"),
+                        "absmean": absmean,
+                        "p5": p5,
+                        "fam": fam,
                         "loss_max": num(blob, "actor/distillation/loss_max"),
                         "sit": num(blob, "timing_s/step"),
                     }
@@ -80,21 +108,27 @@ def collect(log_dir):
 
 
 def fmt(x, spec):
-    return format(x, spec) if x is not None else "-"
+    # Pad the placeholder to the field width too: an unpadded "-" shifts every
+    # column to its right, turning one missing cell into a whole misread row.
+    width = int(re.search(r"(\d+)", spec).group(1))
+    return format(x, spec) if x is not None else format("-", f">{width}")
 
 
 def table(arms, step):
     print(f"\n=== all arms @ step {step} ===")
     print(f"{'arm':<26}{'val':>7}{'entropy':>9}{'len':>7}{'clip':>7}"
-          f"{'|dl|':>7}{'dl_p5':>8}{'lossmax':>9}{'s/it':>7}")
+          f"{'sig|x|':>8}{'sig_p5':>9}{'lossmax':>9}{'s/it':>7}  kind")
     for name in sorted(arms):
         r = arms[name].get(step)
         if not r:
             continue
         print(f"{name:<26}{fmt(r['val'], '>7.3f')}{fmt(r['entropy'], '>9.3f')}"
               f"{fmt(r['len'], '>7.0f')}{fmt(r['clip'], '>7.3f')}"
-              f"{fmt(r['dl_absmean'], '>7.3f')}{fmt(r['dl_p5'], '>8.2f')}"
-              f"{fmt(r['loss_max'], '>9.1f')}{fmt(r['sit'], '>7.1f')}")
+              f"{fmt(r['absmean'], '>8.3f')}{fmt(r['p5'], '>9.2f')}"
+              f"{fmt(r['loss_max'], '>9.1f')}{fmt(r['sit'], '>7.1f')}  {r['fam']}")
+    print("  kind: dl = the signal IS -Delta-ell (k1 family); loss = a divergence or "
+          "rank loss (C/E axes).\n        Those two columns do not compare across "
+          "kinds -- METRICS.md §3 keeps the key names disjoint for this reason.")
 
 
 def main():
