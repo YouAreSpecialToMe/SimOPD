@@ -155,3 +155,17 @@
 2	m10	g2_fire_likelihood	2
 2	m11	h1_first_segment	1
 2	m10	h1_first_segment	2
+
+# ---- wave 5: the 16k protocol batch (2026-08-08) -------------------------------
+# Every runnable arm x 3 seeds under pin 0778c54: cap 16,384, token-len 17408
+# (single-lane probe on m1 2026-08-08: 3 steps, peak 34.8G, responses reached the
+# full cap, no OOM), SAVE_FREQ=25 x MAX_CKPT_KEEP=10 so eval_suite.py has the whole
+# curve, TAG=16k via .campaign/BATCH_TAG -- which suffixes run names, checkpoint
+# dirs, log names AND the wandb group (...__16k__s<seed>), so nothing collides with
+# the 8k pilot batch. Row->name matching in campaign.sh carries the tag for the
+# same reason.
+# PHASED (user 2026-08-08): vanilla x3 first, one seed per box; the remaining rows
+# join only after it passes its early steps healthy.
+5	m1	vanilla	0	16k batch canary, seed spread across boxes
+5	m3	vanilla	1
+5	m15	vanilla	2

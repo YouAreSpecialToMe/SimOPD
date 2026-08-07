@@ -117,7 +117,14 @@ for entry in $LANE_RUNS; do
         _short() { local q="${1%/}"; q="${q%/hf}"; basename "$q"; }
         _stu=$(_short "${STUDENT_MODEL:-Qwen/Qwen3-1.7B-Base}")
         _tch=$(_short "${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}")
-        export WANDB_RUN_GROUP="${_stu}__from__${_tch}__s${SEED}"
+        # Batch marker in the GROUP (2026-08-08): the 16k protocol reruns land in
+        # the same pair x seed cell as the 8k pilot runs, and a group that cannot
+        # tell them apart averages two protocols into one folder. Default to
+        # LANE_TAG (the same marker that already keeps run names and checkpoint
+        # dirs apart), overridable via WANDB_GROUP_SUFFIX -- explicitly EMPTY for
+        # the W cell, whose three existing runs predate suffixed groups.
+        _gsuf=${WANDB_GROUP_SUFFIX-${LANE_TAG:-}}
+        export WANDB_RUN_GROUP="${_stu}__from__${_tch}${_gsuf:+__${_gsuf}}__s${SEED}"
         # job_type and tags are the SECOND grouping axis, free: wandb lets you
         # regroup by either in the UI without touching a run. job_type is the arm,
         # so "group by job_type" gives seed-spread per method -- the stability view,
@@ -136,7 +143,7 @@ for entry in $LANE_RUNS; do
             vanilla) _axis=baseline ;;
             *)       _axis="axis$(printf '%s' "${ARM:0:1}" | tr '[:lower:]' '[:upper:]')" ;;
         esac
-        export WANDB_TAGS="${ARM},${_axis},seed${SEED},${_stu}__from__${_tch}"
+        export WANDB_TAGS="${ARM},${_axis},seed${SEED},${_stu}__from__${_tch}${_gsuf:+,${_gsuf}}"
         export TOTAL_TRAINING_STEPS=$LANE_STEPS
         export TEST_FREQ=$LANE_TEST_FREQ
         export SAVE_FREQ=$LANE_SAVE_FREQ

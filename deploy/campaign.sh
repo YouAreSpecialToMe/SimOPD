@@ -24,6 +24,17 @@ SIMOPD_ROOT=${SIMOPD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 cd "$SIMOPD_ROOT"
 MANIFEST=${MANIFEST:-configs/campaign.tsv}
 LOG_DIR=${LOG_DIR:-$SIMOPD_ROOT/logs}
+# The protocol-batch tag. Resolved HERE, before any row->name matching: a row's
+# log name is "${arm}_s${seed}_${TAG}" once a tag is set, and matching without it
+# would let the 8k pilot's "vanilla_s0 -> OK" mark the 16k rerun of the same row
+# as already done -- silently, fleet-wide, via the shared logs/ directory.
+TAG="${TAG:-$(cat "${CLAIM_DIR:-.campaign}/BATCH_TAG" 2>/dev/null || true)}"
+# A batch tag makes every OLD row look unfinished: wave-1's "vanilla_s0 -> OK" no
+# longer matches the tagged name "vanilla_s0_16k", so without a floor the fleet
+# would quietly re-run its entire pre-16k history -- with each arm's seeds packed
+# on the machines that happened to run them last time. The floor says which waves
+# BELONG to the current batch; rows below it are prior-protocol history, not work.
+BATCH_MIN_WAVE="$(cat "${CLAIM_DIR:-.campaign}/BATCH_MIN_WAVE" 2>/dev/null || echo 0)"
 
 # One value for the whole campaign. 0.55 is the script default and is faster, but a
 # second value makes a second batch, and a second batch needs its own vanilla x3 noise
@@ -378,7 +389,8 @@ fi
 # left nothing for anyone, a side effect a dry run must not have.
 mine=""; pool=""; skipped=""; live=""; retry=""; quarantined=""
 while read -r w m arm s note; do
-    name="${arm}_s${s}"
+    [ "$w" -lt "$BATCH_MIN_WAVE" ] && continue   # prior-batch history, see floor note
+    name="${arm}_s${s}${TAG:+_$TAG}"
     case "$done_ok" in *" $name "*) skipped="$skipped $name(done)"; continue ;; esac
     # needs=<path>: a prerequisite this machine may not have. a2_coldstart pins an SFT
     # checkpoint under /scratch, which exists on no DSW box; unchecked it sorted first
@@ -549,7 +561,7 @@ claimed=""; would=""
 slots=$(( lanes - n_mine ))
 for entry in $pool; do
     [ "$slots" -gt 0 ] || break
-    name="${entry%%:*}_s${entry##*:}"
+    name="${entry%%:*}_s${entry##*:}${TAG:+_$TAG}"
     if [ "$MODE" = dry ]; then
         would="$would $name"
     else
@@ -626,7 +638,7 @@ fi
 
 echo
 env GPU_LIST="$gpu_list" LANES="$lanes" RAY_TMPDIR_TAG="$LAUNCH_TAG" \
-    LOG_DIR="$LOG_DIR/$MACHINE" \
+    LOG_DIR="$LOG_DIR/$MACHINE" TAG="$TAG" \
     STEPS="${STEPS:-250}" TEST_FREQ="${TEST_FREQ:-25}" SAVE_FREQ="${SAVE_FREQ:-25}" \
     bash deploy/dsw/run_parallel.sh "${pending# }" 9>&- 8>&-
 rc=$?
@@ -636,7 +648,7 @@ if [ "$rc" != 0 ] && [ -n "${claimed// /}" ]; then
     # forever while the machine that could run them skips past. (exec was wrong here
     # for exactly this reason: nothing can run after an exec fails downstream.)
     for entry in $claimed; do
-        name="${entry%%:*}_s${entry##*:}"
+        name="${entry%%:*}_s${entry##*:}${TAG:+_$TAG}"
         rm -f "$CLAIM_DIR/claims/$name/owner"
         rmdir "$CLAIM_DIR/claims/$name" 2>/dev/null && echo "released pool claim: $name"
     done
