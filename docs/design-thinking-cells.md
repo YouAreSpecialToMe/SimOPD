@@ -1,0 +1,84 @@
+# 设计:thinking 三格(配置 1 / 2a / 2b)—— 2026-08-06 预注册
+
+> 在任何一格的数据存在之前登记。三格共享一个骨架问题:**主表(非思考)的判决,
+> 有多少能穿过制度边界。** 主表 17 臂协议不动;这里全部是附加格。
+
+## 0. 三点阶梯(同一尺寸、同一家族,只动条件化状态)
+
+```
+L0  vanilla: 1.7B-Base ← 4B-2507(非思考原生)       主表基准,在跑
+L1  = 2a:    1.7B-Base ← 4B-Thinking-2507 素打分     隔离「调法税」
+L2  = 2b:    1.7B-Base ← 4B-Thinking + 私有CoT        隔离「思考内容的监督价值」
+A   = 配置1: 1.7B(hybrid, think ON) ← 4B-Thinking     制度整体切换(附表)
+```
+
+相邻两级之差各回答一个单变量问题;L0→L1→L2 学生侧字节不变。
+
+## 1. 配置 2a(`i0_think_scorer`)—— 零手术
+
+- **定义**:主表 vanilla 协议,唯一改动 `TEACHER_MODEL=Qwen/Qwen3-4B-Thinking-2507`。
+  老师打分时面对无 think 块文本,离开主场分布(机理同 8B 倒置,但同尺寸同代,干净)。
+- **预注册预测(可证伪)**:i0 劣于 L0 —— 天花板数据的延伸。若反而优,单独成一节。
+- **规模**:vanilla+c1+f1 × 1 seed(它是 L2 的对照,不需要全 17 臂)。
+- **登记**:arms.yaml `i0_think_scorer`(I 轴:teacher conditioning),status: stock。
+- **前置**:P1 测量(见 §4)。
+
+## 2. 配置 2b(`i1_priv_cot`)—— 中等手术,本文档即手术设计稿
+
+**定义**:i0 + 每题一段离线预生成的老师私有 think 块,打分时拼进老师自己的上下文。
+学生看不见任何字;唯一新旋钮(相对 i0)= 私有 CoT 的有无。
+
+### 2.1 预生成(`scripts/gen_priv_cot.py`,待写,~60 行)
+
+- 老师 4B-Thinking、think ON、每题 1 条,think 段截到 4096 token;
+  输出 parquet:`prompt_hash → cot_token_ids`(以学生 tokenizer 的 id 存,见 2.2)。
+- 跑一次缓存复用(12,478 题 × ~2k think token,2 卡数小时,cornell)。
+- **纪律辨析(要写进 paper)**:老师的 CoT 常含最终答案 —— 这是设计意图
+  (判卷人心里有数),且与 g1 的红线不冲突:红线是"verifier 答案不进**训练输入**",
+  此处答案只进**老师的条件化**,即监督信号的构造,学生输入零污染。
+
+### 2.2 注入点(手术)
+
+- **位置**:teacher 打分请求的构造处(`vllm_async_server` 一侧,`teacher_patch` 同一
+  模块 —— 复用其 sitecustomize 挂载与 loud-fail 纪律)。请求序列由
+  `[prompt_ids | response_ids]` 变为 `[prompt_ids | cot_ids | response_ids]`。
+- **对齐方案**:response 段 logprob 的抽取按**尾部长度**切(`lps[-len(response):]`,
+  informativeness.py 已验证的同一手法),对前缀长度天然不敏感 —— 预期**不需要**改
+  抽取端;此假设列为验证项 V2。
+- **开关**:`SIMOPD_PRIV_COT=<parquet路径>`(空 = 完全不挂钩)。经 SIMOPD_* 通道
+  自动入指纹。
+- **验证清单(动刀后、入列前)**:
+  - V1 同一 rollout 带/不带前缀打分,logprob 必须不同(注入生效);
+  - V2 尾部对齐:构造已知 token,带前缀打分的 response 段逐位对上无前缀版的位置;
+  - V3 K+1 采样列(teacher_patch)在偏移下仍抓对 token id;
+  - V4 一次 3-step 彩排,面板数值合理。
+- **登记**:arms.yaml `i1_priv_cot`,status: **needs**(seam = 本节手术 + 预生成)。
+
+## 3. 配置 1(Annex-Think)—— 附表,S 波释放后
+
+- **cell**:`Qwen3-1.7B(hybrid)+ enable_thinking=True ← 4B-Thinking-2507`,16k 上限。
+- **偏离台账(附表自带)**:学生是后训练混合模型(非 Base)—— 起点语义不同,
+  这是"学生必须会开 think 块"的必然代价,声明而非隐藏。
+- **run-defining 改动(届时一次 repin)**:`run_opd_baseline.sh` 的
+  `enable_thinking=False` 硬编码改为 `${ENABLE_THINKING:-False}` 并入指纹;
+  preflight 的 think 块检查按 regime 分叉。
+- **规模**:vanilla_think ×2 seeds + c1 + f1 + b3 + 最佳D臂 = 7 runs @16k(~14 卡,3–4 天)。
+- **读法**:逐臂"判决是否翻转"表 —— 尤其 c1(长度机制在 think 制度下更烈,
+  无-Mode-A 若复现即跨制度规律)。
+
+## 4. 前置测量 P1(cornell,依赖链接在 coldstart 之后)
+
+| 任务 | 量什么 | 用途 |
+|---|---|---|
+| P1a(1卡) | 4B-Thinking:think@16k 与 非思考@8k 两条天花板;hybrid-1.7B think@16k 零点 | i0/i1 的 D6 行;附表 step-0 锚 |
+| P1b(1卡) | 14B 非思考天花板 + D6 | 教师阶梯第 4 点 |
+| P1c(2卡, tp2) | 32B 非思考天花板 | 阶梯上端;顺带显存冒烟 |
+
+## 5. 预算与排期(并入 100 卡计划)
+
+```
+现在        P1a/b/c 入 cornell 队列(几 GPU 时,零训练卡)
+Wave U      i0 三连(6 卡)+ 8B 档(Wave T)同批
+i1 手术     设计稿(本文档)→ 动刀 ~1 天 → V1–V4 → 预生成 → 入列(6 卡)
+Annex       S 波让卡后(~14 卡,3–4 天)
+```

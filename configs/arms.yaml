@@ -217,6 +217,34 @@ arms:
       DISTILLATION_LOSS_MODE: k1_fire_gate
       SIMOPD_FIRE_DROP_FRAC: "0.2"
 
+  # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
+  - run_id: i0_think_scorer
+    axis: I
+    desc: "thinking-tuned teacher scoring non-thinking text (the 'confiscated scratchpad' control)"
+    status: stock
+    note: "L1 of the conditioning ladder: identical to vanilla except the scorer is
+           4B-Thinking-2507, same size and generation as the mainline teacher, so the
+           tuning effect is isolated from scale. Pre-registered falsifiable prediction:
+           WORSE than vanilla (the 8B-inversion mechanism, cleanly). Held for Wave U
+           until P1a measures its ceilings"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      TEACHER_MODEL: Qwen/Qwen3-4B-Thinking-2507
+
+  - run_id: i1_priv_cot
+    axis: I
+    desc: "thinking teacher scores WITH its own precomputed think block in-context; student sees only probabilities"
+    status: needs
+    seam: "surgery per design-thinking-cells.md sec 2.2: inject cached cot_ids into the
+           teacher scoring request between prompt and response; tail-length extraction
+           expected offset-invariant (verification V1-V4 before enlistment); plus the
+           one-off gen_priv_cot.py precompute. The knob RELATIVE TO i0 is the private
+           CoT alone -- i0 is this arm's control, not vanilla"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      TEACHER_MODEL: Qwen/Qwen3-4B-Thinking-2507
+      SIMOPD_PRIV_COT: /mnt/workspace/simopd_data/priv_cot/train_cot.parquet
+
   # ---- H: sequence horizon ----
   - run_id: h1_first_segment
     axis: H

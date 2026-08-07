@@ -128,6 +128,12 @@ teacher 似然过滤 (FiRe-OPD 2606.02684)。
 > 登记说明:h1 于 2026-08-05 进入 `configs/arms.yaml` 时未同步修订本计划,
 > §2 标题一直写着"7 轴"。此为文档滞后,非新增臂 —— 修正而非修订。
 
+### 轴 I — teacher conditioning(2026-08-06 预注册增补;设计稿 docs/design-thinking-cells.md)
+素打分(i0:thinking 老师被没收草稿纸)/ **带私有 CoT 打分(i1:老师先做一遍再判卷)**。
+三点阶梯 L0(vanilla)→L1(i0)→L2(i1) 同尺寸同族,相邻差各答一个单变量问题;
+学生侧字节不变,主表可比性无损。i1 待手术 + 预生成(V1–V4 验证清单)。
+配置 1(双 thinking 附表 Annex-Think)另册:7 runs @16k,S 波后。
+
 ### 固定约定(不进比赛)
 特殊 token 掩码、n=1 题目多样性(Demystifying 已判)、top-p rollout 采样。
 
