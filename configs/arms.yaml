@@ -385,7 +385,18 @@ arms:
     note: "src/simopd/losses.py; generation is NOT truncated -- the rollout-truncation
            form changes the sampling distribution and would confound with axis A.
            K via SIMOPD_FIRST_SEGMENT_K; this arm intentionally cuts the supervision
-           budget (that is its claim), so the ledger reports rather than matches it"
+           budget (that is its claim), so the ledger reports rather than matches it.
+           AUDIT r5 2026-08-07 (paper-only; no code released): ESR's default is
+           N=100, robust across their tested 50-200 -- our earlier 512 sat far
+           outside that range and, against this tier's response lengths, barely cut
+           anything: the arm was near-inert and its claim untested. K=100 imports
+           their default literally (the audit's convention, as with d3's 5% and
+           SelecTKD's k=5); firstseg_covered_frac reports what fraction it covers
+           HERE, since their N/teacher-median was ~9% and length contexts differ.
+           Also confirmed: they never test a loss-mask variant (their Sec 5.3
+           alternatives are token-selection rules), so this arm's fixed-distribution
+           form is our declared transformation, testing supervision locality WITHOUT
+           their rollout-cost/distribution change"
     env:
       DISTILLATION_LOSS_MODE: k1_firstseg
-      SIMOPD_FIRST_SEGMENT_K: "512"
+      SIMOPD_FIRST_SEGMENT_K: "100"

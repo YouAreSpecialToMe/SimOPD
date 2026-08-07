@@ -49,6 +49,7 @@ DEFAULT_STALE = [
     "d1_tip_s0",              # pre-r5 selector params (p98 clip)
     "d2_selectkd_s0",         # pre-r5: top-32 window, hard mask
     "d3_teachability_s0",     # pre-r5: min-max, 50% budget, top-32 compat
+    "h1_first_segment_s0",    # pre-r5: K=512 near-inert vs ESR's N=100
 ]
 
 # campaign.sh's exact grammar (grep -oE, PREFIX match): the real lines are
