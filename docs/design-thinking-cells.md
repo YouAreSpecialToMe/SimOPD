@@ -158,3 +158,8 @@ val = MATH500-sub100(曲线形状用),判决量一律出自 final ckpt 离线 AI
 **测量清单**:P1a(4B-T 双模式 + 学生零点)、P1-AIME(三模型 AIME,含 8B-think)、
 P1-8BT(8B-think MATH500,补 2×2)—— 全部入 cornell 队列;artifacts 落地后
 `d6_matrix.py` 出 thinking 版逐题矩阵(CPU)。
+
+**§2 补遗(2026-08-06,干跑发现)**:`-Thinking-2507` 系模板无闭合块模式 ——
+`enable_thinking=False` 仍渲染开放 `<think>\n`。两个后果入档:(i) 锚点/打分序列
+必须且只能用**学生**模板构造(与"老师在学生模板打分"的协议自洽,现已在
+gen_priv_cot 中强制);(ii) i0(素打分)不受影响 —— 打分序列本就是学生模板。

@@ -56,6 +56,12 @@ def prefix_hash(ids):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--teacher", default="Qwen/Qwen3-4B-Thinking-2507")
+    p.add_argument("--student", default="Qwen/Qwen3-1.7B-Base",
+                   help="the scoring sequence lives in the STUDENT's template (protocol); "
+                        "prefixes are built with this tokenizer. The teacher's template is "
+                        "used only to GENERATE the scratchpad -- the -Thinking-2507 line "
+                        "renders an OPEN think block regardless of enable_thinking, so it "
+                        "has no empty-block anchor to swap at all")
     p.add_argument("--train-parquet", default=os.path.expanduser("~/data/simopd_math/train.parquet"))
     p.add_argument("--out", default=os.path.expanduser("~/data/simopd_math/priv_cot.parquet"))
     p.add_argument("--think-cap", type=int, default=4096)
@@ -67,7 +73,9 @@ def main():
     import pandas as pd
     from transformers import AutoTokenizer
 
-    tok = AutoTokenizer.from_pretrained(a.teacher)
+    tok = AutoTokenizer.from_pretrained(a.student)
+    tok_t = AutoTokenizer.from_pretrained(a.teacher)
+    assert tok.vocab_size == tok_t.vocab_size, "shared vocab is the protocol precondition"
     df = pd.read_parquet(a.train_parquet)
     if a.limit:
         df = df.iloc[: a.limit]
@@ -84,8 +92,8 @@ def main():
     else:
         from vllm import LLM, SamplingParams
 
-        open_texts = [tok.apply_chat_template([{"role": "user", "content": c}], tokenize=False,
-                                              add_generation_prompt=True, enable_thinking=True)
+        open_texts = [tok_t.apply_chat_template([{"role": "user", "content": c}], tokenize=False,
+                                                add_generation_prompt=True)
                       for c in contents]
         llm = LLM(model=a.teacher, gpu_memory_utilization=a.gpu_mem_util,
                   max_model_len=a.think_cap + 1536, seed=0)
