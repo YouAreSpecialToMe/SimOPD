@@ -346,6 +346,13 @@ arms:
       ROLLOUT_N: "8"
       TRAIN_BATCH_SIZE: "32"
       PPO_MINI_BATCH_SIZE: "32"
+      # 4-card lane (2026-08-07): actor DP-2 + two rollout engines + two teacher
+      # replicas halves the ~35-50h wall-clock to ~18-27h. BOTH cell arms share
+      # the shape (cell-internal comparability) and topology is fingerprinted
+      # (ngpus/tws fields). Launch on a GPUS_PER_RUN=4 daemon/box; a 2-card lane
+      # fails loudly at Ray placement, never silently.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: j1_kdrl
     axis: J
@@ -371,6 +378,9 @@ arms:
       ROLLOUT_N: "8"
       TRAIN_BATCH_SIZE: "32"
       PPO_MINI_BATCH_SIZE: "32"
+      # 4-card lane, same shape as vanilla_n8 (see its note); topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: g2_fire_likelihood
     axis: G

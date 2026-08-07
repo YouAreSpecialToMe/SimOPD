@@ -592,9 +592,17 @@ echo "  pending     ${pending:- none}"
 [ -n "${pending// /}" ] || [ "$MODE" = control ] || { echo; echo "nothing this machine can start right now."; exit 0; }
 
 gpu_list=""
+# Groups of GPUS_PER_RUN, not hardcoded pairs (audit 2026-08-07 latent item): the
+# n8 cell runs 4-card lanes (NGPUS_PER_NODE=2 + TEACHER_WORLD_SIZE=2) on a
+# dedicated GPUS_PER_RUN=4 daemon; run_parallel passes each comma-group verbatim
+# to CUDA_VISIBLE_DEVICES, so any width flows through.
 for i in $(seq 0 $((lanes - 1))); do
-    a=$(( i * 2 + 1 )); b=$(( i * 2 + 2 ))
-    gpu_list="$gpu_list ${!a},${!b}"
+    grp=""
+    for j in $(seq 1 "$GPUS_PER_RUN"); do
+        idx=$(( i * GPUS_PER_RUN + j ))
+        grp="$grp,${!idx}"
+    done
+    gpu_list="$gpu_list ${grp#,}"
 done
 gpu_list="${gpu_list# }"
 _n_real=$(set -- $pending; echo $#)

@@ -27,7 +27,8 @@
 
 **现役 pair(2026-08-07 裁定):仅 Qwen3-1.7B-Base ← 4B-Instruct-2507(主表)。**
 教师阶梯(§2)其余各档与学生侧候选(§3)一律暂停,复启=dated amendment。
-预算:S 波 54 runs ≈ 108 卡首发(n8 cell 长跑另计);~~原 S+T 同发算术~~ 作废。
+预算:S 波 54 runs 全并行 = 常规 48×2 + **n8 cell 6×4(4 卡泳道,~18–27h,墙钟入列)**
+= **120 卡**;a1 入列 +6 = 126;建议再留 2–4 卡滚动跑 suite 扫描。~~原 S+T 同发算术~~ 作废。
 
 ## 2. 教师阶梯(全部候选与取舍,一次说完)
 
@@ -155,7 +156,7 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 3. `REASON="final audit + 16k batch" bash deploy/campaign.sh --repin`
 4. **主表 16k probe**:单泳道 `STEPS=50` 控制跑,验 17,408 token 预算显存 + 步时基线
    (顺带用 `VAL_BEFORE_TRAIN=True` 铸 16k 步-0 锚)
-5. probe 绿 → daemon 放开,S 波发车(18 臂 ×3 seeds;vanilla_n8/j1 长跑另计)
+5. probe 绿 → daemon 放开,S 波发车(常规 16 臂×3 走 2 卡 daemon;**n8 两臂×3 改派专用 GPUS_PER_RUN=4 机器**,连带自己的 4 卡 probe 一次)
 6. **cornell**:重提 a1 预生成(全前缀键版 gen_offpolicy)与 a2 冷启动
    (新数据集 + seeded 保留;两个 8k 陈旧 job 已于 2026-08-07 撤销)
 7. 第一个 16k run 完成 → `eval_suite.py sweep` 首扫(GPU 全链路首验)
