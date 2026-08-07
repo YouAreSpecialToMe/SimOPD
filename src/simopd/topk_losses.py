@@ -754,6 +754,98 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
 # (filter, per-trajectory weight normalization) need sequence boundaries, which exist
 # only in the padded view, so they live in the registry post-processor.
 JSD_BETA = float(os.environ.get("SIMOPD_JSD_BETA", "0.5"))
+PI_TAIL_EPS = float(os.environ.get("SIMOPD_PI_TAIL_EPS", "0.05"))
+
+
+def compute_intersection_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """C axis, c3 (supplement): thunlp/OPD's `intersection` support strategy,
+    audited against their dp_actor.compute_distillation_reward (2026-08-07).
+
+    Their form: per-CANDIDATE advantages A = -(S - T) * w over the candidates in
+    both top-k sets, w = student probabilities renormalized over the valid set
+    (their default reward_weight_mode='student_p', normalize=True), then a 3D PPO
+    surrogate summed over candidates -- which their own code reduces, at
+    ppo_epochs=1, to the memory-efficient direct form L = -sum sg(A) * log pi.
+    We implement exactly that reduced form on the DIRECT branch (faithful to
+    their shipped path; the 3D-ratio variant differs only off-policy). The
+    candidate set is symmetric (teacher-topk intersect student-topk), so our
+    teacher-side payload carries every value needed -- no second forward.
+
+    Empty-intersection tokens (overlap 0) contribute zero loss; the realised
+    intersection size is on the overlap panel every top-k arm already logs."""
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    valid = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)      # in both top-ks
+    kl_val = (stu_at_teacher - t_lp).float()                                     # their k1 per candidate
+    w_log = stu_at_teacher.float().masked_fill(~valid, torch.finfo(torch.float32).min)
+    w = torch.softmax(w_log, dim=-1) * valid                                     # student_p renormalized on valid
+    adv = (-kl_val * w).detach()                                                 # their rm_scores, treated constant
+    losses = -(adv * stu_at_teacher.float() * valid).sum(dim=-1)                 # -sum sg(A) * log pi
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    out["c3_inter_size"] = valid.float().sum(dim=-1)
+    return out
+
+
+def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """C axis, c4 [OURS, headline-constructive]: pin the theorem's own quantity.
+
+    The headline says truncated-RKL error = pi(S-bar) * KL(tail conditionals):
+    controlled by the STUDENT's tail mass, while common practice truncates by
+    teacher rank alone. This arm chooses, per token, the SMALLEST prefix of the
+    teacher's rank-ordered top-k whose STUDENT mass reaches 1 - PI_TAIL_EPS --
+    cutting on the student's edge inside the teacher's candidate pool -- then
+    applies c1's renormalized reverse KL on that support (same objective family,
+    DIRECT branch, own registration). If the full pool cannot reach the target,
+    the whole pool is used and c4_eps_missed logs how often. Teacher top-1 is
+    always kept. Realised budget (c4_budget) and realised student tail mass
+    (c4_pi_tail) make the theorem's quantity a first-class logged series."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    pi = stu_at_teacher.float().exp()
+    cum = pi.cumsum(dim=-1)
+    target = 1.0 - PI_TAIL_EPS
+    reached = cum >= target
+    # smallest prefix reaching the target; if never reached, the full pool
+    first = torch.where(reached.any(dim=-1),
+                        reached.float().argmax(dim=-1),
+                        torch.full(reached.shape[:-1], reached.shape[-1] - 1,
+                                   dtype=torch.long, device=reached.device))
+    idx = torch.arange(t_lp.shape[-1], device=t_lp.device)
+    keep = idx <= first.unsqueeze(-1)                                            # top-1 always in
+
+    neg = torch.finfo(torch.float32).min
+    stu_k = stu_at_teacher.float().masked_fill(~keep, neg)
+    tch_k = t_lp.float().masked_fill(~keep, neg)
+    stu_n = stu_k - torch.logsumexp(stu_k, dim=-1, keepdim=True)
+    tch_n = tch_k - torch.logsumexp(tch_k, dim=-1, keepdim=True)
+    stu_n = stu_n.masked_fill(~keep, neg)
+    tch_n = tch_n.masked_fill(~keep, neg)
+    losses = kl_divergence(log_q=tch_n, log_p=stu_n)
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    out["c4_budget"] = keep.float().sum(dim=-1)
+    out["c4_pi_tail"] = (1.0 - (pi * keep).sum(dim=-1)).clamp(0.0, 1.0)
+    out["c4_eps_missed"] = (~reached.any(dim=-1)).float()
+    return out
 
 
 def compute_jsd_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
@@ -829,6 +921,8 @@ TOPK_DISPATCH.update(
         "eopd_entropy_gate": compute_eopd_gate_topk,
         "k1_fire_gate": compute_fire_components,
         "jsd_topk": compute_jsd_topk,
+        "intersection_topk": compute_intersection_topk,
+        "pi_tail_budget": compute_pi_tail_budget_topk,
         "qb_quantile_budget": compute_quantile_budget_topk,
         "pl_rank_anchor": compute_pl_rank_topk,
         "tip_select": _d_axis_kernel(_tip_score),

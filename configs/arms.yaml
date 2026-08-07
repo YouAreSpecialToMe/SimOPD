@@ -229,6 +229,50 @@ arms:
       SIMOPD_QB_MARGIN: max
 
   # ---- D: token selection / weighting ----
+  - run_id: c3_intersection
+    axis: C
+    cohort: supplement
+    desc: "supervise only candidates in BOTH top-ks (thunlp/OPD `intersection` strategy)"
+    status: stock
+    note: "ADDED 2026-08-07 (C-axis analysis). Audited against the OFFICIAL CODE
+           (OPD/verl dp_actor.compute_distillation_reward, local clone): per-
+           candidate advantages A = -(S-T)*w over the intersection, w = student
+           probs renormalized on the valid set (their defaults reward_weight_mode=
+           student_p, normalize=True, kl_estimator=k1), 3D PPO surrogate that their
+           own code reduces at ppo_epochs=1 to L = -sum sg(A)*log pi -- we implement
+           that reduced form on the DIRECT branch (faithful to the shipped path;
+           the ratio variant differs only off-policy, and our protocol is single-
+           epoch). Candidate set is symmetric so the teacher-side payload suffices
+           (their two-forward architecture is not needed for THIS strategy; it is
+           for only_stu/union, declared out-of-seam). Probes Rethinking's overlap
+           sweet-spot claim mechanically: high overlap -> intersection ~ full
+           support; collapsed overlap -> diverges from c1"
+    env:
+      DISTILLATION_LOSS_MODE: intersection_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+
+  - run_id: c4_pi_tail_budget
+    axis: C
+    cohort: supplement
+    desc: "[OURS] cut on the student's edge: smallest teacher-rank prefix with student mass >= 1-eps"
+    status: stock
+    note: "ADDED 2026-08-07 [OURS, headline-constructive]: the headline theorem says
+           truncation error = pi(S-bar)*KL(tails) -- controlled by STUDENT tail
+           mass -- while practice truncates by teacher rank. c4 makes the theorem's
+           quantity the budget knob: per token, the smallest teacher-rank prefix
+           whose student mass reaches 1-SIMOPD_PI_TAIL_EPS (0.05), then c1's renorm
+           RKL on that support, direct branch. If the theorem is right, c4 beats
+           fixed-k systematically in the three pre-registered revival regimes.
+           c4_budget / c4_pi_tail / c4_eps_missed make the quantity a logged
+           series; differs from c2 (batch-threshold pinning AVERAGE budget) by
+           pinning the per-token error term itself"
+    env:
+      DISTILLATION_LOSS_MODE: pi_tail_budget
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_PI_TAIL_EPS: "0.05"
+
   - run_id: d1_tip
     axis: D
     desc: "TIP high-entropy + confidently-wrong soft-OR (2604.14084)"

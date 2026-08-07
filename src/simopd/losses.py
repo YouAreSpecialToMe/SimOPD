@@ -419,6 +419,10 @@ for _name, _extras in [
     ("lsm_topk_renorm", ()),
     # B axis supplement b4: divergence >= 0, signal="loss" like the C/E arms.
     ("jsd_topk", ()),
+    # C axis supplements (2026-08-07): c3 thunlp intersection (their reduced direct
+    # form), c4 [OURS] pi-tail budget -- the headline theorem's quantity as a knob.
+    ("intersection_topk", ("c3_inter_size",)),
+    ("pi_tail_budget", ("c4_budget", "c4_pi_tail", "c4_eps_missed")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),

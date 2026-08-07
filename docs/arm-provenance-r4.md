@@ -340,3 +340,22 @@ jsd/(1−β)→RKL;端点本身退化为零——首版 note 把两端写反,被
 
 后补批现员:a3(门控)+ b4 + b5(就绪);全并行 +18 卡,不入首发算术。
 注册表 **25 臂(21 可跑)**。
+
+## r6 增补(2026-08-07):后补批添 c3_intersection + c4_pi_tail_budget(C 轴补全)
+
+**c3_intersection**(thunlp/OPD 官方码逐行锚,本地 clone):其 `intersection` 策略 =
+逐候选优势 A = −(S−T)·w̃(w̃ = 交集上重归一学生概率;默认 reward_weight_mode=
+student_p、kl_estimator=k1),3D PPO 代理在其自身代码于 ppo_epochs=1 时化简为
+**L = −Σ sg(A)·log π** —— 我们实现该化简形于直接分支(忠实其出货路径;协议单
+epoch 下两形等价)。交集集合对称,教师侧载荷即够(only_stu/union 需其双前向架构,
+接缝外声明出局)。[数] 化简式逐位、空交集零损失。机制上是 Rethinking overlap
+甜区主张的探针。
+
+**c4_pi_tail_budget**(【自研】头条构造臂):把头条定理的误差控制量 π(S̄) 直接做成
+预算旋钮 —— 逐 token 取教师秩序最小前缀使学生质量 ≥ 1−ε(ε=0.05),其上做 c1 式
+renorm RKL,直接分支。[数] 预算/π-tail 手算、**最小前缀性**、ε→1 预算→1、ε→0
+记 miss。c4_budget / c4_pi_tail / c4_eps_missed 三面板把定理量变成一等公民序列。
+与 c2 之别:c2 批阈值钉平均预算,c4 逐 token 钉误差项本身。
+
+后补批现员五名:a3(门控)+ b4 + b5 + c3 + c4(就绪);全并行 +30 卡。
+注册表 **27 臂(23 可跑)**。

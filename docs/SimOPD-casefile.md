@@ -68,8 +68,14 @@
 - 【审】sampled-token(基线;Rethinking 已判"够用"—— 本轴任务是画适用域边界)
 - 【审】teacher top-k + 重归一化(LSM/Revisiting 2603.25562)
 - 【审】分位预算分配 margin=max(q,π)(**自研**;重归一化 vs 尾桶作内部消融)
-- 【替】top-p;margin=π / margin=q 拆解
-- 【落】RSKD 无偏采样(2503.16870,离线设定)→ 尾桶修正可选件
+- 【审·后补】intersection 支撑(thunlp/OPD 官方策略;c3,2026-08-07)——
+  Rethinking overlap 甜区主张的机制探针;其化简直接形逐行码锚
+- 【审·后补】π-tail 预算【自研,头条构造臂】(c4,2026-08-07)—— 定理误差项当旋钮,
+  ε=0.05;按学生的边切
+- 【替】top-p;margin=π / margin=q 拆解;only_stu/union(接缝外:需 thunlp 双前向
+  架构,老师需给学生指定 ids 打分——vLLM 打分服务不可为;声明出局)
+- 【落】RSKD 无偏采样(2503.16870,离线设定)→ 尾桶修正可选件;全词表(载荷不可行,
+  π(S̄) 面板代偿;PowerOPD 曾以其为基线)
 
 ### D — token 选择/加权(族 ~15)
 - 【审】uniform(基线)
