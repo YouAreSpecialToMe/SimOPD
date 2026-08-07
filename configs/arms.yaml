@@ -287,7 +287,12 @@ arms:
            with direct distributional KL; the TIP selector itself is not in the repo,
            so the paper is the selector's authority. Recorded translations: base
            objective = protocol's sampled-k1 PG (one-knob discipline: the SELECTOR is
-           the arm), divergence input teacher-top-k truncated, micro-batch population"
+           the arm), divergence input teacher-top-k truncated, micro-batch population.
+           PRE-REGISTERED DECOMPOSITION (2026-08-07): SIMOPD_TIP_MODE=entropy_only
+           (at rho=0.5, their entropy-retention result) and divergence_only (at
+           SIMOPD_D_RETENTION=0.1, their confidently-wrong <10% claim) split the
+           soft-OR into its branches -- the ablation asks WHICH branch carries the
+           arm, not merely whether the union works"
     env:
       DISTILLATION_LOSS_MODE: tip_select
       DISTILLATION_TOPK: 32

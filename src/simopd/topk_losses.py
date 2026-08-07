@@ -618,6 +618,13 @@ def _d_axis_kernel(score_fn, extra_fn=None):
 SELECTKD_K = int(os.environ.get("SIMOPD_SELECTKD_K", "5"))
 SELECTKD_BETA = float(os.environ.get("SIMOPD_SELECTKD_BETA", "0.01"))
 TEACH_K = int(os.environ.get("SIMOPD_TEACH_K", "16"))
+# d1's pre-registered decomposition (2026-08-07): soft_or is TIP's method; the two
+# single-branch modes test the paper's own strongest claims in isolation --
+# entropy_only against their "50% entropy retention matches full-token" result,
+# divergence_only against "confidently-wrong <10% of tokens nearly matches"
+# (pair it with SIMOPD_D_RETENTION=0.1 as registered). In the fingerprint via the
+# SIMOPD_ capture, so ablation runs are automatically a distinct batch.
+TIP_MODE = os.environ.get("SIMOPD_TIP_MODE", "soft_or")
 
 
 def _robust_norm(x, mask=None):
@@ -644,7 +651,14 @@ def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat
     h = _student_entropy(student_log_probs)
     delta = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
     h_n, d_n = _minmax(h, stat), _minmax(delta, stat)
-    score = h_n + d_n - h_n * d_n
+    if TIP_MODE == "entropy_only":
+        score = h_n
+    elif TIP_MODE == "divergence_only":
+        score = d_n
+    elif TIP_MODE == "soft_or":
+        score = h_n + d_n - h_n * d_n
+    else:
+        raise ValueError(f"SIMOPD_TIP_MODE must be soft_or|entropy_only|divergence_only, got {TIP_MODE!r}")
     return _topk_by_score(score, D_RETENTION, stat), {"tip_entropy_mean": h}
 
 
