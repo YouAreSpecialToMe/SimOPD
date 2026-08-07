@@ -70,8 +70,13 @@ def main():
         # The supervision that exists: problems the teacher gets right and the student
         # does not. Its complement -- student right, teacher wrong -- is where
         # distilling actively teaches the wrong answer, which no ceiling reveals.
-        t_over_s = float(((t > s)).mean())
-        s_over_t = float(((s > t)).mean())
+        # Binarize at 0.5 BEFORE comparing -- verdict.py's convention. On avg@k
+        # rate inputs, raw t>s counts "teacher 0.60 vs student 0.55 on every
+        # problem" as 100% teacher-right-student-wrong (audit 2026-08-07 F5);
+        # greedy 0/1 inputs are unchanged, so the existing math500 ladder stands.
+        tb, sb = (t > 0.5), (s > 0.5)
+        t_over_s = float((tb & ~sb).mean())
+        s_over_t = float((sb & ~tb).mean())
         print(f"{name:26s} {SIZE[name]:5.1f} {t.mean():7.4f} {t_over_s:7.2%} "
               f"{s_over_t:7.2%} {t.mean() - s.mean():9.4f}")
         rows.append((name, SIZE[name], t.mean(), t_over_s, s_over_t, t.mean() - s.mean()))

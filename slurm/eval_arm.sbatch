@@ -21,5 +21,5 @@ EVALS=${EVALS:-$HOME/data/simopd_evals}
 python scripts/eval_offline.py --model "$CKPT" --run-id "$RUN_ID" --step "$STEP" \
     --benchmarks math500 --out-dir "$EVALS"
 python scripts/eval_offline.py --model "$CKPT" --run-id "$RUN_ID" --step "$STEP" \
-    --benchmarks amc23 --n 32 --temperature 0.7 --out-dir "$EVALS"
+    --benchmarks amc23 --n 32 --temperature 0.7 --top-p 0.95 --max-tokens 16384 --out-dir "$EVALS"
 echo EVAL_ARM_DONE

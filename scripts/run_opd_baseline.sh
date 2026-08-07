@@ -109,10 +109,10 @@ actor_lr=${ACTOR_LR:-1e-6}
 # does not move. 150 still contains the whole story an arm can tell -- plateau (25),
 # entropy collapse (40), Mode A onset (90) and 60 steps of established Mode A --
 # which the F axis needs, since preventing Mode A is the thing it is judged on.
-total_training_steps=${TOTAL_TRAINING_STEPS:-150}  # -1 = run total_epochs
+total_training_steps=${TOTAL_TRAINING_STEPS:-250}  # protocol horizon (plan sec 4); was 150 pre-amendment  # -1 = run total_epochs
 total_epochs=${TOTAL_EPOCHS:-3}
 test_freq=${TEST_FREQ:-25}
-save_freq=${SAVE_FREQ:--1}
+save_freq=${SAVE_FREQ:-25}   # PROTOCOL 3.7 density; -1 was the pre-suite default
 
 # verl keeps every checkpoint by default (max_actor_ckpt_to_keep: null). A 1.7B
 # checkpoint is ~25GB (bf16 weights + fp32 optimizer moments + master weights), so
@@ -120,7 +120,11 @@ save_freq=${SAVE_FREQ:--1}
 # campaign -- it fills a DSW workspace volume mid-flight rather than at the start.
 # Keep the newest two: one to resume from, one if the newest is torn.
 # (The tier change from 0.6B roughly tripled this; MAX_CKPT_KEEP=1 halves it again.)
-max_ckpt_keep=${MAX_CKPT_KEEP:-2}
+max_ckpt_keep=${MAX_CKPT_KEEP:--1}   # -1 = keep ALL (PROTOCOL 3.7: the suite
+                                     # sweeps every saved step; keep=2 made the
+                                     # 11-point curve physically impossible --
+                                     # audit 2026-08-07 config-C1). Disk math:
+                                     # ~11 x 28.4GB ~= 310GB/run, user-accepted.
 
 # 'hf_model' is added to save_contents below. Without it verl writes only FSDP shards
 # (model_world_size_*.pt) plus a huggingface/ directory holding the config and

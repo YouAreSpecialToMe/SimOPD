@@ -63,7 +63,7 @@ STEPS=${STEPS:-250}   # fixed horizon (2026-08-06): every arm runs the full 250 
                       # curves share one x-axis; the early-stop rule records, not kills.
                       # f1_soft_log got 150 from the old default here -- needs +100 resume.
 TEST_FREQ=${TEST_FREQ:-25}
-SAVE_FREQ=${SAVE_FREQ:-50}
+SAVE_FREQ=${SAVE_FREQ:-25}
 TAG=${TAG:-}
 
 # Ray sizes its object store at DEFAULT_OBJECT_STORE_MEMORY_PROPORTION (0.3) of

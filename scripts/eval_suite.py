@@ -46,10 +46,31 @@ DEFAULT_WEIGHTS = {name: 0.25 for name, _, _ in SUITE}
 TEMPERATURE, TOP_P, MAX_TOKENS = 0.7, 0.95, 32768
 
 
-def newest(out_dir, run_id, bench, step):
+def newest(out_dir, run_id, bench, step, k=None):
+    """Newest artifact OF THE SUITE'S ERA. Filenames carry no sampling params and
+    four eras already share this naming (greedy-8k, tau0.7/p1.0, tau0.7/p0.95/8k,
+    the suite) -- unfiltered, a touched stale file silently rewrites suite_acc
+    (audit 2026-08-07 F1: fixture moved it 0.449 -> 0.283 with zero warning)."""
     hits = sorted(glob.glob(os.path.join(out_dir, f"{run_id}__{bench}__step{step}__seed*.parquet")),
-                  key=os.path.getmtime)
-    return hits[-1] if hits else None
+                  key=os.path.getmtime, reverse=True)
+    import pandas as pd
+
+    for h in hits:
+        try:
+            df = pd.read_parquet(h, columns=None)
+        except Exception:
+            continue
+        t = float(df["temperature"].iloc[0]) if "temperature" in df else None
+        n_ = df.groupby("problem_id").size().iloc[0] if "problem_id" in df else None
+        if t is not None and abs(t - TEMPERATURE) > 1e-6:
+            continue
+        if k is not None and n_ is not None and int(n_) != int(k):
+            continue
+        if t is None:
+            # era-blind legacy artifact: never silently admissible for the suite
+            continue
+        return h
+    return None
 
 
 def cmd_run(a):
@@ -79,10 +100,10 @@ def cmd_acc(a):
     rows = []
     for step in steps:
         comp, missing = {}, []
-        for name, benches, _ in SUITE:
+        for name, benches, _k in SUITE:
             rates = []
             for b in benches:
-                f = newest(a.out_dir, a.run_id, b, step)
+                f = newest(a.out_dir, a.run_id, b, step, k=_k)
                 if f is None:
                     missing.append(b)
                     continue
@@ -114,8 +135,8 @@ def cmd_sweep(a):
         sys.exit(f"no global_step_*/actor under {a.ckpt_dir}")
     print(f"[suite] {a.run_id}: {len(steps)} saved steps {steps}")
     for step in steps:
-        have = all(newest(a.out_dir, a.run_id, b, step)
-                   for _, benches, _ in SUITE for b in benches)
+        have = all(newest(a.out_dir, a.run_id, b, step, k=k_)
+                   for _, benches, k_ in SUITE for b in benches)
         if have:
             print(f"[suite] step {step}: artifacts complete, skip")
             continue
@@ -134,7 +155,8 @@ def main():
         sp = sub.add_parser(name)
         sp.add_argument("--run-id", required=True)
         sp.add_argument("--step", type=int, default=None if name == "acc" else -1)
-        sp.add_argument("--out-dir", default="/scratch/zz865/simopd/evals")
+        sp.add_argument("--out-dir", default=os.environ.get("SIMOPD_EVALS",
+                        os.path.expanduser("~/data/simopd_evals")))
         sp.add_argument("--weights", help='JSON, e.g. \'{"aime":0.4,"amc23":0.2,...}\'; must sum to 1')
         sp.add_argument("--write", action="store_true", help="acc: persist the curve parquet")
         if name == "run":
