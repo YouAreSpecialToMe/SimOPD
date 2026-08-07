@@ -39,7 +39,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # arms.yaml drifts from this table without the table being updated -- which is
 # exactly the ceremony a branch change should cost.
 EXPECT_PG = {
-    "vanilla": True, "a1_gkd_mix0.5": True, "a2_coldstart": True,
+    "vanilla": True, "a1_gkd_mix0.5": True, "a3_offpolicy": True, "a2_coldstart": True,
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,
     "c1_lsm_topk32_renorm": True, "c2_quantile_budget": False,
     "d1_tip": True, "d2_selectkd": True, "d3_teachability": True,

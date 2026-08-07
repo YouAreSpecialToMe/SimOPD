@@ -45,6 +45,7 @@
 ### A — rollout 来源与日程(族 ~25,Gap-Bridging)
 - 【审】纯 on-policy λ=1(基线约定)
 - 【审】GKD λ=0.5 混合(2306.13649)
+- 【审】GKD λ=0 端点(a3_offpolicy,2026-08-07 补齐——计划 §2 原注册 λ∈{0,0.5};**后补批**,随 a1 缓存解锁)
 - 【审】离策略冷启动→OPD(Rethinking 2604.13016 recipe 复核)
 - 【落】PACED 通过率课程(2603.11178)→ 替补;Escaping KL Agreement Trap
   (2606.09471)rollout 终止 → 替补

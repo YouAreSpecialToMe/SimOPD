@@ -48,6 +48,29 @@ arms:
            wave S/T so axis A ships complete"
     env: {}
 
+  - run_id: a3_offpolicy
+    axis: A
+    cohort: supplement            # 后补批(2026-08-07 起新增臂均属此批):主名册已在跑,
+                                  # 本批解锁后在 DSW 单独加发,不并入首发算术。
+    desc: "GKD lambda=0 endpoint: pure off-policy, fixed teacher (X,Y), teacher-scored"
+    status: needs
+    note: "ADDED 2026-08-07 (axis-A completeness analysis): the plan's own Sec 2 axis
+           text registers GKD lambda in {0, 0.5} but only 0.5 ever materialized.
+           This is the missing endpoint -- the survey's 'teacher-forced' cell, the
+           pre-OPD classic baseline (off-policy KD with logits), and the third
+           point that turns the lambda ladder {0, 0.5, 1} into a dose-response
+           curve. Zero new code: gkd_mix at P(off-policy)=1.0 -- NOTE THE INVERSION
+           our knob is P(off-policy), so GKD's lambda=0 is OUR '1.0' (the exact
+           trap gkd_mix's comment warns about, used deliberately here). Same fixed
+           full-prefix-keyed cache as a1 (the paper's fixed (X,Y) variant), same
+           PG ratio-identically-1 argument (estimator-note), same 3-step rehearsal
+           gate; both flip stock together when the cornell precompute lands"
+    env2_pending:
+      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_LAMBDA: "1.0"
+    env: {}
+    seam: "identical to a1_gkd_mix0.5 (shared machinery); unlock = a1's unlock"
+
   - run_id: a2_coldstart
     axis: A
     desc: "off-policy SFT cold start then OPD (Rethinking recipe)"

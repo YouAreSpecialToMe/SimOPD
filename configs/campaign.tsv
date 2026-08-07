@@ -59,6 +59,12 @@
 # failed, and been retried forever.
 3	cornell	a2_coldstart	0	needs=/scratch/zz865/simopd/ckpt/coldstart_sft
 3	any	b3_eopd_gate	0	EOPD ICML26 replication; added 2026-08-06 post-sweep
+
+# ---- wave 4: SUPPLEMENT cohort (arms added from a3_offpolicy on, 2026-08-07) ----
+# The main roster is already running; this cohort launches separately on DSW after
+# it, and is NOT in the first-volley card arithmetic. a3 joins here when the
+# cornell precompute flips it (and a1) to stock -- a1 stays MAIN batch, wave 3.
+# (rows appear here on flip: 4<TAB>any<TAB>a3_offpolicy<TAB>0..2)
 3	any	f3_power	0	F-family bounded member; added 2026-08-07 from the F-spectrum question
 3	any	vanilla_n8	0	j1 cell control; 4-card lane -- at S launch reassign to the GPUS_PER_RUN=4 box
 3	any	j1_kdrl	0	KL+RL (axis J); base=vanilla_n8; 4-card lane, same box as it

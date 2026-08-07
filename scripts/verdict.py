@@ -47,7 +47,7 @@ CAVEATS = {
 }
 
 ARMS = [  # ledger order: axis order from the plan
-    "a1_gkd_mix0.5", "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "b3_eopd_gate",
+    "a1_gkd_mix0.5", "a3_offpolicy", "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "b3_eopd_gate",
     "c1_lsm_topk32_renorm",
     "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
     "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "f3_power", "g1_verified_only",
