@@ -205,9 +205,16 @@ resume_mode=auto
 # model, and mixing the two would put each arm's first point on a different one).
 # The wiring check it also performed is now scripts/preflight.py, in ~20 seconds.
 val_before_train=${VAL_BEFORE_TRAIN:-False}
+# g3_kdrl (audit r5 addendum): KDRL's objective is J_GRPO - beta*KL, which is
+# exactly verl's use_task_rewards=True combine (policy_loss + distill*coef). Off
+# for every other arm; the coefficient default 1.0 is verl's and only bites when
+# task rewards are on.
+use_task_rewards=${USE_TASK_REWARDS:-False}
+distillation_loss_coef=${DISTILLATION_LOSS_COEF:-1.0}
 fingerprint=$(printf '%s\n' \
     "student=$STUDENT_MODEL" "teacher=$TEACHER_MODEL" \
     "loss=$distillation_loss_mode" "pg=$use_policy_gradient" "topk=$distillation_topk" \
+    "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
     "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
@@ -314,7 +321,8 @@ python3 -m verl.trainer.main_ppo \
     distillation.teacher_models.teacher_model.inference.max_model_len=${max_num_tokens} \
     distillation.distillation_loss.loss_mode=${distillation_loss_mode} \
     distillation.distillation_loss.topk=${distillation_topk} \
-    distillation.distillation_loss.use_task_rewards=False \
+    distillation.distillation_loss.use_task_rewards=${use_task_rewards} \
+    distillation.distillation_loss.distillation_loss_coef=${distillation_loss_coef} \
     distillation.distillation_loss.use_policy_gradient=${use_policy_gradient} \
     "${ARM_ARGS[@]+"${ARM_ARGS[@]}"}" \
     "$@"

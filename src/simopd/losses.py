@@ -151,6 +151,34 @@ def skew_kl(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
+    DistillationLossSettings(names=["k2_kdrl"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k2_kdrl(config, distillation_config, model_output, data):
+    """G axis, g3: KDRL's KD term (2506.02208 Eq.8) -- the k2 estimator.
+
+    KDRL optimizes J_GRPO - beta*KL^k2(pi_theta || pi_T): GRPO on rule rewards
+    plus a DIRECTLY differentiated k2 KL estimate on the student's own rollouts,
+    0.5*R^2 with R = log pi_T - log pi_theta. Their ablation picks k2 over k3
+    (biased loss value, unbiased gradient). verl's combine branch is the same
+    shape -- policy_loss + distillation_loss_coef * distill_loss with
+    use_task_rewards=True -- so beta rides DISTILLATION_LOSS_COEF and this
+    function only supplies the k2 term (verl ships a bare "k2" mode; this one
+    adds the Delta-ell panel METRICS.md requires of every arm, k1_rec-style).
+
+    The panel quantiles are computed on the SIGNED k1 signal, not on the k2
+    losses: k2 is >= 0 by construction and publishing it as delta_ell would
+    destroy the cross-arm comparability the panel exists for.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    k1 = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+    losses = 0.5 * k1.square()
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(k1, mask))
+    return losses, metrics
+
+
+@register_distillation_loss(
     DistillationLossSettings(names=["k1_firstseg"], use_estimator=True)
 )  # type: ignore[arg-type]
 def k1_first_segment(config, distillation_config, model_output, data):

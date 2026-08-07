@@ -245,3 +245,22 @@ h1 N=100),本地语境差异交由面板报告。
 
 **执行侧**:陈旧名单 = {b3, g2, d1, d2, d3, h1}(migrate_stale 默认);跑完迁移后
 daemon 自动以忠实配置重发。cornell 零动作(c1 已复活)。i1 手术与 a1 彩排照旧排期。
+
+## r5 增补(2026-08-07):g3_kdrl —— 覆盖对表补的第 20 臂
+
+来源:survey 2606.22793 "outcome/verifier coupling" + nick7nlp §4.3 RL-augmented
+objectives 与我们 8 轴 diff 后的唯一可审计缺口 —— G 轴原来只有"奖励作过滤"(g1),
+缺"奖励作共目标"。
+
+### g3_kdrl —— KDRL (2506.02208),无官方码(记录)
+| 项 | KDRL 论文 | 我们 | 判定 |
+|---|---|---|---|
+| 目标 | J = J_GRPO − β·KL^k2 | verl combine 分支:policy_loss + coef·distill(use_task_rewards=True) | ✅ **同构,零新机械** |
+| KD 项 | k2 = ½R²(R=log π_T−log π_θ),学生 rollout 上**直接反传**;消融 k2>k3 | `k2_kdrl`(带 Δℓ 面板的 k2,面板取带符号 k1)+ USE_POLICY_GRADIENT=False | ✅ [数] 逐位手算 |
+| β | **固定 2e-3 主默认**;退火 5e-3→1e-3(δ=5e-5/步)为变体 | DISTILLATION_LOSS_COEF=0.002;退火=预注册内部消融 | ✅ 字面引进默认 |
+| RL 项 | GRPO,规则奖励,组采样 | 协议 n=1 → GRPO 组基线退化为原始 verifier 分(与 g1 门控同信号) | ⚠️ 记录偏离(协议级) |
+| regime | R1 系长 CoT(DeepScaleR-1.5B) | 审计档位 | ⚠️ 每臂皆然,记一次 |
+
+与 g1 构成 G 轴的干净对照:**同一 verifier 信号,滤 vs 加**。campaign.tsv 第 3 波
+any 行入列;run_opd_baseline.sh 新旋钮(use_task_rewards / distillation_loss_coef)
+入指纹。注册表现为 20 臂(18 可跑)。

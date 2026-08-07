@@ -318,6 +318,31 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_verified_only
 
+  - run_id: g3_kdrl
+    axis: G
+    desc: "dense k2-KL + sparse verifier reward, jointly (KDRL 2506.02208)"
+    status: stock
+    note: "ADDED 2026-08-07 from the survey coverage diff (2606.22793 'outcome/verifier
+           coupling'; nick7nlp sec 4.3 RL-augmented objectives): the G axis had reward
+           as FILTER (g1) but not reward as CO-OBJECTIVE, and this family carries
+           multiple published claims. Audited against the paper (no code released,
+           recorded): J_KDRL = J_GRPO - beta*KL^k2 -- GRPO on rule-based outcome
+           rewards plus a directly-differentiated k2 KL term on student rollouts,
+           their ablation preferring k2 over k3. Faithful mapping: verl's combine
+           branch IS this objective (use_task_rewards=True => policy_loss +
+           distillation_loss_coef * distill_loss), beta = their fixed main default
+           2e-3; their annealing variant (5e-3 -> 1e-3, delta 5e-5/step) is the
+           pre-registered internal ablation, not the arm. Recorded deviations:
+           protocol n=1 makes GRPO's group baseline degenerate to the raw verifier
+           score (same signal g1 gates on; theirs uses group sampling), and their
+           regime is long-CoT R1-style models while ours is the audit tier --
+           true of every arm and stated once here"
+    env:
+      DISTILLATION_LOSS_MODE: k2_kdrl
+      USE_POLICY_GRADIENT: "False"
+      USE_TASK_REWARDS: "True"
+      DISTILLATION_LOSS_COEF: "0.002"
+
   - run_id: g2_fire_likelihood
     axis: G
     desc: "drop bottom-20% trajectories by normalized teacher logprob (FiRe 2606.02684)"
