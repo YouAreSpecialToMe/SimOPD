@@ -582,41 +582,58 @@ def _teachability_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_
 # exactly a per-token ROUTER between two objectives that already exist as arms:
 # vanilla/b1's sampled-token reverse KL and b2's teacher-top-k forward KL (same
 # clamp_min(0) as verl gives b2, so the components stay comparable arm-to-arm).
-B3_HIGH_FRAC = float(os.environ.get("SIMOPD_B3_HIGH_FRAC", "0.5"))
+# EOPD's official defaults (WLS04/EOPD core_algos.compute_policy_loss_on_policy_distill):
+# soft_kd_entropy_threshold=0.8 -- a FIXED absolute entropy in nats, not a quantile --
+# and soft_kd_coef=1.0.
+B3_ENT_THRESH = float(os.environ.get("SIMOPD_B3_ENT_THRESH", "0.8"))
+B3_SOFT_COEF = float(os.environ.get("SIMOPD_B3_SOFT_COEF", "1.0"))
 
 
 def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format):
-    """B3 under the DIRECT branch (audit r3): distributional on BOTH sides, which is
-    EOPD's actual form. The first version put sampled-token k1 on the low-entropy
-    side to mirror vanilla -- right under PG framing, degenerate under direct
-    differentiation (the pathwise gradient of log p - log q is grad log p: uniform
-    suppression of every sampled token, the exact pathology audit r3 diagnosed). So
-    low-entropy tokens now take c1's renormalized truncated reverse KL and
-    high-entropy tokens the clamped top-k forward KL; the router is unchanged."""
-    from verl.trainer.distillation.fsdp.losses import kl_divergence
+    """B3, third form, this one against the official code (audit r5, WLS04/EOPD).
 
-    student_log_probs, t_lp, t_id, _, _ = _prepare(
-        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    "Augmenting" in their abstract is literal: `pg_loss = pg_loss + soft_kd_loss`.
+    The reverse-KL PG base runs on EVERY token -- exactly vanilla's sampled-k1
+    advantage under the clipped surrogate -- and high-teacher-entropy tokens get an
+    ADDITIVE top-k forward-KL term, gated by a fixed absolute threshold. Both prior
+    forms here were wrong about that: r3's where(gate, fkl, rkl) switched the RKL
+    off on gated tokens, and moved the arm to the direct branch when the official
+    loss is PG-based throughout. The base loss below feeds the PG advantage; the
+    gated FKL is exported separately and added to the FINAL loss by b3_additive's
+    wrapper, because anything returned from here would be detached into the
+    advantage and lose its pathwise gradient.
+
+    Recorded deviations: teacher entropy from top-k truncation (theirs is
+    full-vocab from the ref pass; teacher_mass quantifies the unseen tail, and a
+    truncated entropy can only under-shoot, so the 0.8 gate fires on fewer tokens
+    -- b3_gate reports the realised fraction) and micro-batch normalization of the
+    additive term."""
+    student_log_probs, t_lp, t_id, sampled_lp, sampled_id = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
     )
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
 
-    t_ent = -(t_lp.exp() * t_lp).sum(dim=-1)
-    tau = torch.quantile(t_ent.float().flatten(), 1.0 - B3_HIGH_FRAC)
-    gate = t_ent >= tau   # True -> high teacher entropy -> forward KL
+    finite = torch.isfinite(sampled_lp)
+    if (~finite).sum() > 0:
+        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
+    raw = _weighted_sampled_token_loss(
+        student_log_probs, sampled_lp, sampled_id, torch.ones_like(sampled_lp), config.distillation_loss
+    )
 
-    stu_n = stu_at_teacher - torch.logsumexp(stu_at_teacher, dim=-1, keepdim=True)
-    tch_n = t_lp - torch.logsumexp(t_lp, dim=-1, keepdim=True)
-    rkl = kl_divergence(log_q=tch_n, log_p=stu_n)                    # c1's renorm form
-    fkl = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1).clamp_min(0.0)   # b2's form
-    losses = torch.where(gate, fkl, rkl)
+    t_ent = -(t_lp.exp() * t_lp).sum(dim=-1)
+    gate = t_ent >= B3_ENT_THRESH
+    # Their exact truncated form: sum over teacher top-k of p*(log p - log q),
+    # unnormalized, no clamp -- verl's clamp_min(0) is b2's choice, not theirs.
+    fkl = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
 
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids))
-    out["distillation_losses"] = losses
-    out["b3_high_frac"] = gate.float()
-    out["b3_tau_ent"] = torch.full_like(t_ent, float(tau))
+    out["distillation_losses"] = raw
+    out["b3_soft_kd"] = fkl * gate.float()
+    out["b3_gate"] = gate.float()
+    out["b3_missing"] = (~finite).float()
     return out
 
 

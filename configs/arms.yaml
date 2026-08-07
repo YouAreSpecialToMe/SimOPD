@@ -94,27 +94,29 @@ arms:
     axis: B
     desc: "per-token entropy routing: reverse KL where teacher is confident, forward KL where spread (EOPD 2603.07079, ICML 2026)"
     status: stock
-    note: "src/simopd/topk_losses.py. Pre-registered addition 2026-08-06 from the
-           coverage sweep, before any of its data existed. The arm is a ROUTER between
-           two objectives that already exist as arms (vanilla/b1's sampled-token k1,
-           b2's clamped top-k forward KL), so the one knob is the routing itself.
-           Teacher entropy comes from its top-k (understated by the tail; teacher_mass
-           quantifies it); threshold is batch-relative like TIP/FiRe (same micro-batch
-           caveat, realised fraction logged). Hard switch per the paper's summary;
-           switch-vs-add is the internal ablation if the full text says otherwise"
+    note: "AUDIT r5 2026-08-07, against the OFFICIAL CODE (WLS04/EOPD core_algos):
+           'augmenting' is literal -- pg_loss = pg_loss + soft_kd_loss. The reverse-KL
+           PG base (vanilla's sampled-k1 advantage, clipped surrogate) runs on EVERY
+           token, and high-teacher-entropy tokens ADD a top-k forward-KL term with a
+           FIXED absolute threshold (their default 0.8 nats) and coefficient 1.0,
+           normalized by total valid tokens. The 2026-08-06 registration pre-committed
+           to exactly this flip ('switch-vs-add is the internal ablation if the full
+           text says otherwise'), so this executes that clause; r3's where(fkl,rkl)
+           switch on the direct branch is superseded -- EOPD's own loss is PG-based
+           throughout, the additive term alone is directly differentiated (delivered
+           past the PG detach by simopd/b3_additive.py). Recorded deviations: teacher
+           entropy from top-k truncation (theirs is full-vocab from the ref pass;
+           under-shoots, so the 0.8 gate fires on fewer tokens -- b3_gate logs the
+           realised fraction, teacher_mass the unseen tail) and micro-batch
+           normalization of the additive term"
     env:
       DISTILLATION_LOSS_MODE: eopd_entropy_gate
-      # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
-      # (its own comment cites GKD), not PG -- under PG the advantage is
-      # -KL <= 0 everywhere: indiscriminate suppression of every sampled
-      # token with no replacement direction. The literature (LSM/GKD/EOPD)
-      # optimizes these objectives directly; PG-for-topk was the artifact
-      # behind uniformly negative early results.
-      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
-      # audit r3: direct branch => both sides distributional (EOPD's actual form);
-      # the sampled column is no longer consumed, KEEP_SAMPLED dropped.
-      SIMOPD_B3_HIGH_FRAC: "0.5"
+      # r5: PG branch (verl default) -- the official base; the sampled column is
+      # consumed again for the k1 base loss.
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_B3_ENT_THRESH: "0.8"
+      SIMOPD_B3_SOFT_COEF: "1.0"
 
   # ---- C: vocabulary support ----
   - run_id: c1_lsm_topk32_renorm

@@ -68,3 +68,13 @@ verl 的 `distillation_loss` 有两条出口,注释自证血统:PG(TM 引文)与
 
 **连带**:c1(cornell, PG 路径)的无-Mode-A 结果降级为"待直接路径复核" —— 短输出可能
 部分是打压伪影。PG 版 run 保留为意外的 PG-vs-direct 消融,不作臂判决。
+
+## 7. 更正(2026-08-07 audit-r5):b3 移出直接分支名单
+
+§6 把 b3 归入散度值臂是对其官方代码(WLS04/EOPD)成文前的推断。实读 `core_algos.
+compute_policy_loss_on_policy_distill`:EOPD 的损失是 **PG 底座(全 token 采样 k1
+优势,裁剪代理)+ 高熵 token 上的叠加式 top-k 前向 KL**(`pg_loss = pg_loss +
+soft_kd_loss`,固定阈值 0.8、系数 1.0)。即 b3 的正确归属是 **PG 分支 + 一项直接
+反传的叠加项**,两分支各取所需;§6 的直接分支名单缩为 b2/c1/c2/e1(其论文原式
+确为直接优化,不受影响)。执行:`simopd/b3_additive.py` 包装 verl `distillation_loss`
+送入叠加项,r3 的 where-切换版作废。
