@@ -275,6 +275,6 @@
 8	m12	d1_tip	0
 8	m13	d1_tip	1
 8	m14	d1_tip	2
-8	m19	d3_teachability	0
-8	m20	d3_teachability	1
-8	m21	d3_teachability	2
+8	m2	d3_teachability	0	pre-launched 2026-08-08 13:0x on the freed quad (user: do not queue behind b3); poisoned fp so the copy baked in m19 lane self-refuses
+8	m23	d3_teachability	1	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s0 twin kill; poisoned fp so the m20-baked copy self-refuses
+8	m24	d3_teachability	2	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s2 twin kill; poisoned fp so the m21-baked copy self-refuses
