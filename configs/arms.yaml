@@ -74,10 +74,12 @@ arms:
   - run_id: a2_coldstart
     axis: A
     desc: "off-policy SFT cold start then OPD (Rethinking recipe)"
-    # GATED 2026-08-07 (S-wave split): needs the cornell SFT checkpoint (EXPANSION
-    # 8.1 #6, resubmitted post-16k). Unlock = flip to stock AND uncomment the three
-    # m1 rows in campaign.tsv -- same two-step as a1/a3.
-    status: needs
+    # Status is FLEET-LOCAL. Upstream gated this 2026-08-07 because cornell lacks
+    # the SFT checkpoint (EXPANSION 8.1 #6); THIS fleet built and verified its own
+    # 2026-08-07 (env paths below, hf/ export) and two seeds are mid-flight as this
+    # line is written -- so stock here, needs there. If a future merge flips this
+    # again, the running fingerprints keep the record straight.
+    status: stock
     note: "two-stage: run slurm/coldstart.sbatch first (teacher generations, verifier
            rejection-sampled, then verl SFT), which also writes the remainder split.
            Cold-start prompts are RESERVED out of this arm's OPD phase so warm-up
