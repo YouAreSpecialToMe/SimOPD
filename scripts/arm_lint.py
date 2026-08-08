@@ -48,6 +48,7 @@ EXPECT_PG = {
     "e1_pl_rank": False, "e2_set_coverage": False, "e3_zvalue": False,
     "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
     "g1_verified_only": True, "g2_fire_likelihood": True,
+    "g4_failure_only": True, "g5_rgopd_gate": True,
     "h1_first_segment": True, "i0_think_scorer": True, "i1_priv_cot": True,
     "vanilla_n8": True, "j1_kdrl": False,
 }

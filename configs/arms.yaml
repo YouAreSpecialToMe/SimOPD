@@ -581,7 +581,10 @@ arms:
            ALL training tokens post-filter -- resolved code-ward as with c1, so a
            uniformly-confident trajectory keeps weight above 1 instead of being
            flattened. Their rollout-IS correction (threshold 5.0) is their infra,
-           not the arm, and is not imported"
+           not the arm, and is not imported.
+           PRE-REGISTERED DECOMPOSITION (2026-08-07): SIMOPD_FIRE_MODE
+           filter_only / reweight_only ablate which half of the title carries the
+           arm (default both = FiRe); rides the fingerprint's SIMOPD_ capture"
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
       DISTILLATION_TOPK: 32
@@ -589,6 +592,48 @@ arms:
       SIMOPD_FIRE_DROP_FRAC: "0.2"
       SIMOPD_FIRE_ALPHA: "1.0"
       SIMOPD_FIRE_BETA: "1.0"
+      SIMOPD_FIRE_MODE: "both"
+
+  - run_id: g4_failure_only
+    axis: G
+    cohort: supplement
+    desc: "distil only rollouts the verifier REJECTED [OURS: mirror of g1, sign family third point]"
+    status: stock
+    note: "ADDED 2026-08-07 (G-axis completeness): predicate mirror of g1 on the
+           same kernel discipline (rescaled mask not batch filter, verifier answer
+           never in the training input, gate on advantages under the estimator
+           assertion). Completes the sign family {g1 keep-pass, g4 keep-fail,
+           vanilla keep-all}: if teacher signal earns its keep where the student
+           fails, g4 carries it; if g1 > vanilla > g4, verification filtering is
+           doing the work. All-pass batches produce no update (symmetric to g1's
+           all-fail case; gate_keep_frac makes it visible). 2607.23731 red line
+           unchanged: verdict says trajectory selection, never signal
+           purification. PG branch (k1 family)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_failure_only
+
+  - run_id: g5_rgopd_gate
+    axis: G
+    cohort: supplement
+    desc: "RG-OPD directional gate + negative teaching on protocol k1 base (2607.04037 Eq.2)"
+    status: stock
+    note: "ADDED 2026-08-07 (G-axis completeness): the family FLAGSHIP that r5
+           deliberately narrowed g1 away from, now audited as its own arm. Gate
+           verbatim from their Eq.2: trajectory-level, L_T/L_S masked SUMS of
+           sampled-token log-probs, delta = 0 their default (paper offers no
+           ablation; SIMOPD_RGOPD_DELTA literal import). Reward-positive: distil
+           iff teacher likelier; reward-negative: distil iff teacher LESS likely
+           (negative teaching -- same objective gated, their Sec 3, fetched
+           2026-08-07). ONE-KNOB DISCIPLINE as registered across D and G: the
+           gate is the arm; their top-50-RKL + tail-correction base is NOT
+           transplanted, so g5-vs-g1/g4 reads the rule, not their base.
+           rgopd_pos/neg_kept_frac panels split how much of what trains is
+           negative teaching. PG branch (k1 family); g1/g4 are the rule's naive
+           one-sided controls. NUMBERING: g3 is burned (g3_kdrl was renamed
+           j1_kdrl at r5, the name stays retired in the ledger)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rgopd_gate
+      SIMOPD_RGOPD_DELTA: "0.0"
 
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer

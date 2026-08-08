@@ -118,12 +118,21 @@
   Stable-OPD 散度约束(**注意:2604.08527 是另一篇同名 "Demystifying"**,治长度通胀)
 - 【落】CaOPD 过自信修正(2604.16830)→ 替补池
 
-### G — 轨迹/奖励门控(族 ~9)
+### G — 轨迹/奖励门控(族 ~9;08-07 路由族补全)
 - 【审】无门控(基线)
-- 【审】verified-only(规则验证器过滤;发表代表 = Reward-Gated OPD 2607.04037)
-- 【审】teacher 似然过滤(FiRe-OPD 2606.02684 的轨迹级半件)
-- 【替】SG-OPD 符号路由(2606.09304);ReNIO 轨迹重权(2606.23104)
-- 【落】ATESD/EGRSD/TRAD(自蒸馏设定)、Beyond GRPO and OPD(流程编排非 trick)
+- 【审】g1 verified-only(RG-OPD 家族朴素正成员,r5 收窄口径)
+- 【审】g4 failure-only(**08-07 增设**,自研镜像):符号家族三点括号
+  {g1:+,g4:−,vanilla:全};2607.23731 措辞红线对镜像同样成立
+- 【审】g5 RG-OPD 方向门+负教学(**08-07 由"最近亲属"转正**,2607.04037 Eq.2 原样:
+  轨迹级、L=掩码求和 logprob、δ=0 其默认无消融;one-knob——门是臂,top-50+尾修正底
+  不搬;g1/g4 恰为其朴素单侧对照;负教学份额 rgopd_neg_kept_frac 面板)
+- 【审】g2 teacher 似然滤×熵重权(FiRe 轨迹级半件);分解旋钮 SIMOPD_FIRE_MODE
+  (08-07 预注册:filter_only / reweight_only 拆"标题哪一半在扛")
+- 【替】SG-OPD 符号路由(2606.09304;注意其另含相位教师采样组件)、ReNIO 轨迹重权
+  (2606.23104)——待 r5 式快读后定夺
+- 【落】ATESD/EGRSD/TRAD(自蒸馏设定)、Beyond GRPO and OPD(流程编排非 trick)、
+  token 级 outcome 归因(2607.23731 自证不可定位,PRM 出协议)、调度化门(H 轴界)、
+  失败轨迹负优势 RL(j1 的 RL 项已载)
 
 ### H — 序列视界(族 ~7,新增轴;从效率区捞回,因其有精度主张)
 - 【审】全 rollout 监督(基线)

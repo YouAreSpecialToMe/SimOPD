@@ -32,7 +32,8 @@
 **后补批(cohort: supplement,a3 起)**:主名册跑起来后在 DSW 单独加发,不入首发算术;
 现有成员:a3(λ=0,门控)、b4_jsd、b5_k2【自研】、c3_intersection(thunlp 码锚)、
 c4_pi_tail_budget【自研,头条构造臂】、e2_set_coverage【自研,阶梯关底档】、
-e3_zvalue【自研,仿射不变档】——就绪 6 臂 + 门控 1 臂,全并行 +42 卡(08-07 E 轴补全)。
+e3_zvalue【自研,仿射不变档】、g4_failure_only【自研,符号镜像】、g5_rgopd_gate
+(RG-OPD 旗舰方向门)——就绪 8 臂 + 门控 1 臂,全并行 +54 卡(08-07 E/G 轴补全)。
 ~~原 S+T 同发算术~~ 作废。
 
 ## 2. 教师阶梯(全部候选与取舍,一次说完)

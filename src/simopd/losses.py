@@ -42,6 +42,15 @@ FIRST_SEGMENT_K = int(os.environ.get("SIMOPD_FIRST_SEGMENT_K", "100"))
 
 # FiRe drops the bottom 20% of trajectories by normalised teacher logprob.
 FIRE_DROP_FRAC = float(os.environ.get("SIMOPD_FIRE_DROP_FRAC", "0.2"))
+# g2's pre-registered decomposition (2026-08-07): FiRe = Eq.4 filter x Eq.7 reweight,
+# and the single-branch modes ablate which half carries the arm. filter_only keeps
+# the drop and neutralizes w; reweight_only keeps w and drops nothing. Rides the
+# fingerprint's SIMOPD_ capture, so ablation runs batch themselves apart.
+FIRE_MODE = os.environ.get("SIMOPD_FIRE_MODE", "both")
+# g5: RG-OPD Eq.2 margin -- their default 0, and the paper offers no ablation.
+# Literal import (r5 convention); env exists so a margin sweep is a fingerprinted
+# amendment, not a code edit.
+RGOPD_DELTA = float(os.environ.get("SIMOPD_RGOPD_DELTA", "0.0"))
 from collections import deque as _deque
 # F5 (audit 2026-08-07): threshold population for FiRe's Eq.4 filter. At the 16k
 # cap dynamic batching packs ONE sequence per micro-batch and a singleton quantile
@@ -349,6 +358,96 @@ def k1_verified_only(config, distillation_config, model_output, data):
     return losses, metrics
 
 
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_failure_only"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_failure_only(config, distillation_config, model_output, data):
+    """G axis [OURS]: the mirror of k1_verified_only -- distil only rollouts the
+    verifier REJECTED. Third point of the sign family {g1:+, g4:-, vanilla:all}:
+    if teacher signal earns its keep where the student fails, this side should
+    carry it; if g1 > vanilla > g4, verification filtering is doing the work.
+    Same discipline as g1: rescaled mask not batch filter, verifier answer never
+    in the training input, gate on advantages under the same estimator assertion.
+    A batch where everything verified produces no update -- symmetric to g1's
+    empty case, visible the same way (gate_keep_frac -> 0). The 2607.23731 red
+    line applies unchanged: trajectory selection, never signal purification.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+
+    if "advantages" not in data.keys():
+        raise KeyError(
+            "k1_failure_only needs `advantages` (the verifier-derived signal) in the "
+            f"actor micro-batch; got {sorted(data.keys())}"
+        )
+    adv = data["advantages"]
+    adv = adv.to_padded_tensor(0.0) if adv.is_nested else adv
+    keep_seq = (adv * mask).sum(dim=-1) <= 0
+    raw = losses
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(raw, keep))
+    metrics["distillation/gate_keep_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=keep_seq.float().mean()
+    )
+    return losses, metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_rgopd_gate"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_rgopd_gate(config, distillation_config, model_output, data):
+    """G axis: RG-OPD's directional alignment gate (2607.04037 Eq.2) on the
+    protocol k1 base.
+
+    g_i = 1[(A_i>0 and L_T>L_S+delta) or (A_i<=0 and L_T<L_S-delta)] per
+    trajectory; L_T/L_S are the masked SUMS of sampled-token log-probs; delta =
+    their default 0 (no ablation in the paper; SIMOPD_RGOPD_DELTA is a literal
+    import). Reward-positive rollouts distil only where the teacher is likelier
+    (directionally informative endorsement); reward-NEGATIVE ones only where the
+    teacher is LESS likely -- negative teaching: the teacher disagrees with the
+    failure, and the same objective, gated, pulls the student off its failure
+    mode (their Sec. 3: same reverse-KL objective, gate only; ledger r5/r6).
+    One-knob discipline as across D and G: the GATE is the arm -- their
+    top-50-RKL + tail-correction base is not transplanted (arm note). g1/g4 are
+    this rule's naive one-sided controls.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+
+    if "advantages" not in data.keys():
+        raise KeyError(
+            "k1_rgopd_gate needs `advantages` (the verifier-derived signal) in the "
+            f"actor micro-batch; got {sorted(data.keys())}"
+        )
+    adv = data["advantages"]
+    adv = adv.to_padded_tensor(0.0) if adv.is_nested else adv
+    a_seq = (adv * mask).sum(dim=-1)
+    gap = ((teacher - student) * mask).sum(dim=-1).detach()      # L_T - L_S, Eq.2's sums
+    keep_seq = ((a_seq > 0) & (gap > RGOPD_DELTA)) | ((a_seq <= 0) & (gap < -RGOPD_DELTA))
+    raw = losses
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(raw, keep))
+    metrics["distillation/gate_keep_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=keep_seq.float().mean()
+    )
+    # The mechanism panel: how much of what trains is negative teaching.
+    pos = a_seq > 0
+    metrics["distillation/rgopd_pos_kept_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=(keep_seq & pos).float().mean()
+    )
+    metrics["distillation/rgopd_neg_kept_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=(keep_seq & ~pos).float().mean()
+    )
+    metrics["distillation/rgopd_gap_mean"] = Metric(
+        aggregation=AggregationType.MEAN, value=gap.mean()
+    )
+    return losses, metrics
+
+
 def _topk_registry_fn(*extra_keys, signal="loss"):
     """Post-processor for our top-k arms.
 
@@ -507,12 +606,18 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
     _FIRE_WINDOW.extend(s_y.detach().float().flatten().tolist())
     thresh = torch.quantile(torch.tensor(list(_FIRE_WINDOW), dtype=torch.float32), FIRE_DROP_FRAC)
     keep_seq = s_y >= thresh
+    if FIRE_MODE == "reweight_only":
+        keep_seq = torch.ones_like(keep_seq)
+    elif FIRE_MODE not in ("both", "filter_only"):
+        raise ValueError(f"SIMOPD_FIRE_MODE must be both|filter_only|reweight_only, got {FIRE_MODE!r}")
 
     t_max = t_ent[mask].max().clamp_min(1e-8)
     s_max = s_ent[mask].max().clamp_min(1e-8)
     c_t = 1.0 - t_ent / t_max                                          # Eq.5
     c_s = s_ent / s_max                                                # Eq.6
     w = (1.0 + topk_losses.FIRE_ALPHA * c_t) * (1.0 + topk_losses.FIRE_BETA * c_s)   # Eq.7
+    if FIRE_MODE == "filter_only":
+        w = torch.ones_like(w)
     # Official-code normalization: mean over the tokens that actually train
     # (kept trajectories' response tokens), not the paper's per-trajectory mean.
     train_mask = mask & keep_seq.unsqueeze(-1)
