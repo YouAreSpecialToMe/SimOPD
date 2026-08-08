@@ -457,8 +457,14 @@ def _b3_registry_fn(config, distillation_config, model_output, data):
     # the effective coefficient would be ~128x the registered value and drift with
     # response length (audit 2026-08-07 F2). Same keys ppo_loss consumes; fall
     # back to the micro count when absent (CPU harnesses).
-    _bnt = data.get("batch_num_tokens", None) if hasattr(data, "get") else None
-    _dp = data.get("dp_size", 1) if hasattr(data, "get") else 1
+    # TransferQueue delivers scalar batch fields wrapped in tensordict's
+    # NonTensorData; int() on the wrapper is the TypeError that took b3_s2 down on
+    # its second attempt (2026-08-08, the first post-device-fix casualty). The
+    # payload lives in .data; plain values pass through untouched, so the CPU
+    # harness path is unchanged.
+    _plain = lambda v: getattr(v, "data", v)
+    _bnt = _plain(data.get("batch_num_tokens", None)) if hasattr(data, "get") else None
+    _dp = _plain(data.get("dp_size", 1)) if hasattr(data, "get") else 1
     _denom = (torch.as_tensor(_bnt).float() / max(int(_dp), 1)) if _bnt is not None else (mask.sum() + 1e-8)
     term = topk_losses.B3_SOFT_COEF * (soft * mask).sum() / _denom
     b3_additive.STASH["soft_kd"] = term
