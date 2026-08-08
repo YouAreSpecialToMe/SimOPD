@@ -224,7 +224,8 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     p.add_argument("log", nargs="*", help="log file(s); default = newest under logs/. "
                    "Globs are welcome: triage.py logs/m1/lane*.log")
-    p.add_argument("-n", type=int, default=1, help="how many errors to show (default 1)")
+    p.add_argument("-n", type=int, default=1,
+                   help="how many errors to show (default 1; 0 or negative = all)")
     p.add_argument("--ray", action="store_true", help="also search Ray worker logs")
     p.add_argument("--tail", action="store_true",
                    help="print the last lines even when nothing failed (they are warnings)")
@@ -233,6 +234,8 @@ def main():
     p.add_argument("--context", type=int, default=6,
                    help="lines of surrounding output to show before the error")
     a = p.parse_args()
+    if a.n <= 0:          # -n -1 printed nothing at all, mid-incident
+        a.n = 10**6
 
     paths = list(a.log)
     if not paths:
