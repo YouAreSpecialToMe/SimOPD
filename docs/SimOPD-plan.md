@@ -111,6 +111,9 @@ code AST 半仲裁 —— 这是放弃 agentic 的主要代价,写进 limitation
 value 对齐(KL,默认)/ set-coverage / **PL-rank(保序不保值;loss 形式源自
 PLD 2506.12542 视觉离线版,OPD 版无人占)+ 小系数 value 锚(锚强度是消融轴)**。
 动机:容量差 + greedy 指标对齐。风险:采样评测(avg@32)下 margin 有用 → 锚必配。
+08-07 阶梯补全:set-coverage 由替转审(e2,锚同 e1)+ z-value 中间档(e3,纯,
+z 形式源 Logit-Std KD 2403.01427)→ 全值(c1)>z-值>全序>集合 四档齐;
+rank_kendall_tau / student_mass 免费面板全 top-k 臂记录。
 
 ### 轴 F — 信号调节
 无(基线)/ 软 log 压缩(Demystifying 赢家复核)。

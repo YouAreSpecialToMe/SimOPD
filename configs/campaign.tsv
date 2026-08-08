@@ -69,6 +69,8 @@
 4	any	b5_k2	0	supplement [OURS]: estimator ladder middle rung; added 2026-08-07
 4	any	c3_intersection	0	supplement: thunlp intersection support; added 2026-08-07
 4	any	c4_pi_tail_budget	0	supplement [OURS]: headline theorem's quantity as budget; added 2026-08-07
+4	any	e2_set_coverage	0	supplement [OURS]: within-support ladder, set rung; added 2026-08-07
+4	any	e3_zvalue	0	supplement [OURS]: within-support ladder, affine-invariant rung; added 2026-08-07
 3	any	f3_power	0	F-family bounded member; added 2026-08-07 from the F-spectrum question
 3	any	vanilla_n8	0	j1 cell control; 4-card lane -- at S launch reassign to the GPUS_PER_RUN=4 box
 3	any	j1_kdrl	0	KL+RL (axis J); base=vanilla_n8; 4-card lane, same box as it

@@ -425,6 +425,10 @@ for _name, _extras in [
     ("pi_tail_budget", ("c4_budget", "c4_pi_tail", "c4_eps_missed")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
+    # E axis supplements (2026-08-07): the within-support ladder's missing rungs --
+    # e2 set membership (loosest), e3 affine-invariant values (between c1 and e1).
+    ("set_coverage_anchor", ("e2_coverage", "e2_value_anchor")),
+    ("zvalue_topk", ("e3_std_ratio",)),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),
     ("selectkd_verify", ("d_selected_frac", "d_sampled_missing", "selectkd_tar")),
     ("teachability_select", ("d_selected_frac", "d_sampled_missing", "teach_compatibility")),

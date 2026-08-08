@@ -376,6 +376,53 @@ arms:
       DISTILLATION_TOPK: 32
       SIMOPD_PL_ANCHOR_COEF: "0.1"
 
+  - run_id: e2_set_coverage
+    axis: E
+    cohort: supplement
+    desc: "set-membership rung: -log(student mass on teacher top-k) + shared anchor [OURS]"
+    status: stock
+    note: "ADDED 2026-08-07 (E-axis ladder completion; promoted from the casefile's
+           substitute list). Loosest rung of the within-support information ladder
+           (values c1 > z-values e3 > order e1 > SET e2): the structural term
+           -log sum_topk pi = -log(1 - pi(S-bar)) trains exactly the quantity the
+           headline theorem bounds truncation error by and c4 logs as a panel.
+           Deliberately indifferent to the within-set distribution -- degenerate or
+           unstable optima are themselves the verdict (membership does not
+           suffice). Value anchor shared with e1 at the same coefficient (one env),
+           so e1<->e2 isolates rank->set as the only moving term; the anchor is
+           registered as the E-axis common additive, cross-rung differences
+           subtract it out. Direct branch (E-axis registered convention).
+           Firewall: [OURS] arm, same pre-registered protocol as every defendant"
+    env:
+      DISTILLATION_LOSS_MODE: set_coverage_anchor
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_PL_ANCHOR_COEF: "0.1"
+
+  - run_id: e3_zvalue
+    axis: E
+    cohort: supplement
+    desc: "affine-invariant value rung: z-score within support, then KL [OURS; z-form from Logit-Std KD 2403.01427]"
+    status: stock
+    note: "ADDED 2026-08-07 (E-axis ladder completion). The rung between c1's raw
+           values and e1's pure order: z-score student and teacher within the
+           support (z-as-adaptive-temperature pre-process from the CVPR24 vision
+           paper -- form source only, not under audit, the OPD arm is ours), then
+           the axis's KL form on the z-scored supports. Keeps the RATIOS of logit
+           gaps, discards shift and scale; z on log-probs equals z on logits
+           exactly (per-token logsumexp shift, std shift-invariant), so the top-k
+           log-prob payload suffices. NO value anchor: the structural term is
+           itself a value matcher and a raw anchor would smuggle scale back into
+           the rung. Registered asymmetry: cross-rung reads pair c1 (pure raw)
+           with e3 (pure z), and e1 with e2 (both anchored at one shared coef).
+           Readings: c1~e3~e1 -> order suffices; c1~e3>e1 -> gap ratios carry it
+           (adaptive temperature wins); c1>e3 -> even absolute scale is
+           load-bearing. Direct branch. Firewall: same protocol as every defendant"
+    env:
+      DISTILLATION_LOSS_MODE: zvalue_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+
   # ---- F: signal regulation ----
   - run_id: f1_soft_log
     axis: F
