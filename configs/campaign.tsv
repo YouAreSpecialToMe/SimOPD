@@ -238,18 +238,18 @@
 # rule 5), and the pair becomes cross-site replication data rather than a gap.
 # b5_k2 + h3_random_segment were remote-labeled upstream all along and missed by
 # a name-list grep here; they are ours by contract.
-7	m5	c4_pi_tail_budget	0	reassigned 2026-08-08 onto a pair freed by the straggler stop
-7	m19	c4_pi_tail_budget	1
-7	m20	c4_pi_tail_budget	2
-7	m21	e2_set_coverage	0
-7	m22	e2_set_coverage	1
-7	m23	e2_set_coverage	2
-7	m24	e3_zvalue	0
-7	m17	e3_zvalue	1
-7	m18	e3_zvalue	2
-7	m19	g5_rgopd_gate	0
-7	m20	g5_rgopd_gate	1
-7	m21	g5_rgopd_gate	2
+7	m5	c4_pi_tail_budget	0	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m19	c4_pi_tail_budget	1	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m20	c4_pi_tail_budget	2	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m21	e2_set_coverage	0	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m22	e2_set_coverage	1	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m23	e2_set_coverage	2	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m24	e3_zvalue	0	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m17	e3_zvalue	1	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m18	e3_zvalue	2	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m19	g5_rgopd_gate	0	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m20	g5_rgopd_gate	1	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
+7	m21	g5_rgopd_gate	2	needs=/nonexistent/ceded-to-cornell -- user 2026-08-08: upstream runs this arm on its own cards; our mirror was stopped to fund the wall cohort's 4-card lanes. Lift by removing this note.
 7	m22	b5_k2	0
 7	m23	b5_k2	1
 7	m24	b5_k2	2
@@ -263,18 +263,18 @@
 # in arms.yaml, topology fingerprinted. Hosts are the width-configured boxes
 # (.campaign/GPUS_PER_RUN.<m> = 4); fresh starts -- the 2-card curves are archived
 # as ckpt/simopd/<run>.2card-wall. Staggered: lanes fill as completions free cards.
-8	m12	b3_eopd_gate	0
-8	m13	b3_eopd_gate	1
-8	m14	b3_eopd_gate	2
-8	m12	d2_selectkd	0
-8	m13	d2_selectkd	1
-8	m14	d2_selectkd	2
+8	m19	b3_eopd_gate	0
+8	m20	b3_eopd_gate	1
+8	m21	b3_eopd_gate	2
+8	m8	d2_selectkd	0
+8	m9	d2_selectkd	1
+8	m10	d2_selectkd	2
 8	m12	g2_fire_likelihood	0
 8	m13	g2_fire_likelihood	1
 8	m14	g2_fire_likelihood	2
-8	m8	d1_tip	0
-8	m9	d1_tip	1
-8	m10	d1_tip	2
-8	m8	d3_teachability	0
-8	m9	d3_teachability	1
-8	m10	d3_teachability	2
+8	m12	d1_tip	0
+8	m13	d1_tip	1
+8	m14	d1_tip	2
+8	m19	d3_teachability	0
+8	m20	d3_teachability	1
+8	m21	d3_teachability	2
