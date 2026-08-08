@@ -222,7 +222,8 @@ def ray_worker_errors(tmpdirs, limit=3):
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    p.add_argument("log", nargs="?", help="log file; default = newest under logs/")
+    p.add_argument("log", nargs="*", help="log file(s); default = newest under logs/. "
+                   "Globs are welcome: triage.py logs/m1/lane*.log")
     p.add_argument("-n", type=int, default=1, help="how many errors to show (default 1)")
     p.add_argument("--ray", action="store_true", help="also search Ray worker logs")
     p.add_argument("--tail", action="store_true",
@@ -233,14 +234,27 @@ def main():
                    help="lines of surrounding output to show before the error")
     a = p.parse_args()
 
-    path = a.log
-    if not path:
+    paths = list(a.log)
+    if not paths:
         cands = glob.glob(os.path.join(root, "logs", "*.out")) + \
                 glob.glob(os.path.join(root, "logs", "*.log"))
         if not cands:
             raise SystemExit("no logs/ files; pass one explicitly")
-        path = max(cands, key=os.path.getmtime)
+        paths = [max(cands, key=os.path.getmtime)]
+    if len(paths) > 1:
+        # Several logs is the normal case when a whole machine failed: triage each,
+        # newest first, so the operator reads causes rather than assembling a
+        # shell loop under pressure.
+        rc = 0
+        for i, p_ in enumerate(sorted(paths, key=os.path.getmtime, reverse=True)):
+            if i:
+                print()
+            rc |= _one(p_, a)
+        return rc
+    return _one(paths[0], a)
 
+
+def _one(path, a):
     with open(path, errors="replace") as f:
         raw = f.readlines()
     lines = [c for c in (clean(x) for x in raw) if c]
