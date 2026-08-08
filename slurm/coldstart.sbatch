@@ -75,7 +75,10 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     data.train_batch_size="${SFT_BATCH:-128}" \
     model.path="$STUDENT" \
     trainer.default_local_dir="$SFT_CKPT" \
-    trainer.total_epochs="${SFT_EPOCHS:-2}" \
+    trainer.total_epochs="${SFT_EPOCHS:-1}" \
+    optim.lr="${SFT_LR:-1.0e-5}" \
+    optim.lr_scheduler_type=cosine \
+    optim.lr_warmup_steps_ratio=0.05 \
     "$@"
 
 echo "SFT checkpoint: $SFT_CKPT"

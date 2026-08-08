@@ -128,6 +128,14 @@ def main():
         elif pg != EXPECT_PG[rid]:
             problems.append(f"{tag} branch is {'PG' if pg else 'direct'}, audit r5 says "
                             f"{'PG' if EXPECT_PG[rid] else 'direct'}")
+        # A gated arm parks its knobs under env2_pending; flipping status without
+        # renaming the key ships an arm with NO env, and gkd_mix installs only when
+        # SIMOPD_GKD_CACHE is set -- a1/a3 would train as two more vanillas and
+        # nothing downstream would say so (audit r6 2026-08-09).
+        if status == "stock" and any(k.startswith("env") and k != "env" for k in a):
+            parked = [k for k in a if k.startswith("env") and k != "env"]
+            problems.append(f"{tag} is stock but its knobs are still parked under {parked} -- "
+                            f"rename to env: or the arm runs with none")
         if rid == "j1_kdrl" and env.get("USE_TASK_REWARDS") != "True":
             problems.append(f"{tag} KDRL without USE_TASK_REWARDS=True is pure KD")
 
