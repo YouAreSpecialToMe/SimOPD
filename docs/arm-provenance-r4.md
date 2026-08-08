@@ -512,3 +512,48 @@ _topk_by_score` 的 `keep & mask`:`RuntimeError: ... cuda:0 and cpu`。根因是
 **方法论**:CPU 夹具对这一类天然免疫——那里所有张量本来就同设备,断言恒真。故新增
 的是**契约测试**(掩码设备 == 输入设备 + 响应尾定位逐位),而非数值测试;真正的
 守卫是"张量在消费者设备上构造"这条纪律,已写进两处注释。
+
+## r6 复审(2026-08-09):A 轴 —— 两条 r5 结论撤销,一条 r4 论证撤销
+
+r5 之后 A 轴代码大改(全前缀键、a2 自定义 SFT 数据集、16k 修正案)且 a3 从未逐项
+对表,故整轴重审。源:GKD 正文(HTML 取)、Rethinking 正文、thunlp/OPD 本地 clone
+(`scripts/infer/vllm_rollout.py`、`LlamaFactory/examples/train_full/qwen3_base_full_sft.yaml`)。
+
+### 撤销 #1(r4/a1 论证):"PG 与直接反传在 ratio≡1 下梯度重合" —— **不成立**
+GKD 正文明文:目标是**全词表散度**、**直接反传**,且 "we do not backpropagate through
+the student's sampling distribution";λ 掷币**逐 batch**。我们是采样点 k1 + PG。
+两者不是同一估计器:direct = mean ∇log π_S,PG = mean(ℓ·∇log π_S)。且对采样点损失,
+direct 分支会把采样 token 的概率**往下压**——所以 PG 是采样估计器下唯一合理选择,
+但"梯度重合"这句必须撤。
+**连带的实质性后果**:采样点 k1 的方向随**采样者**而定。on-policy 时 E[ℓ]=RKL;
+off-policy(教师采样)时 E[ℓ]=−FKL,优势 A=−ℓ 的期望为 +KL(π_T‖π_S)≥0 ⇒ off-policy
+份额实际是**按 log-ratio 加权的教师文本行为克隆**,而非 GKD 的 supervised-KD 项。
+判决口径改为:a1/a3 度量的是**数据来源的剂量反应(在本协议估计器下)**,明确不声称
+复现 GKD 目标。忠实变体(λ 混合作用在分布式 top-k 散度上、方向由 D 固定)= 修正案
+候选 a4_gkd_dist,本轮不建。
+
+### 撤销 #2(r5/a2 "出处升级"):其 rejection sampling 是**有效性**过滤,非正确性
+`is_valid_output` 逐行读:必须含 `\boxed`;拒绝重复行(≥5 次)、100 字符 n-gram 重复
+(≥3)、>5000 字时的连续块重复;每槽重试 ≤3。**不查答案对错**。r5 把它读作 verifier
+拒采并据此"升级"为原版确证——撤销。执行:`gen_coldstart_data.py --filter` 三档,
+**默认 validity(按其阈值逐项移植)**,`verifier`(正确性)降为我们的消融,`none` 保留。
+
+### 新增对表:a2 的 SFT 超参(r5 时无从对)
+其 `qwen3_base_full_sft.yaml`:Qwen3-1.7B-Base 全参 SFT、**1 epoch**、**lr 1e-5**、
+cosine、warmup_ratio 0.05、cutoff_len 14336、bf16。我们:epochs 2→**1**、lr/调度/
+warmup 由未登记的 verl 默认改为**显式钉死同值**;cutoff 17408 vs 14336 = 16k 协议缩放
+(其 resp cap 7168↔14336,我们 16384↔17408,比例一致),登记偏离。
+
+### 新增声明:a2 的 think 模板不一致(他们内部就不一致)
+他们教师 rollout `--enable-thinking false`、OPD 阶段 `enable_thinking=False`,但
+**SFT 配置 `enable_thinking: True`**。我们两阶段一律 non-thinking,使冷启动条件化与
+OPD/评测完全一致(`ColdstartSFTDataset` 的 loss 边界即生成前缀之后)。登记为**有意
+偏离**:我们审的是配方形状,不是其模板组合。
+
+### 新增守卫:门控臂的 env 停车位
+a1/a3 的旋钮停在 `env2_pending`,翻 stock 时若忘改名,`gkd_mix` 因缺 `SIMOPD_GKD_CACHE`
+静默不装 ⇒ **两个 vanilla 顶着 a1/a3 的名字跑**。arm_lint 新增拒绝规则(自测:临时翻
+stock 立即报错)。
+
+**A 轴现状**:a1/a3 门控(等 cornell 预生成 + 3 步彩排);a2 门控(等 SFT ckpt),
+其配方三项按本次复审改齐。判决语言的三处收窄已入臂注。

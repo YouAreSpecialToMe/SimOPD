@@ -12,7 +12,10 @@ Two choices worth stating, because both are confounds a reviewer will look for:
   twice. The cost is that this arm's OPD phase sees fewer distinct prompts than
   the others (reported below; at 300x128 we are already multi-epoch, so the
   difference is in epochs seen, not in samples trained on).
-* Responses are rejection-sampled on the verifier. Confirmed against the
+* Responses are filtered the way the official repo filters them (audit r6): a
+  VALIDITY check, not a correctness one -- see --filter. The r5 note below read
+  their flag as verifier rejection sampling; their code says otherwise.
+* (r5, superseded) Responses are rejection-sampled on the verifier. Confirmed against the
   official repo (audit r5, 2026-08-07): thunlp/OPD's vllm_rollout.py runs with
   --enable-rejection-sampling true, so filtering is their recipe, not our
   reading. It also matches our G-axis discipline that the verifier filters but
@@ -39,13 +42,65 @@ def main():
     p.add_argument("--n-samples", type=int, default=4, help="teacher samples per prompt before filtering")
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--max-tokens", type=int, default=16384)  # PROTOCOL 3.8: follow the 16k cap
-    p.add_argument("--keep-all", action="store_true", help="skip verifier filtering (ablation)")
+    p.add_argument("--filter", choices=["validity", "verifier", "none"], default="validity",
+                   help="validity = the paper's own is_valid_output (boxed + degeneracy, "
+                        "audit r6); verifier = correctness (OUR ablation); none = keep all")
+    p.add_argument("--keep-all", action="store_true", help="deprecated alias for --filter none")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
     args = p.parse_args()
 
     from transformers import AutoTokenizer
+    from collections import Counter
+
     from verl.utils.reward_score import default_compute_score
+
+    # --- thunlp/OPD scripts/infer/vllm_rollout.py, ported verbatim (audit r6
+    # 2026-08-09). Their --enable-rejection-sampling, which r5 read as verifier
+    # rejection sampling, is a VALIDITY filter: it rejects generations with no
+    # \boxed{} or with degenerate repetition and retries the slot (<=3). It never
+    # checks whether the answer is right. Their thresholds are imported literally,
+    # the convention this audit already follows for d2's k=5 and h1's K=100.
+    def _has_boxed(t):
+        return "\\boxed" in t
+
+    def _repeated_lines(t, min_len=20, threshold=5):
+        lines = [l.strip() for l in t.split("\n") if len(l.strip()) >= min_len]
+        return bool(lines) and Counter(lines).most_common(1)[0][1] >= threshold
+
+    def _ngram_repetition(t, n=100, threshold=3):
+        if len(t) < n * threshold:
+            return False
+        seen = {}
+        for i in range(0, len(t) - n + 1, 10):
+            c = t[i:i + n]
+            seen[c] = seen.get(c, 0) + 1
+            if seen[c] >= threshold:
+                return True
+        return False
+
+    def _consecutive_repeat(t, block=50, threshold=3):
+        if len(t) < block * threshold:
+            return False
+        for i in range(len(t) - block * threshold + 1):
+            b = t[i:i + block]
+            cnt, pos = 1, i + block
+            while pos + block <= len(t) and t[pos:pos + block] == b:
+                cnt += 1; pos += block
+                if cnt >= threshold:
+                    return True
+        return False
+
+    def is_valid_output(t):
+        if not _has_boxed(t):
+            return False, "no_boxed"
+        if _repeated_lines(t):
+            return False, "repeated_lines"
+        if _ngram_repetition(t):
+            return False, "ngram_repetition"
+        if len(t) > 5000 and _consecutive_repeat(t):
+            return False, "consecutive_repeat"
+        return True, "ok"
     from vllm import LLM, SamplingParams
 
     df = pd.read_parquet(args.train_parquet)
@@ -76,6 +131,7 @@ def main():
     )
 
     rows, n_kept, n_total = [], 0, 0
+    reject_stats = {}
     for (_, row), gt, out in zip(reserved.iterrows(), truths, outputs, strict=True):
         user_msg = row["prompt"].tolist()[0]["content"]
         for comp in out.outputs:
@@ -84,11 +140,18 @@ def main():
                 # An unterminated completion is not a solution; even --keep-all
                 # (the no-verifier ablation) must not learn from a cut-off (S8).
                 continue
-            if not args.keep_all:
+            mode = "none" if args.keep_all else args.filter
+            if mode == "validity":
+                ok, why = is_valid_output(comp.text)
+                if not ok:
+                    reject_stats[why] = reject_stats.get(why, 0) + 1
+                    continue
+            elif mode == "verifier":
                 score = default_compute_score(MATH_SCORER_SOURCE, comp.text, gt)
                 if isinstance(score, dict):
                     score = score.get("score", 0.0)
                 if float(score) <= 0.5:
+                    reject_stats["wrong_answer"] = reject_stats.get("wrong_answer", 0) + 1
                     continue
             n_kept += 1
             rows.append({"messages": [{"role": "user", "content": user_msg},
@@ -96,6 +159,7 @@ def main():
 
     # S9: at the 16k cap a row can exceed the SFT engine's max_length and
     # truncation=error then kills training hours in; filter here, count in meta.
+    print(f"filter={('none' if args.keep_all else args.filter)}  rejects={reject_stats}")
     stu_tok = AutoTokenizer.from_pretrained(args.student)
     sft_max = int(os.environ.get("SFT_MAX_LEN", "17408"))
     def _row_len(r):
