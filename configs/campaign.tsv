@@ -263,18 +263,18 @@
 # in arms.yaml, topology fingerprinted. Hosts are the width-configured boxes
 # (.campaign/GPUS_PER_RUN.<m> = 4); fresh starts -- the 2-card curves are archived
 # as ckpt/simopd/<run>.2card-wall. Staggered: lanes fill as completions free cards.
-8	m19	b3_eopd_gate	0
-8	m20	b3_eopd_gate	1
-8	m21	b3_eopd_gate	2
-8	m22	d2_selectkd	0	reassigned 2026-08-08: m22 held a ready-made quad, so m8 needs no eviction
-8	m9	d2_selectkd	1
-8	m10	d2_selectkd	2
-8	m12	g2_fire_likelihood	0
-8	m13	g2_fire_likelihood	1
-8	m14	g2_fire_likelihood	2
-8	m12	d1_tip	0
-8	m13	d1_tip	1
-8	m14	d1_tip	2
-8	m2	d3_teachability	0	pre-launched 2026-08-08 13:0x on the freed quad (user: do not queue behind b3); poisoned fp so the copy baked in m19 lane self-refuses
-8	m23	d3_teachability	1	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s0 twin kill; poisoned fp so the m20-baked copy self-refuses
-8	m24	d3_teachability	2	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s2 twin kill; poisoned fp so the m21-baked copy self-refuses
+8	m19	b3_eopd_gate	0	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
+8	m20	b3_eopd_gate	1	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
+8	m21	b3_eopd_gate	2	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
+8	m22	d2_selectkd	0	reassigned 2026-08-08: m22 held a ready-made quad, so m8 needs no eviction; needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
+8	m9	d2_selectkd	1	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
+8	m10	d2_selectkd	2	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
+8	m12	g2_fire_likelihood	0	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m13	g2_fire_likelihood	1	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m14	g2_fire_likelihood	2	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m12	d1_tip	0	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m13	d1_tip	1	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m14	d1_tip	2	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m2	d3_teachability	0	pre-launched 2026-08-08 13:0x on the freed quad (user: do not queue behind b3); poisoned fp so the copy baked in m19 lane self-refuses; needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m23	d3_teachability	1	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s0 twin kill; poisoned fp so the m20-baked copy self-refuses; needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m24	d3_teachability	2	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s2 twin kill; poisoned fp so the m21-baked copy self-refuses; needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
