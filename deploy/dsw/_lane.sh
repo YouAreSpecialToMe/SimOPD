@@ -13,6 +13,15 @@ source "$VENV/bin/activate"
 export PYTHONPATH="$SNAP/src${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$RAY_TMPDIR"
 
+# Shadow diagnostics OFF for the 16k batch (2026-08-08). The panel runs every
+# selector (tip/selectkd/teachability) on every top-k arm as pure telemetry,
+# tripling the loss-time transients -- and at 17,408-token microbatches the D
+# family trains with under 2GB of headroom, where d1_tip_s1 OOM'd asking 594MiB.
+# SIMOPD_SHADOW is excluded from the resume fingerprint BY DESIGN ("alters which
+# metrics are emitted, never what the loss computes"), so this changes no run's
+# math and refuses no resume; runs already flying keep their panels.
+export SIMOPD_SHADOW=${SIMOPD_SHADOW:-0}
+
 echo "lane on GPUs [${CUDA_VISIBLE_DEVICES}] : ${LANE_RUNS}"
 
 # Kill what this lane leaked, and only what this lane leaked.
