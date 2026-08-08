@@ -253,7 +253,7 @@
 # rule 5), and the pair becomes cross-site replication data rather than a gap.
 # b5_k2 + h3_random_segment were remote-labeled upstream all along and missed by
 # a name-list grep here; they are ours by contract.
-7	m18	c4_pi_tail_budget	0
+7	m5	c4_pi_tail_budget	0	reassigned 2026-08-08 onto a pair freed by the straggler stop
 7	m19	c4_pi_tail_budget	1
 7	m20	c4_pi_tail_budget	2
 7	m21	e2_set_coverage	0
@@ -268,6 +268,6 @@
 7	m22	b5_k2	0
 7	m23	b5_k2	1
 7	m24	b5_k2	2
-7	m17	h3_random_segment	0
+7	m6	h3_random_segment	0	reassigned 2026-08-08 onto a pair freed by the straggler stop
 7	m18	h3_random_segment	1
-7	m19	h3_random_segment	2
+7	m7	h3_random_segment	2	reassigned 2026-08-08 onto a pair freed by the straggler stop
