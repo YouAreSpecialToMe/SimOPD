@@ -173,7 +173,7 @@
 # ---- wave 5 remainder: all 17 non-vanilla arms x 3 seeds (2026-08-08) --------
 # Canary gate passed: vanilla x3 at step 12-13, no OOM, peak 35.9G. Emptiest-first
 # box cycle; an arm's three seeds always on three different machines.
-5	m6	b3_eopd_gate	0
+5	m4	b3_eopd_gate	0	reassigned 2026-08-08 onto m4's freed pair; strikes 1-2 were the pre-measure margin death, third attempt carries chunk-256+shadow-off
 5	m9	b3_eopd_gate	1
 5	m10	b3_eopd_gate	2
 5	m16	f2_hard_clip	0
@@ -190,7 +190,7 @@
 5	m9	h1_first_segment	2
 5	m22	d1_tip	0	reassigned 2026-08-08 off m10 (user: don't wait for stragglers)
 5	m6	d1_tip	1
-5	m9	d1_tip	2
+5	m9	d1_tip	2	needs=/nonexistent/lane-queue-guard -- BAKED into a live lane's LANE_RUNS (2026-08-08); any claim of this row double-launches it. The guard path never exists, so claims skip; the lane queue does not read this file and runs it on schedule. Remove the guard only if that lane dies before reaching it.
 5	m23	d2_selectkd	0	reassigned 2026-08-08 off m2 (user: don't wait for stragglers)
 5	m16	d2_selectkd	1
 5	m24	d2_selectkd	2	reassigned 2026-08-08 off m1 (user: don't wait for stragglers)
@@ -201,7 +201,7 @@
 5	m15	g1_verified_only	1
 5	m4	g1_verified_only	2
 5	m11	g2_fire_likelihood	0
-5	m5	g2_fire_likelihood	1
+5	m5	g2_fire_likelihood	1	needs=/nonexistent/lane-queue-guard -- BAKED into a live lane's LANE_RUNS (2026-08-08); any claim of this row double-launches it. The guard path never exists, so claims skip; the lane queue does not read this file and runs it on schedule. Remove the guard only if that lane dies before reaching it.
 5	m17	g2_fire_likelihood	2	reassigned 2026-08-08 off m6 (user: don't wait for stragglers)
 5	m9	e1_pl_rank	0
 5	m10	e1_pl_rank	1
@@ -212,7 +212,7 @@
 5	m1	c2_quantile_budget	0
 5	m2	c2_quantile_budget	1
 5	m3	c2_quantile_budget	2
-5	m7	b2_forward_kl	0
+5	m7	b2_forward_kl	0	needs=/nonexistent/lane-queue-guard -- BAKED into a live lane's LANE_RUNS (2026-08-08); any claim of this row double-launches it. The guard path never exists, so claims skip; the lane queue does not read this file and runs it on schedule. Remove the guard only if that lane dies before reaching it.
 5	m8	b2_forward_kl	1
 5	m15	b2_forward_kl	2
 5	m12	vanilla_n8	0	4-card lane: NGPUS 2 + TWS 2; box launched manually with GPUS_PER_RUN=4 (daemon unsets the width)
@@ -221,7 +221,7 @@
 5	m13	j1_kdrl	0
 5	m14	j1_kdrl	1
 5	m12	j1_kdrl	2
-5	m4	a2_coldstart	0
+5	m4	a2_coldstart	0	needs=/nonexistent/lane-queue-guard -- BAKED into a live lane's LANE_RUNS (2026-08-08); any claim of this row double-launches it. The guard path never exists, so claims skip; the lane queue does not read this file and runs it on schedule. Remove the guard only if that lane dies before reaching it.
 5	m11	a2_coldstart	1
 5	m5	a2_coldstart	2
 5	m21	f3_power	0	reassigned 2026-08-08 off m8 (user: don't wait for stragglers)
