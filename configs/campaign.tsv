@@ -201,7 +201,7 @@
 5	m15	g1_verified_only	1
 5	m4	g1_verified_only	2
 5	m11	g2_fire_likelihood	0
-5	m5	g2_fire_likelihood	1	needs=/nonexistent/lane-queue-guard -- BAKED into a live lane's LANE_RUNS (2026-08-08); any claim of this row double-launches it. The guard path never exists, so claims skip; the lane queue does not read this file and runs it on schedule. Remove the guard only if that lane dies before reaching it.
+5	m5	g2_fire_likelihood	1	guard LIFTED 2026-08-08: its baked queue copy already fired (and failed) at 09:13, so the guard was blocking the legitimate retry, not a twin
 5	m17	g2_fire_likelihood	2	reassigned 2026-08-08 off m6 (user: don't wait for stragglers)
 5	m9	e1_pl_rank	0
 5	m10	e1_pl_rank	1
