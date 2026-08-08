@@ -15,12 +15,18 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 CLAIM_DIR=${CLAIM_DIR:-.campaign}
 source "${SIMOPD_VENV:-simopd}/bin/activate" 2>/dev/null || true
 
-echo "=== daemons: stop files for all machines (shared fs), kill this box's ==="
-for m in m1 m2 m3; do touch "$CLAIM_DIR/daemon.stop.$m" 2>/dev/null || true; done
+_ME=$(awk -F'\t' -v h="$(hostname)" '$1==h {print $2; exit}' "$CLAIM_DIR/MACHINE_MAP" 2>/dev/null)
+echo "=== daemon: stop THIS machine's (${_ME:-unregistered}); pass --all for every machine ==="
+if [ "${1:-}" = "--all" ]; then
+    for m in m1 m2 m3; do touch "$CLAIM_DIR/daemon.stop.$m" 2>/dev/null || true; done
+    rm -f "$CLAIM_DIR"/daemon.alive.m* "$CLAIM_DIR"/daemon.status.m* 2>/dev/null || true
+elif [ -n "$_ME" ]; then
+    touch "$CLAIM_DIR/daemon.stop.$_ME" 2>/dev/null || true
+    # Stale heartbeat/status would trip the launch scripts' is-a-daemon-alive guard.
+    rm -f "$CLAIM_DIR/daemon.alive.$_ME" "$CLAIM_DIR/daemon.status.$_ME" 2>/dev/null || true
+fi
 pkill -f campaign_daemon.sh 2>/dev/null && echo "  daemon process on this box killed" \
                                         || echo "  no daemon process on this box"
-# Stale heartbeats would trip the launch scripts' is-a-daemon-alive guard.
-rm -f "$CLAIM_DIR"/daemon.alive.m* "$CLAIM_DIR"/daemon.status.m* 2>/dev/null || true
 
 echo "=== lane shepherds, before the GPUs ==="
 pkill -f "dsw/_lane.sh" 2>/dev/null || true
