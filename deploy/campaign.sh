@@ -497,6 +497,12 @@ GPUS_PER_RUN=${GPUS_PER_RUN:-$(cat "$CLAIM_DIR/GPUS_PER_RUN.${MACHINE:-}" 2>/dev
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
 lanes=$(( n_free / GPUS_PER_RUN ))
 [ "$lanes" -gt "$n_pending" ] && lanes=$n_pending
+# Lanes cap -- the GPUS_PER_RUN standing-config pattern again (the daemon unsets
+# env). 3 lanes = one arm's three seeds launch together each round (ruling
+# 08-08: seeds run simultaneously; a 4th lane would stagger every following
+# arm). The leftover pair is the machine's anchor/offline-eval spare.
+_lcap=$(cat "$CLAIM_DIR/MAX_LANES.${MACHINE:-}" 2>/dev/null || true)
+[ -n "$_lcap" ] && [ "$lanes" -gt "$_lcap" ] && lanes=$_lcap
 # control runs vanilla:0 regardless of pending, so an all-done manifest must not
 # clamp it to zero lanes -- that clamp is what made the mode unreachable in test.
 [ "$MODE" = control ] && [ "$lanes" -lt 1 ] && [ "$n_free" -ge "$GPUS_PER_RUN" ] && lanes=1

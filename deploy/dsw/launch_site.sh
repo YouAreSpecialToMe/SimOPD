@@ -116,7 +116,9 @@ fi
 
 banner "phase 4: lane shape on record + daemon"
 echo "$LANE_SHAPE" > "$CLAIM_DIR/GPUS_PER_RUN.$MACHINE"
-echo "recorded: GPUS_PER_RUN.$MACHINE = $LANE_SHAPE (daemon invocations read this)"
+echo 3 > "$CLAIM_DIR/MAX_LANES.$MACHINE"
+echo "recorded: GPUS_PER_RUN.$MACHINE = $LANE_SHAPE, MAX_LANES = 3 (one arm's three"
+echo "          seeds per round; the spare pair is for the anchor and offline evals)"
 nohup bash deploy/campaign_daemon.sh > "logs/$(hostname)_daemon.log" 2>&1 &
 sleep 3
 tail -n 5 "logs/$(hostname)_daemon.log" || true
