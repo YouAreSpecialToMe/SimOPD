@@ -495,21 +495,39 @@ m3=g1/g2+h1+e1(12 臂×3=36 run);远程主池=vanilla+b2/c1/c2,后补池 10 臂�
 c1 类跨集群比较。入册:本地 12 臂的判决在"本地 vanilla 回补"(3 run,泳道腾空或
 新卡到位即除)之前一律带跨集群 caveat;认领 vanilla 的协作站点以其为自家地板。
 
-## r6 复审(2026-08-09):A 轴 —— 两条 r5 结论撤销,一条 r4 论证撤销
+## r6 复审(2026-08-09):A 轴 —— 一条 r5 结论撤销,一条 r4 论证撤销
 
 r5 之后 A 轴代码大改(全前缀键、a2 自定义 SFT 数据集、16k 修正案)且 a3 从未逐项
 对表,故整轴重审。源:GKD 正文(HTML 取)、Rethinking 正文、thunlp/OPD 本地 clone
 (`scripts/infer/vllm_rollout.py`、`LlamaFactory/examples/train_full/qwen3_base_full_sft.yaml`)。
 
-### 撤销 #1(r4/a1 论证):"PG 与直接反传在 ratio≡1 下梯度重合" —— **不成立**
-GKD 正文明文:目标是**全词表散度**、**直接反传**,且 "we do not backpropagate through
-the student's sampling distribution";λ 掷币**逐 batch**。我们是采样点 k1 + PG。
+### 撤销 #1(r4 的 seam 注,非 r5 表):"PG 与直接反传梯度重合" —— **不成立**
+
+**归属先说清**:r5 的 a1 表那一行本就把优化器判为 ⚠️ 记录偏离(论文=直接/TRL=直接/
+我们=PG),没有错。过头的是 **r4 写进 arms.yaml `seam:` 的那句**"the ratio is
+identically 1 and the gradients coincide"——宽容读法(裁剪代理≡未裁剪 PG)成立但与
+GKD 无关,字面读法(≡GKD 的直接损失)不成立。撤的是后者。
+
+**锚点复核(以码为准的规矩要求)**:r5 的锚是 TRL `trl/experimental/gkd/
+gkd_trainer.py`,本轮重读该文件:掷币 `random.random() <= self.lmbda` 在
+`training_step()` 内**逐 batch**;`generalized_jsd_loss` 在 **(B,S,V) 全词表 logits**
+上计算;loss **直接反传**,无优势/无 stop-grad/无 PG;off-policy 分支用**同一个** jsd
+(非 CE);从不 detach 采样分布。GKD 正文("we do not backpropagate through the
+student's sampling distribution"、逐 batch 掷币)与之完全一致。**两证同向,故本撤销
+不是"以论文压码",而是由码加固。**
+
+我们是采样点 k1 + PG。
 两者不是同一估计器:direct = mean ∇log π_S,PG = mean(ℓ·∇log π_S)。且对采样点损失,
 direct 分支会把采样 token 的概率**往下压**——所以 PG 是采样估计器下唯一合理选择,
 但"梯度重合"这句必须撤。
 **连带的实质性后果**:采样点 k1 的方向随**采样者**而定。on-policy 时 E[ℓ]=RKL;
 off-policy(教师采样)时 E[ℓ]=−FKL,优势 A=−ℓ 的期望为 +KL(π_T‖π_S)≥0 ⇒ off-policy
 份额实际是**按 log-ratio 加权的教师文本行为克隆**,而非 GKD 的 supervised-KD 项。
+**定量对照**(把差别钉死):最小化 FKL 的采样估计 = 最大化 E_{y~π_T}[log π_S] =
+**教师文本上的普通 SFT**(梯度 = ∇log π_S 的无权均值);我们的 PG 给的是**同一批梯度
+按 (log π_T − log π_S) 加权**。即 a3 = 加权版 SFT,忠实形 = 无权 SFT(采样估计)或
+全词表 FKL(GKD 的 token 级 KD 本体)。更一般的一句话:**在单样本估计器下,散度方向
+不是自由旋钮,它由谁采样决定**——这正是 a1/a3 不能声称复现 GKD 目标的根因。
 判决口径改为:a1/a3 度量的是**数据来源的剂量反应(在本协议估计器下)**,明确不声称
 复现 GKD 目标。忠实变体(λ 混合作用在分布式 top-k 散度上、方向由 D 固定)= 修正案
 候选 a4_gkd_dist,本轮不建。
