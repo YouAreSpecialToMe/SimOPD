@@ -269,9 +269,9 @@
 8	m22	d2_selectkd	0	reassigned 2026-08-08: m22 held a ready-made quad, so m8 needs no eviction; needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
 8	m9	d2_selectkd	1	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
 8	m10	d2_selectkd	2	needs=/nonexistent/quad-running-guard: claims ignore the machine col (m3 proved it 07:36), no daemon may re-claim while the quad run lives
-8	m12	g2_fire_likelihood	0	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
-8	m13	g2_fire_likelihood	1	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
-8	m14	g2_fire_likelihood	2	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m4	g2_fire_likelihood	0	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m5	g2_fire_likelihood	1	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+8	m17	g2_fire_likelihood	2	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
 8	m12	d1_tip	0	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
 8	m13	d1_tip	1	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
 8	m14	d1_tip	2	needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
