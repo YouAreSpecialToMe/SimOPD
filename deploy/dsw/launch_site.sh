@@ -7,11 +7,13 @@
 #   bash deploy/dsw/launch_m3.sh        # n8 cell treatment (4-card lanes)
 #
 # Run m1 FIRST (it owns the one-time shared-fs steps), then m2/m3 in any order.
-# Run inside tmux: the probe phase is a real 50-step run (~4-5h) in the foreground;
-# the daemon it starts at the end survives logout on its own.
+# Per ruling 2026-08-07 there is NO blocking probe: every lane launches straight
+# away, and "does it run" is proven by the runs themselves (a broken shape fails
+# fast and quarantines after 3 retries -- triage.py reads it). The one protocol
+# artifact kept is the 16k step-0 anchor: m1 backgrounds a 2-step throwaway with
+# VAL_BEFORE_TRAIN=True on its spare card pair while the fleet launches.
 #
-# Env: PROBE=0 skip the probe phase   PROBE_STEPS=50 probe length (10 = memory+
-#      anchor only, no early-curve check)   APPLY=1 migration without the y/N prompt
+# Env: PROBE=0 skip the anchor mint   APPLY=1 migration without the y/N prompt
 #      FORCE=1 proceed over busy GPUs (only after you have verified what they are)
 set -euo pipefail
 MACHINE=${1:?usage: launch_site.sh <m1|m2|m3>}
@@ -82,22 +84,31 @@ else
     fi
 fi
 
-banner "phase 3: 16k probe -- $PROBE_RUN, 50 steps, ${LANE_SHAPE}-card lane"
-if [ "${PROBE:-1}" = 1 ] && [ ! -f "$CLAIM_DIR/probe16k.$MACHINE.ok" ]; then
-    _pgpus=$(seq -s, 0 $((LANE_SHAPE-1)))
-    # VAL_BEFORE_TRAIN mints the 16k step-0 anchor on m1's floor probe, and the
-    # cell's own step-0 point on m2/m3. SAVE_FREQ=-1: a probe leaves no ckpts.
-    VAL_BEFORE_TRAIN=True STEPS="${PROBE_STEPS:-50}" TEST_FREQ=25 SAVE_FREQ=-1 \
-      TAG="${MACHINE}probe" GPU_LIST="$_pgpus" LANES=1 \
-      RAY_TMPDIR_TAG="${MACHINE}probe$(date +%s)_" \
-      bash deploy/dsw/run_parallel.sh "$PROBE_RUN"
-    date -u +%FT%TZ > "$CLAIM_DIR/probe16k.$MACHINE.ok"
-    echo
-    echo "probe OK. The FIRST validation in its log (step 0) is the 16k anchor for this"
-    echo "lane shape -- record the number in $CLAIM_DIR/PIN_HISTORY. Newest log:"
-    ls -t logs/lane*.log 2>/dev/null | head -1 || true
+if [ "$MACHINE" = m1 ]; then
+    banner "phase 3: step-0 anchor, backgrounded on the spare pair -- fleet does not wait"
+    if [ "${PROBE:-1}" = 1 ] && [ ! -f "$CLAIM_DIR/anchor16k.ok" ]; then
+        ( VAL_BEFORE_TRAIN=True STEPS=2 TEST_FREQ=25 SAVE_FREQ=-1 \
+            TAG="m1anchor" GPU_LIST="0,1" LANES=1 \
+            RAY_TMPDIR_TAG="m1anchor$(date +%s)_" \
+            bash deploy/dsw/run_parallel.sh "vanilla:0" \
+            && date -u +%FT%TZ > "$CLAIM_DIR/anchor16k.ok" ) \
+            > logs/m1_anchor.log 2>&1 &
+        echo "anchor run backgrounded -> logs/m1_anchor.log; its step-0 validation IS the"
+        echo "16k anchor. Record the number in $CLAIM_DIR/PIN_HISTORY when it prints."
+        echo "waiting (<=10min) for it to occupy its cards, so the daemon's free-GPU"
+        echo "census does not hand the same pair to a lane..."
+        _b=0
+        for _i in $(seq 60); do
+            _b=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | wc -l)
+            [ "$_b" -ge 1 ] && break
+            sleep 10
+        done
+        [ "$_b" -ge 1 ] || echo "WARN: anchor claimed nothing after 10min -- check logs/m1_anchor.log; daemon starts anyway."
+    else
+        echo "skipped (PROBE=0 or already minted: $CLAIM_DIR/anchor16k.ok)"
+    fi
 else
-    echo "skipped (PROBE=0 or $CLAIM_DIR/probe16k.$MACHINE.ok exists)"
+    banner "phase 3: no probe (ruling 2026-08-07) -- the first real run proves the shape"
 fi
 
 banner "phase 4: lane shape on record + daemon"

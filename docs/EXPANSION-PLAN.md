@@ -185,4 +185,7 @@ m2 = vanilla_n8×3、m3 = j1_kdrl×3(n8 cell 拓扑最易配错 + cell 同域完
 wave 7 后补 10 臂×3,host=remote,本地 daemon 天然不触;认领 = PR 改 host 为
 site:<label>,契约(站点自铸 vanilla 地板×3 + probe、pin 纪律、离线 suite 评测
 回交)全文 docs/COLLABORATORS.md。执行入口:`deploy/dsw/launch_m{1,2,3}.sh`
-(m1 先跑:独占迁移与 repin;probe 各机自带,VAL_BEFORE_TRAIN 铸各形状步-0 锚)。
+(m1 先跑:独占迁移与 repin)。**probe 撤销(08-07 用户裁定"能跑起来就全 launch"):**
+全泳道即发,形状对错由 run 自证(炸 = 快败 + 3 次熔断隔离 + triage);唯一保留
+协议件 = 16k 步-0 锚,m1 空闲卡对上后台 2 步即弃 run(VAL_BEFORE_TRAIN)并行铸,
+舰队零等待。§8.1 #4-5 的 probe 门相应作废。
