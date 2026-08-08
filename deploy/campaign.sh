@@ -488,6 +488,12 @@ set -- $free_idx
 n_free=$#
 n_mine=$(set -- $mine; echo $#)
 n_pending=$(( n_mine + $(set -- $pool; echo $#) ))
+# Lane shape is per-machine STANDING config, not per-shell env: the daemon unsets
+# GPUS_PER_RUN along with every other leftover (audit F4), so a 4-card machine
+# records its shape on the shared map once (launch_m*.sh writes it) and every
+# later invocation -- daemon included -- reads it back. Env still wins when set,
+# for one-off manual runs.
+GPUS_PER_RUN=${GPUS_PER_RUN:-$(cat "$CLAIM_DIR/GPUS_PER_RUN.${MACHINE:-}" 2>/dev/null || true)}
 GPUS_PER_RUN=${GPUS_PER_RUN:-2}
 lanes=$(( n_free / GPUS_PER_RUN ))
 [ "$lanes" -gt "$n_pending" ] && lanes=$n_pending

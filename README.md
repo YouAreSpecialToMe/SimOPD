@@ -6,6 +6,11 @@
 每个 trick 判为 **必需 / 无用 / 有副作用**,双向贪心蒸出最小有效配方 **SimOPD**。
 方法论血统:LitePPO(Tricks or Traps, arXiv:2508.08221)之于 GRPO/DAPO。
 
+## 协作者
+
+远程算力协作:名册中 `remote` 标记的臂开放认领,契约与交付见
+**[docs/COLLABORATORS.md](docs/COLLABORATORS.md)**(先读 The contract)。
+
 ## 文档
 
 | 文档 | 内容 |

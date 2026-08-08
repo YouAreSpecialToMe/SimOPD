@@ -1,80 +1,104 @@
-# Who runs what. The one place that says it.
+# SimOPD campaign manifest -- S wave (16k), restructured 2026-08-07 for the
+# 24-card local fleet + remote collaborators. Columns: wave  machine  arm  seed  note
 #
-# Four machines, no shared filesystem, so a run cannot be claimed at runtime -- a
-# machine can only be told. Assignment is therefore declarative and in git, which is
-# also what a pre-registered audit wants: "which box produced this arm" is data.
-#
-# Columns:  wave  machine  arm  seed  [note]
-#   wave     runs in ascending order; a machine finishes its wave-N list before wave N+1
-#   machine  m1 (DSW 8xA100) m2 m3 m4 (8xA100 each) cornell (2xA100, slurm)
-#   arm      a run_id from configs/arms.yaml
-#   seed     data.seed and rollout.seed
-#
-# deploy/campaign.sh --plan audits this against the registry: every runnable arm must
-# appear exactly once, and it reports any that do not.
-#
-# ROLLOUT_GPU_MEM_UTIL is pinned to 0.45 for the WHOLE campaign by campaign.sh, not
-# per row. 0.55 is the file's default now and is faster, but a second value would make
-# a second batch, and a second batch needs its own vanilla x3 noise floor: ~168
-# GPU-hours against the ~73 that 0.55 saves over 13 runs. One batch also lets all 15
-# arms share one floor instead of two weaker ones.
-#
-# a1_gkd_mix0.5 is absent -- registry status 'needs': blocked on the gen_offpolicy
-# precompute + a 3-step GPU rehearsal (the rollout-injection code landed 2026-08-06;
-# the old TransferQueue-surgery reason is obsolete). Targeted to join with wave S.
+# wave 5 = LOCAL (m1/m2/m3, 24 cards). m1 runs 2-card lanes; m2/m3 run the n8
+#          cell on 4-card lanes. Lane shape is recorded in .campaign/GPUS_PER_RUN.mX
+#          by deploy/dsw/launch_mX.sh -- do not pass it by hand.
+# wave 6 = REMOTE main batch, wave 7 = REMOTE supplement cohort (second tranche).
+#          host 'remote' matches no local machine, so local daemons never touch
+#          these rows. Collaborators claim by PR: change 'remote' to your site
+#          label on the rows you take. See docs/COLLABORATORS.md for the full
+#          contract (cluster-local vanilla floor first, pin discipline, returns).
+# Pilot-era waves 1-3 (8k batch) retired 2026-08-07: runs migrate to __pilot8k;
+#          rows live in git history.
 
-# ---- wave 1 -------------------------------------------------------------------
-# m1 and cornell are already in flight; listed so the manifest is the whole truth
-# rather than the part that happens to be new.
-1	m1	vanilla	0
-1	m1	vanilla	1
-1	m1	vanilla	2	the three seeds ARE the noise floor
-1	m1	f1_soft_log	0
-1	cornell	c1_lsm_topk32_renorm	0	first top-k-path arm; carries the new pi(S-bar) panels
+5	m1	vanilla	0	S local: the floor every verdict divides by; run it ourselves
+5	m1	vanilla	1
+5	m1	vanilla	2
+5	m2	vanilla_n8	0	S local: n8 cell control; 4-card lanes (GPUS_PER_RUN map)
+5	m2	vanilla_n8	1
+5	m2	vanilla_n8	2
+5	m3	j1_kdrl	0	S local: n8 cell treatment; 4-card lanes (GPUS_PER_RUN map)
+5	m3	j1_kdrl	1
+5	m3	j1_kdrl	2
+#5	m1	a2_coldstart	0	S local GATED: uncomment when the cornell SFT ckpt lands (EXPANSION 8.1 #6)
+#5	m1	a2_coldstart	1	gated with seed 0
+#5	m1	a2_coldstart	2	gated with seed 0
 
-# The eight new lanes. One arm per axis first, so an interrupted campaign leaves
-# breadth rather than one axis in depth.
-1	m2	b1_skew_kl	0
-1	m2	c2_quantile_budget	0	pairs with c1 on cornell
-1	m2	d1_tip	0
-1	m2	e1_pl_rank	0
-1	m3	f2_hard_clip	0	pairs with f1 on m1
-1	m3	g1_verified_only	0
-1	m3	h1_first_segment	0
-1	m3	b2_forward_kl	0
+6	remote	b1_skew_kl	0	remote pool: main batch
+6	remote	b1_skew_kl	1
+6	remote	b1_skew_kl	2
+6	remote	b2_forward_kl	0	remote pool: main batch
+6	remote	b2_forward_kl	1
+6	remote	b2_forward_kl	2
+6	remote	b3_eopd_gate	0	remote pool: main batch
+6	remote	b3_eopd_gate	1
+6	remote	b3_eopd_gate	2
+6	remote	c1_lsm_topk32_renorm	0	remote pool: main batch
+6	remote	c1_lsm_topk32_renorm	1
+6	remote	c1_lsm_topk32_renorm	2
+6	remote	c2_quantile_budget	0	remote pool: main batch
+6	remote	c2_quantile_budget	1
+6	remote	c2_quantile_budget	2
+6	remote	d1_tip	0	remote pool: main batch
+6	remote	d1_tip	1
+6	remote	d1_tip	2
+6	remote	d2_selectkd	0	remote pool: main batch
+6	remote	d2_selectkd	1
+6	remote	d2_selectkd	2
+6	remote	d3_teachability	0	remote pool: main batch
+6	remote	d3_teachability	1
+6	remote	d3_teachability	2
+6	remote	e1_pl_rank	0	remote pool: main batch
+6	remote	e1_pl_rank	1
+6	remote	e1_pl_rank	2
+6	remote	f1_soft_log	0	remote pool: main batch
+6	remote	f1_soft_log	1
+6	remote	f1_soft_log	2
+6	remote	f2_hard_clip	0	remote pool: main batch
+6	remote	f2_hard_clip	1
+6	remote	f2_hard_clip	2
+6	remote	f3_power	0	remote pool: main batch
+6	remote	f3_power	1
+6	remote	f3_power	2
+6	remote	g1_verified_only	0	remote pool: main batch
+6	remote	g1_verified_only	1
+6	remote	g1_verified_only	2
+6	remote	g2_fire_likelihood	0	remote pool: main batch
+6	remote	g2_fire_likelihood	1
+6	remote	g2_fire_likelihood	2
+6	remote	h1_first_segment	0	remote pool: main batch
+6	remote	h1_first_segment	1
+6	remote	h1_first_segment	2
 
-# ---- wave 2 -------------------------------------------------------------------
-# 'any': claimed at runtime by whichever machine has a free lane, which works because
-# the machines share a filesystem -- confirmed by a git pull on one leaving the others
-# already current, and .campaign/ sits in that same shared repo. m1 is freeing lanes
-# now, before m4 exists, and static assignment would have left them idle while four
-# rows waited on a machine that may never arrive.
-# mkdir is the claim: atomic, and it fails for the loser.
-2	any	d2_selectkd	0
-2	any	d3_teachability	0
-2	any	g2_fire_likelihood	0	run informativeness.py first: it tests this arm's premise
-# cornell, not the pool: its env pins STUDENT_MODEL=/scratch/zz865/... and
-# DATA_DIR=/home/zz865/..., which exist on no DSW box. needs= is checked before it is
-# ever handed to a lane -- it had sorted first in the pool and would have taken a lane,
-# failed, and been retried forever.
-3	cornell	a2_coldstart	0	needs=/scratch/zz865/simopd/ckpt/coldstart_sft
-3	any	b3_eopd_gate	0	EOPD ICML26 replication; added 2026-08-06 post-sweep
-
-# ---- wave 4: SUPPLEMENT cohort (arms added from a3_offpolicy on, 2026-08-07) ----
-# The main roster is already running; this cohort launches separately on DSW after
-# it, and is NOT in the first-volley card arithmetic. a3 joins here when the
-# cornell precompute flips it (and a1) to stock -- a1 stays MAIN batch, wave 3.
-# (a3 row appears here on flip)
-4	any	b4_jsd	0	supplement: axis-B JSD debt paid; added 2026-08-07
-4	any	b5_k2	0	supplement [OURS]: estimator ladder middle rung; added 2026-08-07
-4	any	c3_intersection	0	supplement: thunlp intersection support; added 2026-08-07
-4	any	c4_pi_tail_budget	0	supplement [OURS]: headline theorem's quantity as budget; added 2026-08-07
-4	any	e2_set_coverage	0	supplement [OURS]: within-support ladder, set rung; added 2026-08-07
-4	any	e3_zvalue	0	supplement [OURS]: within-support ladder, affine-invariant rung; added 2026-08-07
-4	any	g4_failure_only	0	supplement [OURS]: sign family mirror of g1; added 2026-08-07
-4	any	g5_rgopd_gate	0	supplement: RG-OPD flagship directional gate; added 2026-08-07
-4	any	h2_last_segment	0	supplement [OURS]: H bracket tail mirror; added 2026-08-07
-4	any	h3_random_segment	0	supplement [OURS]: H bracket position-agnostic control; added 2026-08-07
-3	any	f3_power	0	F-family bounded member; added 2026-08-07 from the F-spectrum question
-3	any	vanilla_n8	0	j1 cell control; 4-card lane -- at S launch reassign to the GPUS_PER_RUN=4 box
-3	any	j1_kdrl	0	KL+RL (axis J); base=vanilla_n8; 4-card lane, same box as it
+# supplement tranche: launch AFTER your site's main-batch rows are running; a3 joins on unlock
+7	remote	b4_jsd	0	remote pool: supplement cohort
+7	remote	b4_jsd	1
+7	remote	b4_jsd	2
+7	remote	b5_k2	0	remote pool: supplement cohort
+7	remote	b5_k2	1
+7	remote	b5_k2	2
+7	remote	c3_intersection	0	remote pool: supplement cohort
+7	remote	c3_intersection	1
+7	remote	c3_intersection	2
+7	remote	c4_pi_tail_budget	0	remote pool: supplement cohort
+7	remote	c4_pi_tail_budget	1
+7	remote	c4_pi_tail_budget	2
+7	remote	e2_set_coverage	0	remote pool: supplement cohort
+7	remote	e2_set_coverage	1
+7	remote	e2_set_coverage	2
+7	remote	e3_zvalue	0	remote pool: supplement cohort
+7	remote	e3_zvalue	1
+7	remote	e3_zvalue	2
+7	remote	g4_failure_only	0	remote pool: supplement cohort
+7	remote	g4_failure_only	1
+7	remote	g4_failure_only	2
+7	remote	g5_rgopd_gate	0	remote pool: supplement cohort
+7	remote	g5_rgopd_gate	1
+7	remote	g5_rgopd_gate	2
+7	remote	h2_last_segment	0	remote pool: supplement cohort
+7	remote	h2_last_segment	1
+7	remote	h2_last_segment	2
+7	remote	h3_random_segment	0	remote pool: supplement cohort
+7	remote	h3_random_segment	1
+7	remote	h3_random_segment	2
