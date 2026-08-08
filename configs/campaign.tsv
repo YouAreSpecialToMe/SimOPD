@@ -188,12 +188,12 @@
 5	m5	h1_first_segment	0
 5	m6	h1_first_segment	1
 5	m9	h1_first_segment	2
-5	m10	d1_tip	0
+5	m22	d1_tip	0	reassigned 2026-08-08 off m10 (user: don't wait for stragglers)
 5	m6	d1_tip	1
 5	m9	d1_tip	2
-5	m2	d2_selectkd	0
+5	m23	d2_selectkd	0	reassigned 2026-08-08 off m2 (user: don't wait for stragglers)
 5	m16	d2_selectkd	1
-5	m1	d2_selectkd	2
+5	m24	d2_selectkd	2	reassigned 2026-08-08 off m1 (user: don't wait for stragglers)
 5	m2	d3_teachability	0
 5	m3	d3_teachability	1
 5	m7	d3_teachability	2
@@ -202,7 +202,7 @@
 5	m4	g1_verified_only	2
 5	m11	g2_fire_likelihood	0
 5	m5	g2_fire_likelihood	1
-5	m6	g2_fire_likelihood	2
+5	m17	g2_fire_likelihood	2	reassigned 2026-08-08 off m6 (user: don't wait for stragglers)
 5	m9	e1_pl_rank	0
 5	m10	e1_pl_rank	1
 5	m16	e1_pl_rank	2
@@ -224,7 +224,7 @@
 5	m4	a2_coldstart	0
 5	m11	a2_coldstart	1
 5	m5	a2_coldstart	2
-5	m8	f3_power	0	promoted on main 9877304 mid-wave; joins the batch under the same tag
+5	m21	f3_power	0	reassigned 2026-08-08 off m8 (user: don't wait for stragglers)
 5	m10	f3_power	1
 5	m11	f3_power	2
 
