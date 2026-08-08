@@ -246,3 +246,28 @@
 6	m18	h2_last_segment	0
 6	m19	h2_last_segment	1
 6	m20	h2_last_segment	2
+
+# ---- wave 7: the upstream-local four, mirrored here, plus the two missed -------
+# 2026-08-08 (user): run c4/e2/e3/g5 on this fleet too -- upstream runs its own
+# copies on cornell A100s; our copies verdict against OUR vanilla floor (contract
+# rule 5), and the pair becomes cross-site replication data rather than a gap.
+# b5_k2 + h3_random_segment were remote-labeled upstream all along and missed by
+# a name-list grep here; they are ours by contract.
+7	m18	c4_pi_tail_budget	0
+7	m19	c4_pi_tail_budget	1
+7	m20	c4_pi_tail_budget	2
+7	m21	e2_set_coverage	0
+7	m22	e2_set_coverage	1
+7	m23	e2_set_coverage	2
+7	m24	e3_zvalue	0
+7	m17	e3_zvalue	1
+7	m18	e3_zvalue	2
+7	m19	g5_rgopd_gate	0
+7	m20	g5_rgopd_gate	1
+7	m21	g5_rgopd_gate	2
+7	m22	b5_k2	0
+7	m23	b5_k2	1
+7	m24	b5_k2	2
+7	m17	h3_random_segment	0
+7	m18	h3_random_segment	1
+7	m19	h3_random_segment	2
