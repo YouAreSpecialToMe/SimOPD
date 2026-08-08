@@ -75,7 +75,9 @@
 6	remote	h1_first_segment	1
 6	remote	h1_first_segment	2
 
-# supplement tranche: launch AFTER your site's main-batch rows are running; a3 joins on unlock
+# supplement tranche: launch AFTER your site's main-batch rows are running; a3 joins on unlock.
+# NOT claimable (already RUNNING locally since 2026-08-08, wave 5): c4_pi_tail_budget,
+# e2_set_coverage, e3_zvalue, g5_rgopd_gate.
 7	remote	b4_jsd	0	remote pool: supplement cohort
 7	remote	b4_jsd	1
 7	remote	b4_jsd	2
