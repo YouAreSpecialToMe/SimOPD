@@ -39,6 +39,22 @@ else
 fi
 command -v ray >/dev/null 2>&1 && ray stop --force >/dev/null 2>&1 || true
 
+echo "=== stamp FAIL markers into THIS machine's now-dead logs ==="
+# Everything local is dead by construction at this point, so every unfinished
+# RUN marker in this machine's logs is a kill we just performed (or an older
+# one) -- write the end it will never write itself, or the corpse renders
+# RUNNING forever, blocks migration, and counts as in-flight for 6 hours.
+for _f in "logs/${_ME:-__none__}"/lane*.log $([ "$_ME" = m1 ] && echo logs/lane*.log); do
+    [ -f "$_f" ] || continue
+    grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$_f" 2>/dev/null | awk '{print $3}' | sort -u | \
+    while read -r _n; do
+        grep -qE "^#+ ${_n} -> (OK|FAIL)" "$_f" || {
+            echo "## ${_n} -> FAIL (hard-stopped by stop_pilot $(date -u +%FT%TZ))" >> "$_f"
+            echo "  stamped FAIL: ${_n}  ($_f)"
+        }
+    done
+done
+
 echo "=== after ==="
 _n=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | wc -l)
 if [ "$_n" = 0 ]; then
