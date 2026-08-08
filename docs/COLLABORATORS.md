@@ -62,7 +62,10 @@ Open a PR that edits `configs/campaign.tsv` only:
 - PR description: commit you will run at + the `--fingerprint` output.
 `bash deploy/campaign.sh --plan` must stay clean (it enforces single ownership of
 every (arm, seed)). Wave 6 first; wave 7 (supplement) only after your wave-6 rows
-are running. `a1/a2/a3` are gated on our side -- never claimable.
+are running. NOT claimable: `a1/a2/a3` (gated on our side), the wave-8 `hold`
+cell, and the four supplement arms **already running locally since 2026-08-08**
+(`c4_pi_tail_budget`, `e2_set_coverage`, `e3_zvalue`, `g5_rgopd_gate` -- wave 5,
+machines m1-m3). Everything labeled `remote` is yours to take; nothing else is.
 
 ## Running
 
