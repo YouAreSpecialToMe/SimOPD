@@ -67,7 +67,7 @@ def compute_reverse_kl_topk(
     loss_config = config.distillation_loss
 
     student_log_probs = F.log_softmax(student_logits, dim=-1)
-    student_topk_ids = torch.topk(student_log_probs, k=teacher_topk_ids.shape[-1], dim=-1).indices
+    student_topk_ids = _student_topk_ids(student_log_probs, k=teacher_topk_ids.shape[-1])
     student_topk_log_probs = torch.gather(student_log_probs, dim=-1, index=teacher_topk_ids)
 
     student_mass = student_topk_log_probs.exp().sum(dim=-1)
@@ -316,6 +316,25 @@ def _student_entropy(student_log_probs, chunk=256):
     return out
 
 
+def _student_topk_ids(student_log_probs, k, chunk=256):
+    """Student top-k INDICES over the vocab, chunked over the token dimension.
+
+    torch.topk on the full [*, T, V] view allocates a sort workspace on the same
+    scale as its input. Stacked on the log_softmax output and the update-phase
+    activation transients, that workspace is the 17-19GiB single allocation that
+    killed every b3 quad attempt at steps 76-84 and capped the d1/g2 relay legs
+    at ~10 steps once response lengths saturated the 16k cap (the length wall,
+    2026-08-09). Per-token top-k is independent across tokens, so slicing the
+    token dimension changes the peak and not one index; the consumers
+    (_overlap_diagnostics, _shadow_panel) take indices only, so there is no
+    autograd surface at all. Same chunk=256 rationale as _student_entropy above:
+    ~150MB transient at a 152k vocab.
+    """
+    outs = [torch.topk(sl, k=k, dim=-1).indices
+            for sl in student_log_probs.split(chunk, dim=-2)]
+    return torch.cat(outs, dim=-2)
+
+
 def _minmax(x, mask=None):
     """Batch-relative min-max normalisation, as TIP specifies. A micro-batch is a
     smaller population than TIP's, so the normaliser is noisier; realised
@@ -524,7 +543,7 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
 
     losses = kl_divergence(log_q=tch_n, log_p=stu_n)
 
-    stu_topk_ids = torch.topk(student_log_probs, k=k, dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=k)
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
                                    torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
@@ -569,7 +588,7 @@ def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
 
     losses = rank_loss + PL_ANCHOR_COEF * value_anchor
 
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
                                    torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
@@ -608,7 +627,7 @@ def compute_set_coverage_topk(student_logits, teacher_topk_log_probs, teacher_to
 
     losses = coverage_loss + PL_ANCHOR_COEF * value_anchor
 
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
@@ -647,7 +666,7 @@ def compute_zvalue_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids
     tch_n = torch.log_softmax(t_z, dim=-1)
     losses = kl_divergence(log_q=tch_n, log_p=stu_n)
 
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
@@ -673,7 +692,7 @@ def _d_axis_kernel(score_fn, extra_fn=None):
             student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
         )
         stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
-        stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+        stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
 
         # teacher_patch writes -inf if it ever fails to find the sampled token. One
         # such token would make the loss inf and NaN every gradient in the batch, with
@@ -843,7 +862,7 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
     )
     stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
 
     finite = torch.isfinite(sampled_lp)
     if (~finite).sum() > 0:
@@ -898,7 +917,7 @@ def compute_intersection_topk(student_logits, teacher_topk_log_probs, teacher_to
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
 
     valid = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)      # in both top-ks
@@ -935,7 +954,7 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
 
     pi = stu_at_teacher.float().exp()
@@ -988,7 +1007,7 @@ def compute_jsd_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, c
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
 
     b = JSD_BETA
@@ -1015,7 +1034,7 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     )
     stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
-    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
 
     finite = torch.isfinite(sampled_lp)
     if (~finite).sum() > 0:
