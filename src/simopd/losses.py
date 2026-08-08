@@ -90,7 +90,12 @@ def _signal_quantiles(losses, mask, name):
     if name == "delta_ell":
         x = -x  # paper convention: positive = teacher puts more mass here than the student
     if x.numel() == 0:
-        return {}
+        # DP>1 lanes (n8 cell, wall cohort): Metric.aggregate_dp requires every rank
+        # to append every key on every micro-batch -- skipping here produced the
+        # [5, 4] count mismatch that killed all three first d3 quads (2026-08-08).
+        # An empty supervised set reports zeros instead. Metrics only; the returned
+        # losses are untouched, so training is byte-identical.
+        x = losses.new_zeros(1).float()
     qs = torch.quantile(x, torch.tensor(_QUANTILES, device=x.device))
     metrics = {
         f"distillation/{name}_p{int(q * 100)}": Metric(aggregation=AggregationType.MEAN, value=v)
@@ -105,10 +110,13 @@ def _signal_quantiles(losses, mask, name):
     positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0).expand_as(mask)
     for lo, hi, tag in _POS_BINS:
         b = mask & (positions >= lo) & (positions < hi)
-        if b.any():
-            metrics[f"distillation/{name}_absmean_pos{tag}"] = Metric(
-                aggregation=AggregationType.MEAN, value=losses[b].detach().float().abs().mean()
-            )
+        # Same aggregate_dp contract as above: emit every bin every call, empty
+        # bins as zero. A sparse selector (d1/d3 keep ~5%) routinely leaves high
+        # bins empty in one rank's micro-batch but not the other's.
+        v = losses[b].detach().float().abs().mean() if b.any() else losses.new_zeros(()).float()
+        metrics[f"distillation/{name}_absmean_pos{tag}"] = Metric(
+            aggregation=AggregationType.MEAN, value=v
+        )
     return metrics
 
 
