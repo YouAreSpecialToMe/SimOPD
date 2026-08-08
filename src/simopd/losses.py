@@ -70,6 +70,13 @@ def _unpack(model_output, data):
     return student_log_probs, teacher_log_probs, mask
 
 
+# H-axis positional profile bins: first edge = the bracket's K=100 window; the
+# rest follow the response-length decades of this tier. Emitted only when a bin
+# has tokens, so short batches simply lack the late series.
+_POS_BINS = ((0, 100, "0_100"), (100, 500, "100_500"),
+             (500, 2000, "500_2k"), (2000, 10**9, "2k_up"))
+
+
 def _signal_quantiles(losses, mask, name):
     """Per-token signal distribution (METRICS.md section 3).
 
@@ -90,6 +97,18 @@ def _signal_quantiles(losses, mask, name):
         for q, v in zip(_QUANTILES, qs, strict=True)
     }
     metrics[f"distillation/{name}_absmean"] = Metric(aggregation=AggregationType.MEAN, value=x.abs().mean())
+    # Positional profile (H axis, 2026-08-07). Positions are padded-column indices,
+    # the h1 convention (response-only right-padded tensors: column 0 = first
+    # response token). On vanilla this curve IS the direct measurement of ESR's
+    # "signal concentrates early"; on windowed/gated arms it reads as the profile
+    # of that arm's trained population (mask here is whatever the caller trains).
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0).expand_as(mask)
+    for lo, hi, tag in _POS_BINS:
+        b = mask & (positions >= lo) & (positions < hi)
+        if b.any():
+            metrics[f"distillation/{name}_absmean_pos{tag}"] = Metric(
+                aggregation=AggregationType.MEAN, value=losses[b].detach().float().abs().mean()
+            )
     return metrics
 
 
@@ -232,6 +251,59 @@ def k1_first_segment(config, distillation_config, model_output, data):
         aggregation=AggregationType.MEAN, value=kept / total
     )
     return losses, metrics
+
+
+def _window_kernel(window_fn, covered_key):
+    """H-axis bracket builder (2026-08-07): h1's kernel with the window predicate
+    swapped. Same shared budget knob FIRST_SEGMENT_K (budget-matched by
+    construction, the D_RETENTION pattern), same rescale-away of masked tokens
+    (else a drop is blamable on effective learning rate), same F6 discipline
+    (delta_ell panel on the UNRESCALED k1 over the window). Positions are padded-
+    column indices, the h1 convention. Responses shorter than K collapse to full
+    supervision in every bracket member alike; covered_frac reports it."""
+    def fn(config, distillation_config, model_output, data):
+        student, teacher, mask = _unpack(model_output, data)
+        losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+        keep = window_fn(mask) & mask
+        kept, total = keep.sum().clamp_min(1).float(), mask.sum().clamp_min(1).float()
+        raw = losses
+        losses = losses * keep * (total / kept)
+        metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+        metrics.update(_delta_ell_metrics(raw, keep))
+        metrics[f"distillation/{covered_key}"] = Metric(
+            aggregation=AggregationType.MEAN, value=kept / total
+        )
+        return losses, metrics
+    return fn
+
+
+def _lastseg_window(mask):
+    """h2: the last FIRST_SEGMENT_K response tokens -- ESR's mirror. If the front
+    window's parity with full supervision is position-borne, this side must fall."""
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0)
+    lengths = mask.sum(dim=-1, keepdim=True)
+    return positions >= (lengths - FIRST_SEGMENT_K)
+
+
+def _randseg_window(mask):
+    """h3: a contiguous FIRST_SEGMENT_K window at uniform random offset -- the
+    position-agnostic budget control that separates "the front is special" from
+    "any K tokens suffice". Rollouts are fresh each step (on-policy), so the
+    window is drawn per trajectory per micro-batch under the run's global seed;
+    there is no persistent assignment to keep."""
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0)
+    lengths = mask.sum(dim=-1, keepdim=True)
+    max_off = (lengths - FIRST_SEGMENT_K).clamp_min(0)
+    off = (torch.rand(lengths.shape, device=mask.device) * (max_off + 1).float()).long()
+    return (positions >= off) & (positions < off + FIRST_SEGMENT_K)
+
+
+register_distillation_loss(DistillationLossSettings(names=["k1_lastseg"], use_estimator=True))(
+    _window_kernel(_lastseg_window, "lastseg_covered_frac")
+)  # type: ignore[arg-type]
+register_distillation_loss(DistillationLossSettings(names=["k1_randseg"], use_estimator=True))(
+    _window_kernel(_randseg_window, "randseg_covered_frac")
+)  # type: ignore[arg-type]
 
 
 POWER_ALPHA = float(os.environ.get("SIMOPD_POWER_ALPHA", "1.0"))

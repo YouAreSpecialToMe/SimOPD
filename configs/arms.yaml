@@ -692,3 +692,40 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_firstseg
       SIMOPD_FIRST_SEGMENT_K: "100"
+
+  - run_id: h2_last_segment
+    axis: H
+    cohort: supplement
+    desc: "supervise only the LAST K response tokens [OURS: ESR mirror, position falsification]"
+    status: stock
+    note: "ADDED 2026-08-07 (H-axis bracket): h1's window predicate mirrored to the
+           tail, everything else identical -- same shared budget knob
+           SIMOPD_FIRST_SEGMENT_K=100 (budget-matched by construction, the
+           D_RETENTION pattern), same rescale, same F6 delta_ell-on-raw panel,
+           generation untouched. The bracket resolves what h1 alone cannot:
+           h1~full with h2 and h3 low = front concentration confirmed (ESR
+           mechanism); h1~h2~h3~full = budget artifact, any K tokens do, the
+           position claim dies while the leverage survives; h2~full > h1 = reverse
+           concentration, the interesting surprise. Short responses (len<=K)
+           collapse to full supervision in every member alike;
+           lastseg_covered_frac reports. PG branch (k1 family)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_lastseg
+      SIMOPD_FIRST_SEGMENT_K: "100"
+
+  - run_id: h3_random_segment
+    axis: H
+    cohort: supplement
+    desc: "supervise a contiguous K window at random offset [OURS: position-agnostic budget control]"
+    status: stock
+    note: "ADDED 2026-08-07 (H-axis bracket): the control that separates 'the front
+           is special' from 'any K tokens suffice'. Same shared budget knob
+           SIMOPD_FIRST_SEGMENT_K=100, same contiguity, same rescale and panels as
+           h1/h2 -- position is the bracket's only moving variable. Window drawn
+           per trajectory per micro-batch under the run's global seed (rollouts
+           are fresh each step on-policy; no persistent assignment exists to
+           keep -- registered). randseg_covered_frac reports coverage. PG branch
+           (k1 family)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_randseg
+      SIMOPD_FIRST_SEGMENT_K: "100"

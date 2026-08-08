@@ -33,7 +33,8 @@
 现有成员:a3(λ=0,门控)、b4_jsd、b5_k2【自研】、c3_intersection(thunlp 码锚)、
 c4_pi_tail_budget【自研,头条构造臂】、e2_set_coverage【自研,阶梯关底档】、
 e3_zvalue【自研,仿射不变档】、g4_failure_only【自研,符号镜像】、g5_rgopd_gate
-(RG-OPD 旗舰方向门)——就绪 8 臂 + 门控 1 臂,全并行 +54 卡(08-07 E/G 轴补全)。
+(RG-OPD 旗舰方向门)、h2_last_segment + h3_random_segment【自研,H 证伪括号】——
+就绪 10 臂 + 门控 1 臂,全并行 +66 卡(08-07 E/G/H 轴补全)。
 ~~原 S+T 同发算术~~ 作废。
 
 ## 2. 教师阶梯(全部候选与取舍,一次说完)

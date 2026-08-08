@@ -54,7 +54,8 @@ ARMS = [  # ledger order: axis order from the plan
     "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
     "e1_pl_rank", "e2_set_coverage", "e3_zvalue",
     "f1_soft_log", "f2_hard_clip", "f3_power", "g1_verified_only",
-    "g2_fire_likelihood", "g4_failure_only", "g5_rgopd_gate", "h1_first_segment",
+    "g2_fire_likelihood", "g4_failure_only", "g5_rgopd_gate",
+    "h1_first_segment", "h2_last_segment", "h3_random_segment",
     "vanilla_n8", "j1_kdrl",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row

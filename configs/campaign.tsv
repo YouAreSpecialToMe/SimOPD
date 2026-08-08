@@ -73,6 +73,8 @@
 4	any	e3_zvalue	0	supplement [OURS]: within-support ladder, affine-invariant rung; added 2026-08-07
 4	any	g4_failure_only	0	supplement [OURS]: sign family mirror of g1; added 2026-08-07
 4	any	g5_rgopd_gate	0	supplement: RG-OPD flagship directional gate; added 2026-08-07
+4	any	h2_last_segment	0	supplement [OURS]: H bracket tail mirror; added 2026-08-07
+4	any	h3_random_segment	0	supplement [OURS]: H bracket position-agnostic control; added 2026-08-07
 3	any	f3_power	0	F-family bounded member; added 2026-08-07 from the F-spectrum question
 3	any	vanilla_n8	0	j1 cell control; 4-card lane -- at S launch reassign to the GPUS_PER_RUN=4 box
 3	any	j1_kdrl	0	KL+RL (axis J); base=vanilla_n8; 4-card lane, same box as it
