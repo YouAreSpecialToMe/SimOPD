@@ -115,6 +115,8 @@ def row_state(row, runs, info):
         return machine, "RUNNING", detail
 
     # No log evidence anywhere on this filesystem.
+    if row["machine"] == "hold":
+        return machine, "HELD", "deferred by ruling; revive = relabel to a machine"
     if row["machine"] != "any" and row["machine"] not in info["map"]:
         return machine, "ISLAND", "other filesystem; run progress.py there for its slice"
     if row["note"].startswith("needs="):
@@ -129,6 +131,13 @@ def row_state(row, runs, info):
 
 def render(args):
     rows = manifest_rows(args.manifest)
+    # This screen is for the fleet in front of you. Collaborator rows (machine
+    # 'remote' or 'site:<label>') would all render as ISLAND and drown the local
+    # slice 75-to-9 -- their state lives on their filesystems anyway, and their
+    # dashboards are their own. Ruling 2026-08-07: hide by default, --all shows.
+    _foreign = [r for r in rows if r["machine"] == "remote" or r["machine"].startswith("site:")]
+    if not args.all and _foreign:
+        rows = [r for r in rows if r["machine"] != "remote" and not r["machine"].startswith("site:")]
     runs = collect(args.log_dir, args.ckpt_root, args.save_freq)
     info = read_kv_dir(args.claim_dir)
 
@@ -160,6 +169,9 @@ def render(args):
     bar = "#" * done + "." * max(visible - done, 0)
     print(f"\n{done}/{visible} done here ({total} rows total)   [{bar}]")
     print("   " + "  ".join(f"{k}:{v}" for k, v in sorted(counts.items(), key=lambda kv: order.get(kv[0], 9))))
+    if not args.all and _foreign:
+        _w = sorted({r["wave"] for r in _foreign})
+        print(f"   (+{len(_foreign)} collaborator rows hidden, waves {'/'.join(_w)} -- --all shows them)")
 
     # A machine whose daemon is beating but refusing work: fresh heartbeat + QUEUED
     # rows + nothing moving looks healthy from every other line on this screen.
@@ -193,6 +205,8 @@ def main():
     p.add_argument("--ckpt-root", default=os.environ.get("CKPT_ROOT", "/scratch/zz865/simopd/ckpt"))
     p.add_argument("--save-freq", type=int, default=int(os.environ.get("SAVE_FREQ", "25")))
     p.add_argument("--watch", type=int, metavar="SEC")
+    p.add_argument("--all", action="store_true",
+                   help="include collaborator rows (machine 'remote'/'site:*'), hidden by default")
     args = p.parse_args()
     while True:
         render(args)

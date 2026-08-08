@@ -48,10 +48,36 @@ arms:
            wave S/T so axis A ships complete"
     env: {}
 
+  - run_id: a3_offpolicy
+    axis: A
+    cohort: supplement            # 后补批(2026-08-07 起新增臂均属此批):主名册已在跑,
+                                  # 本批解锁后在 DSW 单独加发,不并入首发算术。
+    desc: "GKD lambda=0 endpoint: pure off-policy, fixed teacher (X,Y), teacher-scored"
+    status: needs
+    note: "ADDED 2026-08-07 (axis-A completeness analysis): the plan's own Sec 2 axis
+           text registers GKD lambda in {0, 0.5} but only 0.5 ever materialized.
+           This is the missing endpoint -- the survey's 'teacher-forced' cell, the
+           pre-OPD classic baseline (off-policy KD with logits), and the third
+           point that turns the lambda ladder {0, 0.5, 1} into a dose-response
+           curve. Zero new code: gkd_mix at P(off-policy)=1.0 -- NOTE THE INVERSION
+           our knob is P(off-policy), so GKD's lambda=0 is OUR '1.0' (the exact
+           trap gkd_mix's comment warns about, used deliberately here). Same fixed
+           full-prefix-keyed cache as a1 (the paper's fixed (X,Y) variant), same
+           PG ratio-identically-1 argument (estimator-note), same 3-step rehearsal
+           gate; both flip stock together when the cornell precompute lands"
+    env2_pending:
+      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_LAMBDA: "1.0"
+    env: {}
+    seam: "identical to a1_gkd_mix0.5 (shared machinery); unlock = a1's unlock"
+
   - run_id: a2_coldstart
     axis: A
     desc: "off-policy SFT cold start then OPD (Rethinking recipe)"
-    status: stock
+    # GATED 2026-08-07 (S-wave split): needs the cornell SFT checkpoint (EXPANSION
+    # 8.1 #6, resubmitted post-16k). Unlock = flip to stock AND uncomment the three
+    # m1 rows in campaign.tsv -- same two-step as a1/a3.
+    status: needs
     note: "two-stage: run slurm/coldstart.sbatch first (teacher generations, verifier
            rejection-sampled, then verl SFT), which also writes the remainder split.
            Cold-start prompts are RESERVED out of this arm's OPD phase so warm-up
@@ -122,6 +148,47 @@ arms:
       SIMOPD_B3_ENT_THRESH: "0.8"
       SIMOPD_B3_SOFT_COEF: "1.0"
 
+  - run_id: b4_jsd
+    axis: B
+    cohort: supplement
+    desc: "generalized JSD-beta on renormalized teacher top-k, beta=0.5 (GKD 2306.13649)"
+    status: stock
+    note: "ADDED 2026-08-07 (B-axis completeness): the plan's own axis-B text promised
+           JSD-beta and skew-KL displaced it -- this pays the debt with GKD's own
+           divergence, in TRL's canonical interpolation form (audited r5:
+           m = beta*T + (1-beta)*S, jsd = beta*KL(T||m) + (1-beta)*KL(S||m)).
+           beta=0.5 symmetric canonical point; SIMOPD_JSD_BETA pre-registered
+           internal ablation (GKD: optimum task-dependent over {0.1,0.5,0.9}).
+           Distributional both sides on the renorm top-k support (teacher-outer
+           half is not sampled-estimable; truncation recorded, teacher_mass
+           quantifies), DIRECT branch per GKD. the scaled limits jsd/beta (beta->0)
+           and jsd/(1-beta) (beta->1) recover the renorm FKL and RKL respectively
+           (endpoints themselves degenerate to zero; verified numerically) -- so b4
+           interpolates the axis's two endpoints"
+    env:
+      DISTILLATION_LOSS_MODE: jsd_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_JSD_BETA: "0.5"
+
+  - run_id: b5_k2
+    axis: B
+    cohort: supplement
+    desc: "[OURS] estimator ladder: k2 = 0.5*(log-ratio)^2 as the sole objective, direct"
+    status: stock
+    note: "ADDED 2026-08-07 [OURS, firewall arm]: the audit's own biggest correction
+           class was estimator/optimizer FORM (r3/r5 branch saga), yet the campaign
+           never varies the estimator alone. k1 (vanilla, signed, PG), k2 (this arm:
+           quadratic, pathwise-unbiased gradient for the same RKL, direct branch --
+           KDRL's choice for its KD term, their ablation k2>k3) form a ladder;
+           k3 (GRPO's low-var default) stays in the substitute pool. Zero new code:
+           reuses the k2_kdrl loss mode without task rewards. Same-target-different-
+           estimator makes any k1-vs-k2 verdict difference an ESTIMATOR effect by
+           construction -- the empirical leg estimator-note has been missing"
+    env:
+      DISTILLATION_LOSS_MODE: k2_kdrl
+      USE_POLICY_GRADIENT: "False"
+
   # ---- C: vocabulary support ----
   - run_id: c1_lsm_topk32_renorm
     axis: C
@@ -169,6 +236,50 @@ arms:
       SIMOPD_QB_MARGIN: max
 
   # ---- D: token selection / weighting ----
+  - run_id: c3_intersection
+    axis: C
+    cohort: supplement
+    desc: "supervise only candidates in BOTH top-ks (thunlp/OPD `intersection` strategy)"
+    status: stock
+    note: "ADDED 2026-08-07 (C-axis analysis). Audited against the OFFICIAL CODE
+           (OPD/verl dp_actor.compute_distillation_reward, local clone): per-
+           candidate advantages A = -(S-T)*w over the intersection, w = student
+           probs renormalized on the valid set (their defaults reward_weight_mode=
+           student_p, normalize=True, kl_estimator=k1), 3D PPO surrogate that their
+           own code reduces at ppo_epochs=1 to L = -sum sg(A)*log pi -- we implement
+           that reduced form on the DIRECT branch (faithful to the shipped path;
+           the ratio variant differs only off-policy, and our protocol is single-
+           epoch). Candidate set is symmetric so the teacher-side payload suffices
+           (their two-forward architecture is not needed for THIS strategy; it is
+           for only_stu/union, declared out-of-seam). Probes Rethinking's overlap
+           sweet-spot claim mechanically: high overlap -> intersection ~ full
+           support; collapsed overlap -> diverges from c1"
+    env:
+      DISTILLATION_LOSS_MODE: intersection_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+
+  - run_id: c4_pi_tail_budget
+    axis: C
+    cohort: supplement
+    desc: "[OURS] cut on the student's edge: smallest teacher-rank prefix with student mass >= 1-eps"
+    status: stock
+    note: "ADDED 2026-08-07 [OURS, headline-constructive]: the headline theorem says
+           truncation error = pi(S-bar)*KL(tails) -- controlled by STUDENT tail
+           mass -- while practice truncates by teacher rank. c4 makes the theorem's
+           quantity the budget knob: per token, the smallest teacher-rank prefix
+           whose student mass reaches 1-SIMOPD_PI_TAIL_EPS (0.05), then c1's renorm
+           RKL on that support, direct branch. If the theorem is right, c4 beats
+           fixed-k systematically in the three pre-registered revival regimes.
+           c4_budget / c4_pi_tail / c4_eps_missed make the quantity a logged
+           series; differs from c2 (batch-threshold pinning AVERAGE budget) by
+           pinning the per-token error term itself"
+    env:
+      DISTILLATION_LOSS_MODE: pi_tail_budget
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_PI_TAIL_EPS: "0.05"
+
   - run_id: d1_tip
     axis: D
     desc: "TIP high-entropy + confidently-wrong soft-OR (2604.14084)"
@@ -183,7 +294,12 @@ arms:
            with direct distributional KL; the TIP selector itself is not in the repo,
            so the paper is the selector's authority. Recorded translations: base
            objective = protocol's sampled-k1 PG (one-knob discipline: the SELECTOR is
-           the arm), divergence input teacher-top-k truncated, micro-batch population"
+           the arm), divergence input teacher-top-k truncated, micro-batch population.
+           PRE-REGISTERED DECOMPOSITION (2026-08-07): SIMOPD_TIP_MODE=entropy_only
+           (at rho=0.5, their entropy-retention result) and divergence_only (at
+           SIMOPD_D_RETENTION=0.1, their confidently-wrong <10% claim) split the
+           soft-OR into its branches -- the ablation asks WHICH branch carries the
+           arm, not merely whether the union works"
     env:
       DISTILLATION_LOSS_MODE: tip_select
       DISTILLATION_TOPK: 32
@@ -266,6 +382,53 @@ arms:
       USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: 32
       SIMOPD_PL_ANCHOR_COEF: "0.1"
+
+  - run_id: e2_set_coverage
+    axis: E
+    cohort: supplement
+    desc: "set-membership rung: -log(student mass on teacher top-k) + shared anchor [OURS]"
+    status: stock
+    note: "ADDED 2026-08-07 (E-axis ladder completion; promoted from the casefile's
+           substitute list). Loosest rung of the within-support information ladder
+           (values c1 > z-values e3 > order e1 > SET e2): the structural term
+           -log sum_topk pi = -log(1 - pi(S-bar)) trains exactly the quantity the
+           headline theorem bounds truncation error by and c4 logs as a panel.
+           Deliberately indifferent to the within-set distribution -- degenerate or
+           unstable optima are themselves the verdict (membership does not
+           suffice). Value anchor shared with e1 at the same coefficient (one env),
+           so e1<->e2 isolates rank->set as the only moving term; the anchor is
+           registered as the E-axis common additive, cross-rung differences
+           subtract it out. Direct branch (E-axis registered convention).
+           Firewall: [OURS] arm, same pre-registered protocol as every defendant"
+    env:
+      DISTILLATION_LOSS_MODE: set_coverage_anchor
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_PL_ANCHOR_COEF: "0.1"
+
+  - run_id: e3_zvalue
+    axis: E
+    cohort: supplement
+    desc: "affine-invariant value rung: z-score within support, then KL [OURS; z-form from Logit-Std KD 2403.01427]"
+    status: stock
+    note: "ADDED 2026-08-07 (E-axis ladder completion). The rung between c1's raw
+           values and e1's pure order: z-score student and teacher within the
+           support (z-as-adaptive-temperature pre-process from the CVPR24 vision
+           paper -- form source only, not under audit, the OPD arm is ours), then
+           the axis's KL form on the z-scored supports. Keeps the RATIOS of logit
+           gaps, discards shift and scale; z on log-probs equals z on logits
+           exactly (per-token logsumexp shift, std shift-invariant), so the top-k
+           log-prob payload suffices. NO value anchor: the structural term is
+           itself a value matcher and a raw anchor would smuggle scale back into
+           the rung. Registered asymmetry: cross-rung reads pair c1 (pure raw)
+           with e3 (pure z), and e1 with e2 (both anchored at one shared coef).
+           Readings: c1~e3~e1 -> order suffices; c1~e3>e1 -> gap ratios carry it
+           (adaptive temperature wins); c1>e3 -> even absolute scale is
+           load-bearing. Direct branch. Firewall: same protocol as every defendant"
+    env:
+      DISTILLATION_LOSS_MODE: zvalue_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
 
   # ---- F: signal regulation ----
   - run_id: f1_soft_log
@@ -425,7 +588,10 @@ arms:
            ALL training tokens post-filter -- resolved code-ward as with c1, so a
            uniformly-confident trajectory keeps weight above 1 instead of being
            flattened. Their rollout-IS correction (threshold 5.0) is their infra,
-           not the arm, and is not imported"
+           not the arm, and is not imported.
+           PRE-REGISTERED DECOMPOSITION (2026-08-07): SIMOPD_FIRE_MODE
+           filter_only / reweight_only ablate which half of the title carries the
+           arm (default both = FiRe); rides the fingerprint's SIMOPD_ capture"
     env:
       DISTILLATION_LOSS_MODE: k1_fire_gate
       DISTILLATION_TOPK: 32
@@ -433,6 +599,48 @@ arms:
       SIMOPD_FIRE_DROP_FRAC: "0.2"
       SIMOPD_FIRE_ALPHA: "1.0"
       SIMOPD_FIRE_BETA: "1.0"
+      SIMOPD_FIRE_MODE: "both"
+
+  - run_id: g4_failure_only
+    axis: G
+    cohort: supplement
+    desc: "distil only rollouts the verifier REJECTED [OURS: mirror of g1, sign family third point]"
+    status: stock
+    note: "ADDED 2026-08-07 (G-axis completeness): predicate mirror of g1 on the
+           same kernel discipline (rescaled mask not batch filter, verifier answer
+           never in the training input, gate on advantages under the estimator
+           assertion). Completes the sign family {g1 keep-pass, g4 keep-fail,
+           vanilla keep-all}: if teacher signal earns its keep where the student
+           fails, g4 carries it; if g1 > vanilla > g4, verification filtering is
+           doing the work. All-pass batches produce no update (symmetric to g1's
+           all-fail case; gate_keep_frac makes it visible). 2607.23731 red line
+           unchanged: verdict says trajectory selection, never signal
+           purification. PG branch (k1 family)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_failure_only
+
+  - run_id: g5_rgopd_gate
+    axis: G
+    cohort: supplement
+    desc: "RG-OPD directional gate + negative teaching on protocol k1 base (2607.04037 Eq.2)"
+    status: stock
+    note: "ADDED 2026-08-07 (G-axis completeness): the family FLAGSHIP that r5
+           deliberately narrowed g1 away from, now audited as its own arm. Gate
+           verbatim from their Eq.2: trajectory-level, L_T/L_S masked SUMS of
+           sampled-token log-probs, delta = 0 their default (paper offers no
+           ablation; SIMOPD_RGOPD_DELTA literal import). Reward-positive: distil
+           iff teacher likelier; reward-negative: distil iff teacher LESS likely
+           (negative teaching -- same objective gated, their Sec 3, fetched
+           2026-08-07). ONE-KNOB DISCIPLINE as registered across D and G: the
+           gate is the arm; their top-50-RKL + tail-correction base is NOT
+           transplanted, so g5-vs-g1/g4 reads the rule, not their base.
+           rgopd_pos/neg_kept_frac panels split how much of what trains is
+           negative teaching. PG branch (k1 family); g1/g4 are the rule's naive
+           one-sided controls. NUMBERING: g3 is burned (g3_kdrl was renamed
+           j1_kdrl at r5, the name stays retired in the ledger)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rgopd_gate
+      SIMOPD_RGOPD_DELTA: "0.0"
 
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
@@ -490,4 +698,41 @@ arms:
            their rollout-cost/distribution change"
     env:
       DISTILLATION_LOSS_MODE: k1_firstseg
+      SIMOPD_FIRST_SEGMENT_K: "100"
+
+  - run_id: h2_last_segment
+    axis: H
+    cohort: supplement
+    desc: "supervise only the LAST K response tokens [OURS: ESR mirror, position falsification]"
+    status: stock
+    note: "ADDED 2026-08-07 (H-axis bracket): h1's window predicate mirrored to the
+           tail, everything else identical -- same shared budget knob
+           SIMOPD_FIRST_SEGMENT_K=100 (budget-matched by construction, the
+           D_RETENTION pattern), same rescale, same F6 delta_ell-on-raw panel,
+           generation untouched. The bracket resolves what h1 alone cannot:
+           h1~full with h2 and h3 low = front concentration confirmed (ESR
+           mechanism); h1~h2~h3~full = budget artifact, any K tokens do, the
+           position claim dies while the leverage survives; h2~full > h1 = reverse
+           concentration, the interesting surprise. Short responses (len<=K)
+           collapse to full supervision in every member alike;
+           lastseg_covered_frac reports. PG branch (k1 family)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_lastseg
+      SIMOPD_FIRST_SEGMENT_K: "100"
+
+  - run_id: h3_random_segment
+    axis: H
+    cohort: supplement
+    desc: "supervise a contiguous K window at random offset [OURS: position-agnostic budget control]"
+    status: stock
+    note: "ADDED 2026-08-07 (H-axis bracket): the control that separates 'the front
+           is special' from 'any K tokens suffice'. Same shared budget knob
+           SIMOPD_FIRST_SEGMENT_K=100, same contiguity, same rescale and panels as
+           h1/h2 -- position is the bracket's only moving variable. Window drawn
+           per trajectory per micro-batch under the run's global seed (rollouts
+           are fresh each step on-policy; no persistent assignment exists to
+           keep -- registered). randseg_covered_frac reports coverage. PG branch
+           (k1 family)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_randseg
       SIMOPD_FIRST_SEGMENT_K: "100"

@@ -42,6 +42,15 @@ FIRST_SEGMENT_K = int(os.environ.get("SIMOPD_FIRST_SEGMENT_K", "100"))
 
 # FiRe drops the bottom 20% of trajectories by normalised teacher logprob.
 FIRE_DROP_FRAC = float(os.environ.get("SIMOPD_FIRE_DROP_FRAC", "0.2"))
+# g2's pre-registered decomposition (2026-08-07): FiRe = Eq.4 filter x Eq.7 reweight,
+# and the single-branch modes ablate which half carries the arm. filter_only keeps
+# the drop and neutralizes w; reweight_only keeps w and drops nothing. Rides the
+# fingerprint's SIMOPD_ capture, so ablation runs batch themselves apart.
+FIRE_MODE = os.environ.get("SIMOPD_FIRE_MODE", "both")
+# g5: RG-OPD Eq.2 margin -- their default 0, and the paper offers no ablation.
+# Literal import (r5 convention); env exists so a margin sweep is a fingerprinted
+# amendment, not a code edit.
+RGOPD_DELTA = float(os.environ.get("SIMOPD_RGOPD_DELTA", "0.0"))
 from collections import deque as _deque
 # F5 (audit 2026-08-07): threshold population for FiRe's Eq.4 filter. At the 16k
 # cap dynamic batching packs ONE sequence per micro-batch and a singleton quantile
@@ -59,6 +68,13 @@ def _unpack(model_output, data):
     mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
     assert teacher_log_probs.shape == student_log_probs.shape == mask.shape
     return student_log_probs, teacher_log_probs, mask
+
+
+# H-axis positional profile bins: first edge = the bracket's K=100 window; the
+# rest follow the response-length decades of this tier. Emitted only when a bin
+# has tokens, so short batches simply lack the late series.
+_POS_BINS = ((0, 100, "0_100"), (100, 500, "100_500"),
+             (500, 2000, "500_2k"), (2000, 10**9, "2k_up"))
 
 
 def _signal_quantiles(losses, mask, name):
@@ -81,6 +97,18 @@ def _signal_quantiles(losses, mask, name):
         for q, v in zip(_QUANTILES, qs, strict=True)
     }
     metrics[f"distillation/{name}_absmean"] = Metric(aggregation=AggregationType.MEAN, value=x.abs().mean())
+    # Positional profile (H axis, 2026-08-07). Positions are padded-column indices,
+    # the h1 convention (response-only right-padded tensors: column 0 = first
+    # response token). On vanilla this curve IS the direct measurement of ESR's
+    # "signal concentrates early"; on windowed/gated arms it reads as the profile
+    # of that arm's trained population (mask here is whatever the caller trains).
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0).expand_as(mask)
+    for lo, hi, tag in _POS_BINS:
+        b = mask & (positions >= lo) & (positions < hi)
+        if b.any():
+            metrics[f"distillation/{name}_absmean_pos{tag}"] = Metric(
+                aggregation=AggregationType.MEAN, value=losses[b].detach().float().abs().mean()
+            )
     return metrics
 
 
@@ -162,7 +190,9 @@ def skew_kl(config, distillation_config, model_output, data):
     DistillationLossSettings(names=["k2_kdrl"], use_estimator=True)
 )  # type: ignore[arg-type]
 def k2_kdrl(config, distillation_config, model_output, data):
-    """G axis, g3: KDRL's KD term (2506.02208 Eq.8) -- the k2 estimator.
+    """KDRL's k2 estimator (2506.02208 Eq.8). Two arms share this mode: j1_kdrl
+    (axis J, as the KD term beside GRPO) and b5_k2 (axis B supplement, standalone
+    on the direct branch -- the estimator ladder's middle rung).
 
     KDRL optimizes J_GRPO - beta*KL^k2(pi_theta || pi_T): GRPO on rule rewards
     plus a DIRECTLY differentiated k2 KL estimate on the student's own rollouts,
@@ -221,6 +251,59 @@ def k1_first_segment(config, distillation_config, model_output, data):
         aggregation=AggregationType.MEAN, value=kept / total
     )
     return losses, metrics
+
+
+def _window_kernel(window_fn, covered_key):
+    """H-axis bracket builder (2026-08-07): h1's kernel with the window predicate
+    swapped. Same shared budget knob FIRST_SEGMENT_K (budget-matched by
+    construction, the D_RETENTION pattern), same rescale-away of masked tokens
+    (else a drop is blamable on effective learning rate), same F6 discipline
+    (delta_ell panel on the UNRESCALED k1 over the window). Positions are padded-
+    column indices, the h1 convention. Responses shorter than K collapse to full
+    supervision in every bracket member alike; covered_frac reports it."""
+    def fn(config, distillation_config, model_output, data):
+        student, teacher, mask = _unpack(model_output, data)
+        losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+        keep = window_fn(mask) & mask
+        kept, total = keep.sum().clamp_min(1).float(), mask.sum().clamp_min(1).float()
+        raw = losses
+        losses = losses * keep * (total / kept)
+        metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+        metrics.update(_delta_ell_metrics(raw, keep))
+        metrics[f"distillation/{covered_key}"] = Metric(
+            aggregation=AggregationType.MEAN, value=kept / total
+        )
+        return losses, metrics
+    return fn
+
+
+def _lastseg_window(mask):
+    """h2: the last FIRST_SEGMENT_K response tokens -- ESR's mirror. If the front
+    window's parity with full supervision is position-borne, this side must fall."""
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0)
+    lengths = mask.sum(dim=-1, keepdim=True)
+    return positions >= (lengths - FIRST_SEGMENT_K)
+
+
+def _randseg_window(mask):
+    """h3: a contiguous FIRST_SEGMENT_K window at uniform random offset -- the
+    position-agnostic budget control that separates "the front is special" from
+    "any K tokens suffice". Rollouts are fresh each step (on-policy), so the
+    window is drawn per trajectory per micro-batch under the run's global seed;
+    there is no persistent assignment to keep."""
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0)
+    lengths = mask.sum(dim=-1, keepdim=True)
+    max_off = (lengths - FIRST_SEGMENT_K).clamp_min(0)
+    off = (torch.rand(lengths.shape, device=mask.device) * (max_off + 1).float()).long()
+    return (positions >= off) & (positions < off + FIRST_SEGMENT_K)
+
+
+register_distillation_loss(DistillationLossSettings(names=["k1_lastseg"], use_estimator=True))(
+    _window_kernel(_lastseg_window, "lastseg_covered_frac")
+)  # type: ignore[arg-type]
+register_distillation_loss(DistillationLossSettings(names=["k1_randseg"], use_estimator=True))(
+    _window_kernel(_randseg_window, "randseg_covered_frac")
+)  # type: ignore[arg-type]
 
 
 POWER_ALPHA = float(os.environ.get("SIMOPD_POWER_ALPHA", "1.0"))
@@ -347,6 +430,96 @@ def k1_verified_only(config, distillation_config, model_output, data):
     return losses, metrics
 
 
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_failure_only"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_failure_only(config, distillation_config, model_output, data):
+    """G axis [OURS]: the mirror of k1_verified_only -- distil only rollouts the
+    verifier REJECTED. Third point of the sign family {g1:+, g4:-, vanilla:all}:
+    if teacher signal earns its keep where the student fails, this side should
+    carry it; if g1 > vanilla > g4, verification filtering is doing the work.
+    Same discipline as g1: rescaled mask not batch filter, verifier answer never
+    in the training input, gate on advantages under the same estimator assertion.
+    A batch where everything verified produces no update -- symmetric to g1's
+    empty case, visible the same way (gate_keep_frac -> 0). The 2607.23731 red
+    line applies unchanged: trajectory selection, never signal purification.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+
+    if "advantages" not in data.keys():
+        raise KeyError(
+            "k1_failure_only needs `advantages` (the verifier-derived signal) in the "
+            f"actor micro-batch; got {sorted(data.keys())}"
+        )
+    adv = data["advantages"]
+    adv = adv.to_padded_tensor(0.0) if adv.is_nested else adv
+    keep_seq = (adv * mask).sum(dim=-1) <= 0
+    raw = losses
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(raw, keep))
+    metrics["distillation/gate_keep_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=keep_seq.float().mean()
+    )
+    return losses, metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_rgopd_gate"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_rgopd_gate(config, distillation_config, model_output, data):
+    """G axis: RG-OPD's directional alignment gate (2607.04037 Eq.2) on the
+    protocol k1 base.
+
+    g_i = 1[(A_i>0 and L_T>L_S+delta) or (A_i<=0 and L_T<L_S-delta)] per
+    trajectory; L_T/L_S are the masked SUMS of sampled-token log-probs; delta =
+    their default 0 (no ablation in the paper; SIMOPD_RGOPD_DELTA is a literal
+    import). Reward-positive rollouts distil only where the teacher is likelier
+    (directionally informative endorsement); reward-NEGATIVE ones only where the
+    teacher is LESS likely -- negative teaching: the teacher disagrees with the
+    failure, and the same objective, gated, pulls the student off its failure
+    mode (their Sec. 3: same reverse-KL objective, gate only; ledger r5/r6).
+    One-knob discipline as across D and G: the GATE is the arm -- their
+    top-50-RKL + tail-correction base is not transplanted (arm note). g1/g4 are
+    this rule's naive one-sided controls.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    losses = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+
+    if "advantages" not in data.keys():
+        raise KeyError(
+            "k1_rgopd_gate needs `advantages` (the verifier-derived signal) in the "
+            f"actor micro-batch; got {sorted(data.keys())}"
+        )
+    adv = data["advantages"]
+    adv = adv.to_padded_tensor(0.0) if adv.is_nested else adv
+    a_seq = (adv * mask).sum(dim=-1)
+    gap = ((teacher - student) * mask).sum(dim=-1).detach()      # L_T - L_S, Eq.2's sums
+    keep_seq = ((a_seq > 0) & (gap > RGOPD_DELTA)) | ((a_seq <= 0) & (gap < -RGOPD_DELTA))
+    raw = losses
+    losses, keep = _reweight_kept(losses, mask, keep_seq)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(raw, keep))
+    metrics["distillation/gate_keep_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=keep_seq.float().mean()
+    )
+    # The mechanism panel: how much of what trains is negative teaching.
+    pos = a_seq > 0
+    metrics["distillation/rgopd_pos_kept_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=(keep_seq & pos).float().mean()
+    )
+    metrics["distillation/rgopd_neg_kept_frac"] = Metric(
+        aggregation=AggregationType.MEAN, value=(keep_seq & ~pos).float().mean()
+    )
+    metrics["distillation/rgopd_gap_mean"] = Metric(
+        aggregation=AggregationType.MEAN, value=gap.mean()
+    )
+    return losses, metrics
+
+
 def _topk_registry_fn(*extra_keys, signal="loss"):
     """Post-processor for our top-k arms.
 
@@ -415,8 +588,18 @@ for _name, _extras in [
     # says governs that truncation's error. _topk_registry_fn reports the same
     # Eq.6/Eq.7 metrics and the panels.
     ("lsm_topk_renorm", ()),
+    # B axis supplement b4: divergence >= 0, signal="loss" like the C/E arms.
+    ("jsd_topk", ()),
+    # C axis supplements (2026-08-07): c3 thunlp intersection (their reduced direct
+    # form), c4 [OURS] pi-tail budget -- the headline theorem's quantity as a knob.
+    ("intersection_topk", ("c3_inter_size",)),
+    ("pi_tail_budget", ("c4_budget", "c4_pi_tail", "c4_eps_missed")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
+    # E axis supplements (2026-08-07): the within-support ladder's missing rungs --
+    # e2 set membership (loosest), e3 affine-invariant values (between c1 and e1).
+    ("set_coverage_anchor", ("e2_coverage", "e2_value_anchor")),
+    ("zvalue_topk", ("e3_std_ratio",)),
     ("tip_select", ("d_selected_frac", "d_sampled_missing", "tip_entropy_mean")),
     ("selectkd_verify", ("d_selected_frac", "d_sampled_missing", "selectkd_tar")),
     ("teachability_select", ("d_selected_frac", "d_sampled_missing", "teach_compatibility")),
@@ -501,12 +684,18 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
     _FIRE_WINDOW.extend(s_y.detach().float().flatten().tolist())
     thresh = torch.quantile(torch.tensor(list(_FIRE_WINDOW), dtype=torch.float32), FIRE_DROP_FRAC)
     keep_seq = s_y >= thresh
+    if FIRE_MODE == "reweight_only":
+        keep_seq = torch.ones_like(keep_seq)
+    elif FIRE_MODE not in ("both", "filter_only"):
+        raise ValueError(f"SIMOPD_FIRE_MODE must be both|filter_only|reweight_only, got {FIRE_MODE!r}")
 
     t_max = t_ent[mask].max().clamp_min(1e-8)
     s_max = s_ent[mask].max().clamp_min(1e-8)
     c_t = 1.0 - t_ent / t_max                                          # Eq.5
     c_s = s_ent / s_max                                                # Eq.6
     w = (1.0 + topk_losses.FIRE_ALPHA * c_t) * (1.0 + topk_losses.FIRE_BETA * c_s)   # Eq.7
+    if FIRE_MODE == "filter_only":
+        w = torch.ones_like(w)
     # Official-code normalization: mean over the tokens that actually train
     # (kept trajectories' response tokens), not the paper's per-trajectory mean.
     train_mask = mask & keep_seq.unsqueeze(-1)

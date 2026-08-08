@@ -9,6 +9,7 @@ names appear in TOPK_DISPATCH get our kernel; everything else falls through to
 verl's original function untouched.
 """
 
+import math
 import os
 
 import torch
@@ -141,6 +142,7 @@ def compute_reverse_kl_topk(
     # method IS top-k truncation.
     out["overlap_teacher_mass"] = (teacher_topk_log_probs.exp() * overlap_mask).sum(dim=-1)
     out["overlap_student_mass"] = (student_topk_log_probs.exp() * overlap_mask).sum(dim=-1)
+    out["rank_kendall_tau"] = _kendall_tau(student_topk_log_probs)
     t_ent_topk = -(teacher_topk_log_probs.exp() * teacher_topk_log_probs).sum(dim=-1)
     s_ent = _student_entropy(student_log_probs)
     out["entropy_student"] = s_ent
@@ -342,6 +344,19 @@ SHADOW_ENABLED = os.environ.get("SIMOPD_SHADOW", "1") == "1"
 PI_TAIL_WIDTHS = tuple(int(x) for x in os.environ.get("SIMOPD_PI_TAIL_WIDTHS", "8,16,32").split(","))
 
 
+def _kendall_tau(s):
+    """Kendall tau-a between the student's within-support values and the teacher's
+    rank order. verl delivers the top-k already rank-sorted, so the reference
+    permutation is the identity and tau reduces to the mean pairwise sign (ties
+    count zero): +1 = order matched, -1 = reversed. The E-axis ladder's free
+    mechanism panel -- together with student_mass (support coverage, already
+    logged) it dates, on EVERY top-k arm, whether order or mass converges first."""
+    k = s.shape[-1]
+    diff = s.unsqueeze(-1) - s.unsqueeze(-2)
+    iu = torch.triu_indices(k, k, offset=1, device=s.device)
+    return torch.sign(diff[..., iu[0], iu[1]]).mean(dim=-1)
+
+
 def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
     """Rethinking Eq.6/Eq.7 diagnostics, kept identical across every top-k arm."""
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
@@ -355,6 +370,7 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
         "overlap_count": overlap_count,
         "overlap_token_advantage": torch.where(overlap_count > 0, adv, torch.zeros_like(adv)),
     }
+    out["rank_kendall_tau"] = _kendall_tau(stu_at_teacher)
     # Rethinking App B.1's "quality" form of overlap. The count version (Eq.6) says how
     # many tokens the two top-k sets share; this says how much PROBABILITY those shared
     # tokens carry. Their claim that the intersection holds 97-99% of the mass is the
@@ -431,7 +447,8 @@ SHADOW_KEYS = (
 )
 PI_TAIL_KEYS = tuple(f"pi_tail_k{w}" for w in PI_TAIL_WIDTHS)
 OVERLAP_KEYS = ("overlap_teacher_mass", "overlap_student_mass",
-                "entropy_student", "entropy_teacher_topk", "entropy_gap_abs")
+                "entropy_student", "entropy_teacher_topk", "entropy_gap_abs",
+                "rank_kendall_tau")
 
 
 # Shared retention for every D-axis selector, so the three arms are supervision-budget
@@ -565,6 +582,82 @@ def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     return out
 
 
+def compute_set_coverage_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """E axis [OURS]: set-membership supervision -- student mass on the teacher's top-k.
+
+    Loosest rung of the within-support information ladder (values c1 > z-values e3 >
+    order e1 > SET e2). The structural term -log sum_topk pi = -log(1 - pi(S-bar))
+    trains exactly the quantity the headline theorem bounds truncation error by and
+    c4 logs as a panel. Deliberately indifferent to HOW mass is distributed inside
+    the support: degenerate or unstable optima are themselves the verdict. The value
+    anchor is e1's, at the same coefficient, so e1<->e2 differ in exactly one term
+    (rank -> set); the anchor is the axis's registered common additive.
+    """
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    s = torch.gather(student_log_probs, dim=-1, index=t_id)
+    coverage_log = torch.logsumexp(s, dim=-1)
+    coverage_loss = -coverage_log
+
+    stu_n = s - torch.logsumexp(s, dim=-1, keepdim=True)
+    tch_n = t_lp - torch.logsumexp(t_lp, dim=-1, keepdim=True)
+    value_anchor = kl_divergence(log_q=tch_n, log_p=stu_n)
+
+    losses = coverage_loss + PL_ANCHOR_COEF * value_anchor
+
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    if SHADOW_ENABLED:
+        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(out_shadow)
+    out["distillation_losses"] = losses
+    out["e2_coverage"] = coverage_log.exp()
+    out["e2_value_anchor"] = value_anchor
+    return out
+
+
+def compute_zvalue_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """E axis [OURS]: affine-invariant value matching -- z-score both sides within
+    the support, then the axis's KL form. z-as-adaptive-temperature pre-process from
+    Logit Standardization in KD (2403.01427, CVPR24; vision/off-policy, form source
+    only -- the OPD arm is ours).
+
+    The rung between c1's raw values and e1's pure order: gap RATIOS kept, shift and
+    scale discarded. z on log-probs equals z on logits exactly (the logsumexp shift
+    is a per-token constant and std is shift-invariant), so the top-k log-prob
+    payload suffices. NO value anchor: the structural term is itself a value matcher
+    and a raw anchor would smuggle scale back into the rung (asymmetry vs e1/e2
+    registered in the arm note).
+    """
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    s = torch.gather(student_log_probs, dim=-1, index=t_id)
+    s_std = s.std(dim=-1, keepdim=True, correction=0)
+    t_std = t_lp.std(dim=-1, keepdim=True, correction=0)
+    s_z = (s - s.mean(dim=-1, keepdim=True)) / (s_std + 1e-6)
+    t_z = (t_lp - t_lp.mean(dim=-1, keepdim=True)) / (t_std + 1e-6)
+    stu_n = torch.log_softmax(s_z, dim=-1)
+    tch_n = torch.log_softmax(t_z, dim=-1)
+    losses = kl_divergence(log_q=tch_n, log_p=stu_n)
+
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    if SHADOW_ENABLED:
+        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(out_shadow)
+    out["distillation_losses"] = losses
+    out["e3_std_ratio"] = s_std.squeeze(-1) / (t_std.squeeze(-1) + 1e-6)
+    return out
+
+
 def _d_axis_kernel(score_fn, extra_fn=None):
     """Build a D-axis kernel: vanilla's sampled-token objective, weighted by a selector.
 
@@ -632,6 +725,13 @@ def _d_axis_kernel(score_fn, extra_fn=None):
 SELECTKD_K = int(os.environ.get("SIMOPD_SELECTKD_K", "5"))
 SELECTKD_BETA = float(os.environ.get("SIMOPD_SELECTKD_BETA", "0.01"))
 TEACH_K = int(os.environ.get("SIMOPD_TEACH_K", "16"))
+# d1's pre-registered decomposition (2026-08-07): soft_or is TIP's method; the two
+# single-branch modes test the paper's own strongest claims in isolation --
+# entropy_only against their "50% entropy retention matches full-token" result,
+# divergence_only against "confidently-wrong <10% of tokens nearly matches"
+# (pair it with SIMOPD_D_RETENTION=0.1 as registered). In the fingerprint via the
+# SIMOPD_ capture, so ablation runs are automatically a distinct batch.
+TIP_MODE = os.environ.get("SIMOPD_TIP_MODE", "soft_or")
 
 
 def _robust_norm(x, mask=None):
@@ -658,7 +758,14 @@ def _tip_score(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat
     h = _student_entropy(student_log_probs)
     delta = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
     h_n, d_n = _minmax(h, stat), _minmax(delta, stat)
-    score = h_n + d_n - h_n * d_n
+    if TIP_MODE == "entropy_only":
+        score = h_n
+    elif TIP_MODE == "divergence_only":
+        score = d_n
+    elif TIP_MODE == "soft_or":
+        score = h_n + d_n - h_n * d_n
+    else:
+        raise ValueError(f"SIMOPD_TIP_MODE must be soft_or|entropy_only|divergence_only, got {TIP_MODE!r}")
     return _topk_by_score(score, D_RETENTION, stat), {"tip_entropy_mean": h}
 
 
@@ -767,6 +874,137 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
 # title's second half). The kernel emits COMPONENTS; trajectory-level operations
 # (filter, per-trajectory weight normalization) need sequence boundaries, which exist
 # only in the padded view, so they live in the registry post-processor.
+JSD_BETA = float(os.environ.get("SIMOPD_JSD_BETA", "0.5"))
+PI_TAIL_EPS = float(os.environ.get("SIMOPD_PI_TAIL_EPS", "0.05"))
+
+
+def compute_intersection_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """C axis, c3 (supplement): thunlp/OPD's `intersection` support strategy,
+    audited against their dp_actor.compute_distillation_reward (2026-08-07).
+
+    Their form: per-CANDIDATE advantages A = -(S - T) * w over the candidates in
+    both top-k sets, w = student probabilities renormalized over the valid set
+    (their default reward_weight_mode='student_p', normalize=True), then a 3D PPO
+    surrogate summed over candidates -- which their own code reduces, at
+    ppo_epochs=1, to the memory-efficient direct form L = -sum sg(A) * log pi.
+    We implement exactly that reduced form on the DIRECT branch (faithful to
+    their shipped path; the 3D-ratio variant differs only off-policy). The
+    candidate set is symmetric (teacher-topk intersect student-topk), so our
+    teacher-side payload carries every value needed -- no second forward.
+
+    Empty-intersection tokens (overlap 0) contribute zero loss; the realised
+    intersection size is on the overlap panel every top-k arm already logs."""
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    valid = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)      # in both top-ks
+    kl_val = (stu_at_teacher - t_lp).float()                                     # their k1 per candidate
+    w_log = stu_at_teacher.float().masked_fill(~valid, torch.finfo(torch.float32).min)
+    w = torch.softmax(w_log, dim=-1) * valid                                     # student_p renormalized on valid
+    adv = (-kl_val * w).detach()                                                 # their rm_scores, treated constant
+    losses = -(adv * stu_at_teacher.float() * valid).sum(dim=-1)                 # -sum sg(A) * log pi
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    out["c3_inter_size"] = valid.float().sum(dim=-1)
+    return out
+
+
+def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """C axis, c4 [OURS, headline-constructive]: pin the theorem's own quantity.
+
+    The headline says truncated-RKL error = pi(S-bar) * KL(tail conditionals):
+    controlled by the STUDENT's tail mass, while common practice truncates by
+    teacher rank alone. This arm chooses, per token, the SMALLEST prefix of the
+    teacher's rank-ordered top-k whose STUDENT mass reaches 1 - PI_TAIL_EPS --
+    cutting on the student's edge inside the teacher's candidate pool -- then
+    applies c1's renormalized reverse KL on that support (same objective family,
+    DIRECT branch, own registration). If the full pool cannot reach the target,
+    the whole pool is used and c4_eps_missed logs how often. Teacher top-1 is
+    always kept. Realised budget (c4_budget) and realised student tail mass
+    (c4_pi_tail) make the theorem's quantity a first-class logged series."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    pi = stu_at_teacher.float().exp()
+    cum = pi.cumsum(dim=-1)
+    target = 1.0 - PI_TAIL_EPS
+    reached = cum >= target
+    # smallest prefix reaching the target; if never reached, the full pool
+    first = torch.where(reached.any(dim=-1),
+                        reached.float().argmax(dim=-1),
+                        torch.full(reached.shape[:-1], reached.shape[-1] - 1,
+                                   dtype=torch.long, device=reached.device))
+    idx = torch.arange(t_lp.shape[-1], device=t_lp.device)
+    keep = idx <= first.unsqueeze(-1)                                            # top-1 always in
+
+    neg = torch.finfo(torch.float32).min
+    stu_k = stu_at_teacher.float().masked_fill(~keep, neg)
+    tch_k = t_lp.float().masked_fill(~keep, neg)
+    stu_n = stu_k - torch.logsumexp(stu_k, dim=-1, keepdim=True)
+    tch_n = tch_k - torch.logsumexp(tch_k, dim=-1, keepdim=True)
+    stu_n = stu_n.masked_fill(~keep, neg)
+    tch_n = tch_n.masked_fill(~keep, neg)
+    losses = kl_divergence(log_q=tch_n, log_p=stu_n)
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    out["c4_budget"] = keep.float().sum(dim=-1)
+    out["c4_pi_tail"] = (1.0 - (pi * keep).sum(dim=-1)).clamp(0.0, 1.0)
+    out["c4_eps_missed"] = (~reached.any(dim=-1)).float()
+    return out
+
+
+def compute_jsd_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """B axis, b4 (supplement cohort): GKD's generalized JSD-beta on the teacher's
+    renormalized top-k support (2306.13649; TRL's canonical interpolation, audited
+    r5: mixture m = beta*teacher + (1-beta)*student, jsd = beta*KL(teacher||m) +
+    (1-beta)*KL(student||m); beta=0.5 is symmetric JSD. Endpoints degenerate to
+    zero; the SCALED limits jsd/beta -> renorm FKL(T||S) and jsd/(1-beta) ->
+    renorm RKL(S||T) are verified numerically to 5e-4 -- the first draft stated
+    them backwards and its own limit test caught it). The plan's axis-B text promised JSD
+    and skew-KL displaced it -- this arm pays the debt. Distributional both sides
+    (JSD's teacher-outer half is not sampled-estimable), DIRECT branch per GKD;
+    support truncation is the recorded C-axis-style deviation, teacher_mass
+    quantifies it. SIMOPD_JSD_BETA is the pre-registered internal ablation
+    (GKD finds the optimum task-dependent across {0.1, 0.5, 0.9})."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
+    stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    b = JSD_BETA
+    stu_n = (stu_at_teacher - torch.logsumexp(stu_at_teacher, dim=-1, keepdim=True)).float()
+    tch_n = (t_lp - torch.logsumexp(t_lp, dim=-1, keepdim=True)).float()
+    log_m = torch.logaddexp(tch_n + math.log(b), stu_n + math.log(1.0 - b))
+    losses = b * kl_divergence(log_q=log_m, log_p=tch_n) \
+        + (1.0 - b) * kl_divergence(log_q=log_m, log_p=stu_n)
+
+    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    return out
+
+
 FIRE_ALPHA = float(os.environ.get("SIMOPD_FIRE_ALPHA", "1.0"))
 FIRE_BETA = float(os.environ.get("SIMOPD_FIRE_BETA", "1.0"))
 
@@ -803,8 +1041,13 @@ TOPK_DISPATCH.update(
     {
         "eopd_entropy_gate": compute_eopd_gate_topk,
         "k1_fire_gate": compute_fire_components,
+        "jsd_topk": compute_jsd_topk,
+        "intersection_topk": compute_intersection_topk,
+        "pi_tail_budget": compute_pi_tail_budget_topk,
         "qb_quantile_budget": compute_quantile_budget_topk,
         "pl_rank_anchor": compute_pl_rank_topk,
+        "set_coverage_anchor": compute_set_coverage_topk,
+        "zvalue_topk": compute_zvalue_topk,
         "tip_select": _d_axis_kernel(_tip_score),
         "selectkd_verify": _d_axis_kernel(_selectkd_score),
         "teachability_select": _d_axis_kernel(_teachability_score),

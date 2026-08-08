@@ -39,13 +39,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # arms.yaml drifts from this table without the table being updated -- which is
 # exactly the ceremony a branch change should cost.
 EXPECT_PG = {
-    "vanilla": True, "a1_gkd_mix0.5": True, "a2_coldstart": True,
+    "vanilla": True, "a1_gkd_mix0.5": True, "a3_offpolicy": True, "a2_coldstart": True,
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,
+    "b4_jsd": False, "b5_k2": False,
     "c1_lsm_topk32_renorm": True, "c2_quantile_budget": False,
+    "c3_intersection": False, "c4_pi_tail_budget": False,
     "d1_tip": True, "d2_selectkd": True, "d3_teachability": True,
-    "e1_pl_rank": False, "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
+    "e1_pl_rank": False, "e2_set_coverage": False, "e3_zvalue": False,
+    "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
     "g1_verified_only": True, "g2_fire_likelihood": True,
-    "h1_first_segment": True, "i0_think_scorer": True, "i1_priv_cot": True,
+    "g4_failure_only": True, "g5_rgopd_gate": True,
+    "h1_first_segment": True, "h2_last_segment": True, "h3_random_segment": True,
+    "i0_think_scorer": True, "i1_priv_cot": True,
     "vanilla_n8": True, "j1_kdrl": False,
 }
 # Kernels that split the sampled column off the teacher payload.

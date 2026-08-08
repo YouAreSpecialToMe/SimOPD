@@ -42,16 +42,20 @@ CAVEATS = {
     # response-token mass is agreement-on-failure even under such filters. The
     # verdict may say "trajectory selection helps/hurts", never "purified signal".
     "g1_verified_only": "outcome-level gate only; no token-level localization claim (2607.23731)",
+    "g4_failure_only": "outcome-level gate only; no token-level localization claim (2607.23731); g1's mirror, same red line",
+    "g5_rgopd_gate": "gate audited on protocol k1 base, NOT their top-50+tail base (registered); outcome-level caveat as g1",
     "vanilla_n8": "n=8 cell control; its row vs vanilla measures the group-sampling knob alone",
     "j1_kdrl": "judged vs vanilla_n8 (same cell); cross-cell comparison to the main table crosses the n boundary",
 }
 
 ARMS = [  # ledger order: axis order from the plan
-    "a1_gkd_mix0.5", "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "b3_eopd_gate",
-    "c1_lsm_topk32_renorm",
+    "a1_gkd_mix0.5", "a3_offpolicy", "a2_coldstart", "b1_skew_kl", "b2_forward_kl", "b3_eopd_gate", "b4_jsd", "b5_k2",
+    "c1_lsm_topk32_renorm", "c3_intersection", "c4_pi_tail_budget",
     "c2_quantile_budget", "d1_tip", "d2_selectkd", "d3_teachability",
-    "e1_pl_rank", "f1_soft_log", "f2_hard_clip", "f3_power", "g1_verified_only",
-    "g2_fire_likelihood", "h1_first_segment",
+    "e1_pl_rank", "e2_set_coverage", "e3_zvalue",
+    "f1_soft_log", "f2_hard_clip", "f3_power", "g1_verified_only",
+    "g2_fire_likelihood", "g4_failure_only", "g5_rgopd_gate",
+    "h1_first_segment", "h2_last_segment", "h3_random_segment",
     "vanilla_n8", "j1_kdrl",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
