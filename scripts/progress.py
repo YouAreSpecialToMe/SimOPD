@@ -112,6 +112,8 @@ def row_state(row, runs, info):
         return machine, "RUNNING", detail
 
     # No log evidence anywhere on this filesystem.
+    if row["machine"] == "hold":
+        return machine, "HELD", "deferred by ruling; revive = relabel to a machine"
     if row["machine"] != "any" and row["machine"] not in info["map"]:
         return machine, "ISLAND", "other filesystem; run progress.py there for its slice"
     if row["note"].startswith("needs="):
