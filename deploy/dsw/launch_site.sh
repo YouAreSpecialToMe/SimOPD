@@ -58,10 +58,15 @@ if [ "$MACHINE" = m1 ]; then
     if [ -f "$CLAIM_DIR/migrated_pilot8k" ]; then
         echo "already done at $(cat "$CLAIM_DIR/migrated_pilot8k")"
     else
+        # ALL seeds, not just s0: the pilot floor ran s0-s2, and one unmigrated
+        # name is one impostor log -- a stale DONE that keeps the new run from ever
+        # launching, or a stale ckpt that FAILs it at step 0 (observed 08-08).
+        # n8 names stay out: their debris is aborted 16k starts, not pilot data,
+        # and their rows are 'hold' -- nothing they could block.
         PILOT8K="vanilla b1_skew_kl b2_forward_kl b3_eopd_gate c2_quantile_budget \
 d1_tip d2_selectkd d3_teachability e1_pl_rank f1_soft_log f2_hard_clip f3_power \
-g1_verified_only g2_fire_likelihood h1_first_segment vanilla_n8 j1_kdrl"
-        _names=$(for a in $PILOT8K; do printf '%s_s0 ' "$a"; done)
+g1_verified_only g2_fire_likelihood h1_first_segment"
+        _names=$(for a in $PILOT8K; do for _s in 0 1 2; do printf '%s_s%s ' "$a" "$_s"; done; done)
         python scripts/migrate_stale.py --suffix __pilot8k --names $_names
         if [ "${APPLY:-0}" != 1 ]; then
             echo; read -r -p "dry run above (absent names skip themselves) -- apply? [y/N] " _yn
