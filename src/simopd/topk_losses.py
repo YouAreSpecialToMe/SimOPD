@@ -284,7 +284,7 @@ def _stat_mask(teacher_topk_log_probs, data, total):
     return m.unsqueeze(0)
 
 
-def _student_entropy(student_log_probs, chunk=1024):
+def _student_entropy(student_log_probs, chunk=256):
     """Full-vocabulary token entropy, computed here rather than taken from
     model_output['entropy'] -- that key only exists when calculate_entropy is on,
     and the usual way to switch it on (entropy_coeff != 0) adds an entropy bonus
@@ -298,12 +298,14 @@ def _student_entropy(student_log_probs, chunk=1024):
     across tokens, so slicing changes the peak and not one bit of the result;
     verified elementwise against the naive form.
 
-    chunk=1024 (2026-08-08, was 4096): at the 16k protocol the microbatch is 17408
-    tokens, and the 4096-chunk transient (~2.5GB) OOM'd d1_tip_s0's second attempt
-    with 2.05GB free -- history repeating at the new cap, through the same
-    function its own docstring convicted last time. 1024 puts the transient at
-    ~0.6GB for a few extra kernel launches; every arm shares the benefit because
-    the shadow panel routes through _tip_score everywhere."""
+    chunk=256 (2026-08-08, twice in one day: 4096 -> 1024 -> 256): the 4096-chunk
+    transient (~2.5GB) OOM'd d1_tip_s0 at 17,408-token microbatches; 1024 (~0.6GB)
+    then OOM'd d1_tip_s1 against 458MiB free, because the D family at 16k runs the
+    whole step with under 2GB of headroom -- the chunk was never the disease, the
+    margin is. 256 puts the transient near 150MB. The companion measure is
+    SIMOPD_SHADOW=0 in the lane launcher: the shadow panel triples the selector
+    transients for pure diagnostics, and it is fingerprint-excluded precisely
+    because it never changes what the loss computes."""
     out = torch.empty(student_log_probs.shape[:-1],
                       dtype=student_log_probs.dtype, device=student_log_probs.device)
     for i in range(0, student_log_probs.shape[1], chunk):
