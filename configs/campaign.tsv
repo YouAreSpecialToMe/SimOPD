@@ -227,3 +227,22 @@
 5	m8	f3_power	0	promoted on main 9877304 mid-wave; joins the batch under the same tag
 5	m10	f3_power	1
 5	m11	f3_power	2
+
+# ---- wave 6: the remote supplement cohort, on the eight boxes that joined ------
+# 2026-08-08: dsw267-274 = m17-m24 (pods self-report +4: dsw-271..278). Upstream's
+# collaborator split (33b1c8e) keeps c4/e2/e3/g5 on their local cards; the four
+# supplements labeled remote -- b4_jsd, c3_intersection, g4_failure_only,
+# h2_last_segment -- run here. a3_offpolicy stays out until its precompute exists.
+# Same 16k batch tag, same seed-spread rule.
+6	m17	b4_jsd	0
+6	m18	b4_jsd	1
+6	m19	b4_jsd	2
+6	m20	c3_intersection	0
+6	m21	c3_intersection	1
+6	m22	c3_intersection	2
+6	m23	g4_failure_only	0
+6	m24	g4_failure_only	1
+6	m17	g4_failure_only	2
+6	m18	h2_last_segment	0
+6	m19	h2_last_segment	1
+6	m20	h2_last_segment	2
