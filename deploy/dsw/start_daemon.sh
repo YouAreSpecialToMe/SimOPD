@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Start this box's campaign daemon. Nothing else.
 #
-#   bash deploy/dsw/start_daemon.sh m1
+#   bash deploy/dsw/start_daemon.sh m1              # start if absent
+#   RESTART=1 bash deploy/dsw/start_daemon.sh m1    # kill any running one first
 #
 # Deliberately minimal: no busy-GPU guard, no migration, no `set -e`. Those
 # belong to launch_site.sh, and when one of them exits early the operator is
@@ -29,8 +30,17 @@ echo 2 > "$CLAIM_DIR/GPUS_PER_RUN.$MACHINE"
 rm -f "$CLAIM_DIR/daemon.stop.$MACHINE" "$CLAIM_DIR/MAX_LANES.$MACHINE"
 
 if pgrep -f campaign_daemon.sh >/dev/null 2>&1; then
-    echo "daemon already running (pid $(pgrep -f campaign_daemon.sh | head -1)); nothing to do"
-    exit 0
+    if [ "${RESTART:-0}" = 1 ]; then
+        # A daemon that outlived a reset spent those passes refusing (its box was
+        # briefly unregistered) -- replacing it is cheaper than reasoning about
+        # which pass it is on.
+        echo "RESTART=1: killing the running daemon (pid $(pgrep -f campaign_daemon.sh | head -1))"
+        pkill -f campaign_daemon.sh; sleep 3
+    else
+        echo "daemon already running (pid $(pgrep -f campaign_daemon.sh | head -1)); nothing to do"
+        echo "  (RESTART=1 to replace it)"
+        exit 0
+    fi
 fi
 LOG="logs/$(hostname)_daemon.log"
 nohup bash deploy/campaign_daemon.sh > "$LOG" 2>&1 &
