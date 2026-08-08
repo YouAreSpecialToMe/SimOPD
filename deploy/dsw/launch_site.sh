@@ -7,13 +7,12 @@
 #   bash deploy/dsw/launch_m3.sh        # n8 cell treatment (4-card lanes)
 #
 # Run m1 FIRST (it owns the one-time shared-fs steps), then m2/m3 in any order.
-# Per ruling 2026-08-07 there is NO blocking probe: every lane launches straight
-# away, and "does it run" is proven by the runs themselves (a broken shape fails
-# fast and quarantines after 3 retries -- triage.py reads it). The one protocol
-# artifact kept is the 16k step-0 anchor: m1 backgrounds a 2-step throwaway with
-# VAL_BEFORE_TRAIN=True on its spare card pair while the fleet launches.
+# FINAL cut 08-08: four arms x 3 seeds = 12 runs = 24 cards, one simultaneous
+# round. No probe, no anchor phase (0.472@0 was captured 08-08; the remote
+# vanilla site owns the floor), no lanes cap. Lanes launch straight away; a
+# broken run proves itself (fail-fast, 3 strikes, triage.py).
 #
-# Env: PROBE=0 skip the anchor mint   APPLY=1 migration without the y/N prompt
+# Env: APPLY=1 migration without the y/N prompt
 #      FORCE=1 proceed over busy GPUs (only after you have verified what they are)
 set -euo pipefail
 MACHINE=${1:?usage: launch_site.sh <m1|m2|m3>}
@@ -87,38 +86,12 @@ else
     fi
 fi
 
-if [ "$MACHINE" = m1 ]; then
-    banner "phase 3: step-0 anchor, backgrounded on the spare pair -- fleet does not wait"
-    if [ "${PROBE:-1}" = 1 ] && [ ! -f "$CLAIM_DIR/anchor16k.ok" ]; then
-        ( VAL_BEFORE_TRAIN=True STEPS=2 TEST_FREQ=25 SAVE_FREQ=-1 \
-            TAG="m1anchor" GPU_LIST="0,1" LANES=1 \
-            RAY_TMPDIR_TAG="m1anchor$(date +%s)_" \
-            bash deploy/dsw/run_parallel.sh "vanilla:0" \
-            && date -u +%FT%TZ > "$CLAIM_DIR/anchor16k.ok" ) \
-            > logs/m1_anchor.log 2>&1 &
-        echo "anchor run backgrounded -> logs/m1_anchor.log; its step-0 validation IS the"
-        echo "16k anchor. Record the number in $CLAIM_DIR/PIN_HISTORY when it prints."
-        echo "waiting (<=10min) for it to occupy its cards, so the daemon's free-GPU"
-        echo "census does not hand the same pair to a lane..."
-        _b=0
-        for _i in $(seq 60); do
-            _b=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | wc -l)
-            [ "$_b" -ge 1 ] && break
-            sleep 10
-        done
-        [ "$_b" -ge 1 ] || echo "WARN: anchor claimed nothing after 10min -- check logs/m1_anchor.log; daemon starts anyway."
-    else
-        echo "skipped (PROBE=0 or already minted: $CLAIM_DIR/anchor16k.ok)"
-    fi
-else
-    banner "phase 3: no probe (ruling 2026-08-07) -- the first real run proves itself"
-fi
-
 banner "phase 4: lane shape on record + daemon"
 echo "$LANE_SHAPE" > "$CLAIM_DIR/GPUS_PER_RUN.$MACHINE"
-echo 3 > "$CLAIM_DIR/MAX_LANES.$MACHINE"
-echo "recorded: GPUS_PER_RUN.$MACHINE = $LANE_SHAPE, MAX_LANES = 3 (one arm's three"
-echo "          seeds per round; the spare pair is for the anchor and offline evals)"
+# FINAL cut 08-08: 12 local runs = 12 lanes = every card, one round -- no lanes
+# cap, no spare pair, no anchor phase. A stale cap file would strand 3 lanes.
+rm -f "$CLAIM_DIR/MAX_LANES.$MACHINE"
+echo "recorded: GPUS_PER_RUN.$MACHINE = $LANE_SHAPE; MAX_LANES cleared (full parallel)"
 nohup bash deploy/campaign_daemon.sh > "logs/$(hostname)_daemon.log" 2>&1 &
 sleep 3
 tail -n 5 "logs/$(hostname)_daemon.log" || true
