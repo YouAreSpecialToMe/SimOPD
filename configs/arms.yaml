@@ -74,7 +74,10 @@ arms:
   - run_id: a2_coldstart
     axis: A
     desc: "off-policy SFT cold start then OPD (Rethinking recipe)"
-    status: stock
+    # GATED 2026-08-07 (S-wave split): needs the cornell SFT checkpoint (EXPANSION
+    # 8.1 #6, resubmitted post-16k). Unlock = flip to stock AND uncomment the three
+    # m1 rows in campaign.tsv -- same two-step as a1/a3.
+    status: needs
     note: "two-stage: run slurm/coldstart.sbatch first (teacher generations, verifier
            rejection-sampled, then verl SFT), which also writes the remainder split.
            Cold-start prompts are RESERVED out of this arm's OPD phase so warm-up

@@ -21,7 +21,7 @@
 5	m3	j1_kdrl	0	S local: n8 cell treatment; 4-card lanes (GPUS_PER_RUN map)
 5	m3	j1_kdrl	1
 5	m3	j1_kdrl	2
-#5	m1	a2_coldstart	0	S local GATED: uncomment when the cornell SFT ckpt lands (EXPANSION 8.1 #6)
+#5	m1	a2_coldstart	0	S local GATED: when the cornell SFT ckpt lands, flip a2 status needs->stock in arms.yaml AND uncomment these three rows
 #5	m1	a2_coldstart	1	gated with seed 0
 #5	m1	a2_coldstart	2	gated with seed 0
 
