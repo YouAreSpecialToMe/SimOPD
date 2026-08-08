@@ -42,6 +42,19 @@ if pgrep -f campaign_daemon.sh >/dev/null 2>&1; then
         exit 0
     fi
 fi
+# Break a stale singleton lock. The daemon holds /tmp/simopd_daemon_<m>.v2.lock
+# through fd 8, and fd 8 is INHERITED: a leaked child (ray worker, vllm server,
+# an orphaned shepherd) keeps the lock long after the daemon is gone, so every
+# restart refuses with "a daemon is already running" while pgrep finds none --
+# the 08-08 deadlock. No daemon process here means no daemon, whoever holds the
+# fd; removing the path lets the new one lock a fresh inode while the stragglers
+# keep the old one.
+_lock="/tmp/simopd_daemon_${MACHINE}.v2.lock"
+if [ -e "$_lock" ] && ! pgrep -f campaign_daemon.sh >/dev/null 2>&1; then
+    _holder=$(fuser "$_lock" 2>/dev/null | tr -s ' ')
+    [ -n "$_holder" ] && echo "stale lock held by pid(s)$_holder (no daemon process) -- breaking it"
+    rm -f "$_lock"
+fi
 LOG="logs/$(hostname)_daemon.log"
 nohup bash deploy/campaign_daemon.sh > "$LOG" 2>&1 &
 for _ in $(seq 12); do

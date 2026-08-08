@@ -28,6 +28,12 @@ fi
 pkill -f campaign_daemon.sh 2>/dev/null && echo "  daemon process on this box killed" \
                                         || echo "  no daemon process on this box"
 
+# The daemon's singleton lock outlives it through any child that inherited fd 8,
+# and then no daemon can ever start again on this box (08-08). The sweep below
+# is about to kill those children anyway; drop the path so the next start locks
+# a fresh inode.
+rm -f "/tmp/simopd_daemon_${_ME:-__none__}.v2.lock"
+
 echo "=== lane shepherds, before the GPUs ==="
 pkill -f "dsw/_lane.sh" 2>/dev/null || true
 pkill -f "dsw/run_parallel.sh" 2>/dev/null || true
