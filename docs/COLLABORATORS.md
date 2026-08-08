@@ -4,9 +4,11 @@ SimOPD is a pre-registered audit of on-policy distillation (OPD) variants: one
 frozen protocol, 33 "arms" (one trick per arm), verdicts per arm against a vanilla
 floor. Target: ICLR 2027. Everything that defines a run is pinned in this repo;
 your job is compute, not design. The three local machines (m1-m3, 24×A100) run
-the vanilla floor and a handful of arms; **everything labeled `remote` in
-`configs/campaign.tsv` is open for collaborators** -- 11 main-batch arms and a
-10-arm supplement cohort, 3 seeds each.
+twelve arms; **everything labeled `remote` in `configs/campaign.tsv` is open
+for collaborators** -- the vanilla floor plus 3 main-batch arms, and a 10-arm
+supplement cohort, 3 seeds each. The site that claims `vanilla` uses those
+rows as its own floor (no extra floor rows needed); every other site still
+mints its own per rule 5.
 
 ## The contract (read first)
 

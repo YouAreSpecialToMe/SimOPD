@@ -177,13 +177,14 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 
 ### 8.2 24 卡本地 + 远程协作分工(2026-08-07,用户裁定)
 
-100+ 卡未到位,S 波按"本地 24 卡 + 远程协作者"拆分。**本地认领(wave 5,全 2 卡道)**:
-m1 = vanilla×3(judgment 之底,自己跑)+ a2×3(cornell ckpt 落地后解注释)+ 锚 + 评测
-备用道;m2 = f1_soft_log×3 + b1_skew_kl×3;m3 = g1_verified_only×3 + h1_first_segment×3
-(**08-08 裁定:本地跑简单臂**——纯 k1 单旋钮、pilot 已验,吞吐最大化;n8 cell 整体
-缓期 wave 8 `hold`,与 08-07 J 轴划界同理,复活=改标签+恢复 4 卡形状)。泳道形状入
-`.campaign/GPUS_PER_RUN.mX` 档案(daemon unset 泄漏防护使 env 通道对 daemon 失效,
-campaign.sh 回读档案)。**远程池**:wave 6 主批 15 臂×3、
+100+ 卡未到位,S 波按"本地 24 卡 + 远程协作者"拆分。**本地认领(wave 5,全 2 卡道,
+08-08 终版:每机 4 臂、vanilla 出让)**:m1 = D 三胞胎(d1/d2/d3)+ b3;m2 = F 族
+(f1/f2/f3)+ b1;m3 = G 门(g1/g2)+ h1 + e1——12 臂 ×3 = 36 run,12 泳道 3 轮
+≈ 2-3.5 天。**vanilla 移远程池**(用户裁定"协同者跑 vanilla 我们跑臂"):判决配对
+在分析期发生,地板晚到不迟到;认领 vanilla 的站点以其为自家地板,其余站点照约自铸。
+**登记 caveat:本地 12 臂对远程地板 = 跨集群比较,回补本地 vanilla(腾出泳道或新卡
+到位时 3 run 即除)前判决带 c1 类告诫**。a2 仍门控在 m1;n8 cell 缓期 wave 8 `hold`
+不变。泳道形状档案机制不变。**远程池**:wave 6 主批 15 臂×3、
 wave 7 后补 10 臂×3,host=remote,本地 daemon 天然不触;认领 = PR 改 host 为
 site:<label>,契约(站点自铸 vanilla 地板×3 + probe、pin 纪律、离线 suite 评测
 回交)全文 docs/COLLABORATORS.md。执行入口:`deploy/dsw/launch_m{1,2,3}.sh`

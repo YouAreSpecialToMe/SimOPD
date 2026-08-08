@@ -13,58 +13,58 @@
 # Pilot-era waves 1-3 (8k batch) retired 2026-08-07: runs migrate to __pilot8k;
 #          rows live in git history.
 
-5	m1	vanilla	0	S local: the floor every verdict divides by; run it ourselves
-5	m1	vanilla	1
-5	m1	vanilla	2
-5	m2	f1_soft_log	0	S local: simple k1 arm (ruling 08-08: local fleet runs simple arms)
+5	m1	d1_tip	0	S local (08-08: 4 arms/machine, no vanilla per ruling): D trio + b3
+5	m1	d1_tip	1
+5	m1	d1_tip	2
+5	m1	d2_selectkd	0
+5	m1	d2_selectkd	1
+5	m1	d2_selectkd	2
+5	m1	d3_teachability	0
+5	m1	d3_teachability	1
+5	m1	d3_teachability	2
+5	m1	b3_eopd_gate	0
+5	m1	b3_eopd_gate	1
+5	m1	b3_eopd_gate	2
+5	m2	f1_soft_log	0	S local: F family + b1
 5	m2	f1_soft_log	1
 5	m2	f1_soft_log	2
-5	m2	b1_skew_kl	0	S local: simple k1 arm
+5	m2	b1_skew_kl	0
 5	m2	b1_skew_kl	1
 5	m2	b1_skew_kl	2
-5	m3	g1_verified_only	0	S local: simple k1 arm
+5	m2	f2_hard_clip	0
+5	m2	f2_hard_clip	1
+5	m2	f2_hard_clip	2
+5	m2	f3_power	0
+5	m2	f3_power	1
+5	m2	f3_power	2
+5	m3	g1_verified_only	0	S local: G gates + h1 + e1
 5	m3	g1_verified_only	1
 5	m3	g1_verified_only	2
-5	m3	h1_first_segment	0	S local: simple k1 arm
+5	m3	h1_first_segment	0
 5	m3	h1_first_segment	1
 5	m3	h1_first_segment	2
+5	m3	g2_fire_likelihood	0
+5	m3	g2_fire_likelihood	1
+5	m3	g2_fire_likelihood	2
+5	m3	e1_pl_rank	0
+5	m3	e1_pl_rank	1
+5	m3	e1_pl_rank	2
 #5	m1	a2_coldstart	0	S local GATED: when the cornell SFT ckpt lands, flip a2 status needs->stock in arms.yaml AND uncomment these three rows
 #5	m1	a2_coldstart	1	gated with seed 0
 #5	m1	a2_coldstart	2	gated with seed 0
 
+6	remote	vanilla	0	remote pool: THE FLOOR (ruling 08-08: collaborators run vanilla). The site claiming it uses these as its own floor rows; every OTHER site still mints its own floor per the contract. Local-cohort verdicts vs a remote floor carry the cross-cluster caveat until a local vanilla is backfilled on freed lanes
+6	remote	vanilla	1
+6	remote	vanilla	2
 6	remote	b2_forward_kl	0	remote pool: main batch
 6	remote	b2_forward_kl	1
 6	remote	b2_forward_kl	2
-6	remote	b3_eopd_gate	0	remote pool: main batch
-6	remote	b3_eopd_gate	1
-6	remote	b3_eopd_gate	2
 6	remote	c1_lsm_topk32_renorm	0	remote pool: main batch
 6	remote	c1_lsm_topk32_renorm	1
 6	remote	c1_lsm_topk32_renorm	2
 6	remote	c2_quantile_budget	0	remote pool: main batch
 6	remote	c2_quantile_budget	1
 6	remote	c2_quantile_budget	2
-6	remote	d1_tip	0	remote pool: main batch
-6	remote	d1_tip	1
-6	remote	d1_tip	2
-6	remote	d2_selectkd	0	remote pool: main batch
-6	remote	d2_selectkd	1
-6	remote	d2_selectkd	2
-6	remote	d3_teachability	0	remote pool: main batch
-6	remote	d3_teachability	1
-6	remote	d3_teachability	2
-6	remote	e1_pl_rank	0	remote pool: main batch
-6	remote	e1_pl_rank	1
-6	remote	e1_pl_rank	2
-6	remote	f2_hard_clip	0	remote pool: main batch
-6	remote	f2_hard_clip	1
-6	remote	f2_hard_clip	2
-6	remote	f3_power	0	remote pool: main batch
-6	remote	f3_power	1
-6	remote	f3_power	2
-6	remote	g2_fire_likelihood	0	remote pool: main batch
-6	remote	g2_fire_likelihood	1
-6	remote	g2_fire_likelihood	2
 
 # wave 8 = HOLD: the n8 mini cell, deferred whole (ruling 08-08 -- 4-card lanes cost
 #          double and the J-axis first-order question waits; consistent with the
