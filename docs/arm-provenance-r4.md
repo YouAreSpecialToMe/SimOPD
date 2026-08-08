@@ -494,3 +494,21 @@ m3=g1/g2+h1+e1(12 臂×3=36 run);远程主池=vanilla+b2/c1/c2,后补池 10 臂�
 方法论处置:判决配对发生在分析期,地板晚于臂不构成问题——但**地板在别的集群**构成
 c1 类跨集群比较。入册:本地 12 臂的判决在"本地 vanilla 回补"(3 run,泳道腾空或
 新卡到位即除)之前一律带跨集群 caveat;认领 vanilla 的协作站点以其为自家地板。
+
+## r6 记录(2026-08-09):跨设备 bug 两处 —— c4 的 step-0 死因,以及 g2 的未爆版
+
+c4 三 seed 在 16k 首轮全数死于 step 0,栈指向 `_shadow_panel → _tip_score →
+_topk_by_score` 的 `keep & mask`:`RuntimeError: ... cuda:0 and cpu`。根因是
+`_stat_mask` 用 `torch.zeros(total, dtype=torch.bool)` 建掩码——**没有 device**,
+落在 CPU;而它的每个消费者(minmax/robust_norm/retention/rescale/影子面板)都拿它
+去索引打包好的 CUDA 张量。c4 是唯一把 stat 传进影子面板的臂(e2/e3 传 None),所以
+只有它爆;**d1/d2/d3 自身内核同样吃这条路径**,只是本轮没在跑——远程池认领后必炸。
+
+同类第二处(顺手体检抓到,尚未爆):`_fire_registry_fn` 的
+`torch.quantile(torch.tensor(list(_FIRE_WINDOW)))` 亦无 device → `s_y >= thresh`
+比 CUDA 与 CPU。g2 尚未在 16k 跑过,属"等认领者踩"的雷。
+
+两处均改为在消费者设备上出生(stat_mask 保留 CPU 构造循环、末尾一次性 `.to()`)。
+**方法论**:CPU 夹具对这一类天然免疫——那里所有张量本来就同设备,断言恒真。故新增
+的是**契约测试**(掩码设备 == 输入设备 + 响应尾定位逐位),而非数值测试;真正的
+守卫是"张量在消费者设备上构造"这条纪律,已写进两处注释。

@@ -676,7 +676,13 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
     lengths = mask.sum(dim=-1).clamp_min(1)
     s_y = (tch_lp * mask).sum(dim=-1) / lengths                       # Eq.4
     _FIRE_WINDOW.extend(s_y.detach().float().flatten().tolist())
-    thresh = torch.quantile(torch.tensor(list(_FIRE_WINDOW), dtype=torch.float32), FIRE_DROP_FRAC)
+    # Same device lesson as _stat_mask: the window is a python list, so this tensor
+    # lands on CPU unless told otherwise, and `s_y >= thresh` then compares CUDA to
+    # CPU. g2 has not run at 16k yet, so this was a crash waiting for whoever
+    # claimed it (found while fixing c4's, 2026-08-09).
+    thresh = torch.quantile(
+        torch.tensor(list(_FIRE_WINDOW), dtype=torch.float32, device=s_y.device),
+        FIRE_DROP_FRAC)
     keep_seq = s_y >= thresh
     if FIRE_MODE == "reweight_only":
         keep_seq = torch.ones_like(keep_seq)

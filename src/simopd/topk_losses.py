@@ -271,13 +271,19 @@ def _stat_mask(teacher_topk_log_probs, data, total):
               f"{len(full_lens)} seqs vs response {len(resp_lens)} seqs, packed {total}); "
               f"falling back to full population", file=_sys.stderr, flush=True)
         return None
+    # Built on CPU (the loop is over a handful of sequences and the lengths came
+    # back as python ints anyway), then moved ONCE: every consumer indexes or ANDs
+    # it against packed CUDA tensors, and a CPU mask there is a hard RuntimeError
+    # deep inside the actor -- c4 died at step 0 on every seed for exactly this,
+    # via the shadow panel's TIP selector (2026-08-09). CPU harnesses cannot catch
+    # this class: there, everything already agrees.
     m = torch.zeros(total, dtype=torch.bool)
     pos = 0
     for fl, rl in zip(full_lens, resp_lens):
         rl = min(int(rl), int(fl))
         m[pos + fl - rl: pos + fl] = True
         pos += fl
-    return m.unsqueeze(0)
+    return m.unsqueeze(0).to(teacher_topk_log_probs.device)
 
 
 def _student_entropy(student_log_probs, chunk=4096):
