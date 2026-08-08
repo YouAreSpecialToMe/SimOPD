@@ -10,7 +10,8 @@
 # Run inside tmux: the probe phase is a real 50-step run (~4-5h) in the foreground;
 # the daemon it starts at the end survives logout on its own.
 #
-# Env: PROBE=0 skip the probe phase   APPLY=1 migration without the y/N prompt
+# Env: PROBE=0 skip the probe phase   PROBE_STEPS=50 probe length (10 = memory+
+#      anchor only, no early-curve check)   APPLY=1 migration without the y/N prompt
 #      FORCE=1 proceed over busy GPUs (only after you have verified what they are)
 set -euo pipefail
 MACHINE=${1:?usage: launch_site.sh <m1|m2|m3>}
@@ -86,7 +87,7 @@ if [ "${PROBE:-1}" = 1 ] && [ ! -f "$CLAIM_DIR/probe16k.$MACHINE.ok" ]; then
     _pgpus=$(seq -s, 0 $((LANE_SHAPE-1)))
     # VAL_BEFORE_TRAIN mints the 16k step-0 anchor on m1's floor probe, and the
     # cell's own step-0 point on m2/m3. SAVE_FREQ=-1: a probe leaves no ckpts.
-    VAL_BEFORE_TRAIN=True STEPS=50 TEST_FREQ=25 SAVE_FREQ=-1 \
+    VAL_BEFORE_TRAIN=True STEPS="${PROBE_STEPS:-50}" TEST_FREQ=25 SAVE_FREQ=-1 \
       TAG="${MACHINE}probe" GPU_LIST="$_pgpus" LANES=1 \
       RAY_TMPDIR_TAG="${MACHINE}probe$(date +%s)_" \
       bash deploy/dsw/run_parallel.sh "$PROBE_RUN"
