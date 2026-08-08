@@ -177,11 +177,13 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 
 ### 8.2 24 卡本地 + 远程协作分工(2026-08-07,用户裁定)
 
-100+ 卡未到位,S 波按"本地 24 卡 + 远程协作者"拆分。**本地认领(wave 5)**:
-m1 = vanilla×3(judgment 之底,自己跑)+ a2×3(cornell ckpt 落地后解注释),2 卡道;
-m2 = vanilla_n8×3、m3 = j1_kdrl×3(n8 cell 拓扑最易配错 + cell 同域完整性),4 卡道
-——泳道形状入 `.campaign/GPUS_PER_RUN.mX` 档案(daemon unset 泄漏防护使 env 通道
-对 daemon 失效,campaign.sh 已改为回读档案)。**远程池**:wave 6 主批 15 臂×3、
+100+ 卡未到位,S 波按"本地 24 卡 + 远程协作者"拆分。**本地认领(wave 5,全 2 卡道)**:
+m1 = vanilla×3(judgment 之底,自己跑)+ a2×3(cornell ckpt 落地后解注释)+ 锚 + 评测
+备用道;m2 = f1_soft_log×3 + b1_skew_kl×3;m3 = g1_verified_only×3 + h1_first_segment×3
+(**08-08 裁定:本地跑简单臂**——纯 k1 单旋钮、pilot 已验,吞吐最大化;n8 cell 整体
+缓期 wave 8 `hold`,与 08-07 J 轴划界同理,复活=改标签+恢复 4 卡形状)。泳道形状入
+`.campaign/GPUS_PER_RUN.mX` 档案(daemon unset 泄漏防护使 env 通道对 daemon 失效,
+campaign.sh 回读档案)。**远程池**:wave 6 主批 15 臂×3、
 wave 7 后补 10 臂×3,host=remote,本地 daemon 天然不触;认领 = PR 改 host 为
 site:<label>,契约(站点自铸 vanilla 地板×3 + probe、pin 纪律、离线 suite 评测
 回交)全文 docs/COLLABORATORS.md。执行入口:`deploy/dsw/launch_m{1,2,3}.sh`

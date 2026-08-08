@@ -18,9 +18,7 @@
 set -euo pipefail
 MACHINE=${1:?usage: launch_site.sh <m1|m2|m3>}
 case "$MACHINE" in
-  m1) LANE_SHAPE=2; PROBE_RUN="vanilla:0" ;;
-  m2) LANE_SHAPE=4; PROBE_RUN="vanilla_n8:0" ;;
-  m3) LANE_SHAPE=4; PROBE_RUN="j1_kdrl:0" ;;
+  m1|m2|m3) LANE_SHAPE=2 ;;   # n8 cell deferred (wave 8 hold, ruling 08-08) -- every local lane is 2-card
   *) echo "FATAL: unknown machine '$MACHINE'" >&2; exit 1 ;;
 esac
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -108,7 +106,7 @@ if [ "$MACHINE" = m1 ]; then
         echo "skipped (PROBE=0 or already minted: $CLAIM_DIR/anchor16k.ok)"
     fi
 else
-    banner "phase 3: no probe (ruling 2026-08-07) -- the first real run proves the shape"
+    banner "phase 3: no probe (ruling 2026-08-07) -- the first real run proves itself"
 fi
 
 banner "phase 4: lane shape on record + daemon"

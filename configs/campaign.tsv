@@ -1,9 +1,10 @@
 # SimOPD campaign manifest -- S wave (16k), restructured 2026-08-07 for the
 # 24-card local fleet + remote collaborators. Columns: wave  machine  arm  seed  note
 #
-# wave 5 = LOCAL (m1/m2/m3, 24 cards). m1 runs 2-card lanes; m2/m3 run the n8
-#          cell on 4-card lanes. Lane shape is recorded in .campaign/GPUS_PER_RUN.mX
-#          by deploy/dsw/launch_mX.sh -- do not pass it by hand.
+# wave 5 = LOCAL (m1/m2/m3, 24 cards, all 2-card lanes): m1 = vanilla floor x3
+#          (+a2 gated, +anchor mint + eval spare); m2/m3 = simple k1 arms
+#          (ruling 08-08). Lane shape lives in .campaign/GPUS_PER_RUN.mX,
+#          written by deploy/dsw/launch_mX.sh -- do not pass it by hand.
 # wave 6 = REMOTE main batch, wave 7 = REMOTE supplement cohort (second tranche).
 #          host 'remote' matches no local machine, so local daemons never touch
 #          these rows. Collaborators claim by PR: change 'remote' to your site
@@ -15,19 +16,22 @@
 5	m1	vanilla	0	S local: the floor every verdict divides by; run it ourselves
 5	m1	vanilla	1
 5	m1	vanilla	2
-5	m2	vanilla_n8	0	S local: n8 cell control; 4-card lanes (GPUS_PER_RUN map)
-5	m2	vanilla_n8	1
-5	m2	vanilla_n8	2
-5	m3	j1_kdrl	0	S local: n8 cell treatment; 4-card lanes (GPUS_PER_RUN map)
-5	m3	j1_kdrl	1
-5	m3	j1_kdrl	2
+5	m2	f1_soft_log	0	S local: simple k1 arm (ruling 08-08: local fleet runs simple arms)
+5	m2	f1_soft_log	1
+5	m2	f1_soft_log	2
+5	m2	b1_skew_kl	0	S local: simple k1 arm
+5	m2	b1_skew_kl	1
+5	m2	b1_skew_kl	2
+5	m3	g1_verified_only	0	S local: simple k1 arm
+5	m3	g1_verified_only	1
+5	m3	g1_verified_only	2
+5	m3	h1_first_segment	0	S local: simple k1 arm
+5	m3	h1_first_segment	1
+5	m3	h1_first_segment	2
 #5	m1	a2_coldstart	0	S local GATED: when the cornell SFT ckpt lands, flip a2 status needs->stock in arms.yaml AND uncomment these three rows
 #5	m1	a2_coldstart	1	gated with seed 0
 #5	m1	a2_coldstart	2	gated with seed 0
 
-6	remote	b1_skew_kl	0	remote pool: main batch
-6	remote	b1_skew_kl	1
-6	remote	b1_skew_kl	2
 6	remote	b2_forward_kl	0	remote pool: main batch
 6	remote	b2_forward_kl	1
 6	remote	b2_forward_kl	2
@@ -52,24 +56,26 @@
 6	remote	e1_pl_rank	0	remote pool: main batch
 6	remote	e1_pl_rank	1
 6	remote	e1_pl_rank	2
-6	remote	f1_soft_log	0	remote pool: main batch
-6	remote	f1_soft_log	1
-6	remote	f1_soft_log	2
 6	remote	f2_hard_clip	0	remote pool: main batch
 6	remote	f2_hard_clip	1
 6	remote	f2_hard_clip	2
 6	remote	f3_power	0	remote pool: main batch
 6	remote	f3_power	1
 6	remote	f3_power	2
-6	remote	g1_verified_only	0	remote pool: main batch
-6	remote	g1_verified_only	1
-6	remote	g1_verified_only	2
 6	remote	g2_fire_likelihood	0	remote pool: main batch
 6	remote	g2_fire_likelihood	1
 6	remote	g2_fire_likelihood	2
-6	remote	h1_first_segment	0	remote pool: main batch
-6	remote	h1_first_segment	1
-6	remote	h1_first_segment	2
+
+# wave 8 = HOLD: the n8 mini cell, deferred whole (ruling 08-08 -- 4-card lanes cost
+#          double and the J-axis first-order question waits; consistent with the
+#          08-07 J-boundary ruling). Not claimable by collaborators. Revive = relabel
+#          to a machine, restore its 4-card lane shape in .campaign/GPUS_PER_RUN.mX.
+8	hold	vanilla_n8	0	n8 cell control, deferred with its treatment
+8	hold	vanilla_n8	1
+8	hold	vanilla_n8	2
+8	hold	j1_kdrl	0	n8 cell treatment; judged only vs vanilla_n8 (same cell)
+8	hold	j1_kdrl	1
+8	hold	j1_kdrl	2
 
 # supplement tranche: launch AFTER your site's main-batch rows are running; a3 joins on unlock
 7	remote	b4_jsd	0	remote pool: supplement cohort
