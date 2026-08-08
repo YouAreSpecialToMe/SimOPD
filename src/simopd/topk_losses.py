@@ -434,11 +434,14 @@ def _kendall_tau(s):
     return torch.sign(diff[..., iu[0], iu[1]]).mean(dim=-1)
 
 
-def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids, stu_at_teacher=None):
+def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids, stu_at_teacher=None, s_ent=None):
     """Rethinking Eq.6/Eq.7 diagnostics, kept identical across every top-k arm.
 
-    Streaming callers pass stu_at_teacher (= gather(logits) - lse) and None for
-    student_log_probs; the materialized path is unchanged for everyone else."""
+    Streaming callers pass stu_at_teacher (= gather(logits) - lse) AND s_ent
+    (from _entropy_from_logits) with None for student_log_probs -- the tail of
+    this function needs the entropy panel, and forgetting that cost all six
+    streaming relaunches a NoneType crash on 2026-08-09. The materialized path
+    is unchanged for everyone else."""
     if stu_at_teacher is None:
         stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
     overlap_mask = (t_id.unsqueeze(-1) == stu_topk_ids.unsqueeze(-2)).any(dim=-1)
@@ -466,7 +469,8 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids, stu_at_tea
     # approximation stays visible instead of being buried inside a difference: teacher
     # mass below 1.0 is exactly how much of the teacher's distribution is missing.
     t_ent_topk = -(t_lp.exp() * t_lp).sum(dim=-1)
-    s_ent = _student_entropy(student_log_probs)
+    if s_ent is None:
+        s_ent = _student_entropy(student_log_probs)
     out["entropy_student"] = s_ent
     out["entropy_teacher_topk"] = t_ent_topk
     out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
@@ -758,7 +762,10 @@ def _d_axis_kernel(score_fn, extra_fn=None):
         )
         stu_at_teacher = torch.gather(student_logits, dim=-1, index=t_id) - lse.unsqueeze(-1)
         stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
-        s_ent_fn = lambda: _entropy_from_logits(student_logits, lse)  # noqa: E731
+        # The diagnostics tail needs the entropy panel regardless of selector, so
+        # compute it eagerly once and let tip's thunk reuse the same tensor.
+        s_ent = _entropy_from_logits(student_logits, lse)
+        s_ent_fn = lambda: s_ent  # noqa: E731
 
         # teacher_patch writes -inf if it ever fails to find the sampled token. One
         # such token would make the loss inf and NaN every gradient in the batch, with
@@ -789,7 +796,8 @@ def _d_axis_kernel(score_fn, extra_fn=None):
             losses = _rescale_selection(raw, keep, stat)
             selected = keep.float()
 
-        out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher)
+        out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids,
+                                   stu_at_teacher=stu_at_teacher, s_ent=s_ent)
         if SHADOW_ENABLED:
             # Shadow needs the materialized distribution; it is off in production
             # lanes (SIMOPD_SHADOW=0) and only then does this [T, V] tensor exist.
@@ -948,7 +956,8 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
     # unnormalized, no clamp -- verl's clamp_min(0) is b2's choice, not theirs.
     fkl = (t_lp.exp() * (t_lp - stu_at_teacher)).sum(dim=-1)
 
-    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher)
+    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher,
+                               s_ent=_entropy_from_logits(student_logits, lse))
     if SHADOW_ENABLED:
         slp = F.log_softmax(student_logits, dim=-1)
         out.update(_shadow_panel(slp, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
@@ -1116,7 +1125,8 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     raw = _weighted_sampled_token_loss(
         stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
     )
-    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher)
+    s_ent = _entropy_from_logits(student_logits, lse)
+    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher, s_ent=s_ent)
     if SHADOW_ENABLED:
         slp = F.log_softmax(student_logits, dim=-1)
         out.update(_shadow_panel(slp, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat))
@@ -1124,7 +1134,7 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     # the diagnostics quantifies it); recorded deviation, same as the entropy panel.
     out["distillation_losses"] = raw
     out["fire_t_ent"] = -(t_lp.exp() * t_lp).sum(dim=-1)
-    out["fire_s_ent"] = _entropy_from_logits(student_logits, lse)
+    out["fire_s_ent"] = s_ent
     out["fire_tch_lp"] = sampled_lp
     out["fire_missing"] = (~finite).float()
     return out
