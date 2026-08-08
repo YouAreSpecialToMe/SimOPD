@@ -266,7 +266,7 @@
 8	m19	b3_eopd_gate	0
 8	m20	b3_eopd_gate	1
 8	m21	b3_eopd_gate	2
-8	m8	d2_selectkd	0
+8	m22	d2_selectkd	0	reassigned 2026-08-08: m22 held a ready-made quad, so m8 needs no eviction
 8	m9	d2_selectkd	1
 8	m10	d2_selectkd	2
 8	m12	g2_fire_likelihood	0
