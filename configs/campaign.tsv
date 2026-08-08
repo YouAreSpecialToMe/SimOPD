@@ -173,9 +173,6 @@
 # ---- wave 5 remainder: all 17 non-vanilla arms x 3 seeds (2026-08-08) --------
 # Canary gate passed: vanilla x3 at step 12-13, no OOM, peak 35.9G. Emptiest-first
 # box cycle; an arm's three seeds always on three different machines.
-5	m4	b3_eopd_gate	0	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m9	b3_eopd_gate	1	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m10	b3_eopd_gate	2	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
 5	m16	f2_hard_clip	0
 5	m1	f2_hard_clip	1
 5	m2	f2_hard_clip	2
@@ -188,21 +185,9 @@
 5	m5	h1_first_segment	0
 5	m6	h1_first_segment	1
 5	m9	h1_first_segment	2
-5	m22	d1_tip	0	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m6	d1_tip	1	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m9	d1_tip	2	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m23	d2_selectkd	0	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m16	d2_selectkd	1	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m24	d2_selectkd	2	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m2	d3_teachability	0	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m3	d3_teachability	1	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m7	d3_teachability	2	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
 5	m8	g1_verified_only	0
 5	m15	g1_verified_only	1
 5	m4	g1_verified_only	2
-5	m11	g2_fire_likelihood	0	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m5	g2_fire_likelihood	1	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
-5	m17	g2_fire_likelihood	2	needs=/nonexistent/16k-margin-wall -- KEEP_SAMPLED family dies at ~35-45 steps at the 16k cap on 2-card lanes (measures included); retries hit the same wall ~15 steps after resume. Held pending the topology decision (4-card per the n8 precedent). Lift by removing this note.
 5	m9	e1_pl_rank	0
 5	m10	e1_pl_rank	1
 5	m16	e1_pl_rank	2
@@ -271,3 +256,25 @@
 7	m6	h3_random_segment	0	reassigned 2026-08-08 onto a pair freed by the straggler stop
 7	m18	h3_random_segment	1
 7	m7	h3_random_segment	2	reassigned 2026-08-08 onto a pair freed by the straggler stop
+
+# ---- wave 8: the wall cohort reborn on 4-card lanes (2026-08-08, user ruling) ----
+# The five KEEP_SAMPLED arms die at ~35-45 steps at the 16k cap on 2-card lanes
+# (measures included). Same remedy and recording as the n8 cell: NGPUS=2 + TWS=2
+# in arms.yaml, topology fingerprinted. Hosts are the width-configured boxes
+# (.campaign/GPUS_PER_RUN.<m> = 4); fresh starts -- the 2-card curves are archived
+# as ckpt/simopd/<run>.2card-wall. Staggered: lanes fill as completions free cards.
+8	m12	b3_eopd_gate	0
+8	m13	b3_eopd_gate	1
+8	m14	b3_eopd_gate	2
+8	m12	d2_selectkd	0
+8	m13	d2_selectkd	1
+8	m14	d2_selectkd	2
+8	m12	g2_fire_likelihood	0
+8	m13	g2_fire_likelihood	1
+8	m14	g2_fire_likelihood	2
+8	m8	d1_tip	0
+8	m9	d1_tip	1
+8	m10	d1_tip	2
+8	m8	d3_teachability	0
+8	m9	d3_teachability	1
+8	m10	d3_teachability	2

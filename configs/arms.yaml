@@ -149,6 +149,14 @@ arms:
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_B3_ENT_THRESH: "0.8"
       SIMOPD_B3_SOFT_COEF: "1.0"
+      # 4-card lane (2026-08-08, this fleet): the KEEP_SAMPLED family hits a hard
+      # margin wall at the 16k cap on 2-card lanes -- full-vocab entropy + the
+      # sampled column + activation growth toward the cap kill every run at
+      # ~35-45 steps (measures generation included; g2_s0 died at step 39 asking
+      # 150MiB against ~200 free). Same shape and same recording discipline as
+      # the n8 cell: actor DP-2 + two teacher replicas, topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: b4_jsd
     axis: B
@@ -307,6 +315,14 @@ arms:
       DISTILLATION_TOPK: 32
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_D_RETENTION: "0.5"
+      # 4-card lane (2026-08-08, this fleet): the KEEP_SAMPLED family hits a hard
+      # margin wall at the 16k cap on 2-card lanes -- full-vocab entropy + the
+      # sampled column + activation growth toward the cap kill every run at
+      # ~35-45 steps (measures generation included; g2_s0 died at step 39 asking
+      # 150MiB against ~200 free). Same shape and same recording discipline as
+      # the n8 cell: actor DP-2 + two teacher replicas, topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: d2_selectkd
     axis: D
@@ -329,6 +345,14 @@ arms:
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_SELECTKD_K: "5"
       SIMOPD_SELECTKD_BETA: "0.01"
+      # 4-card lane (2026-08-08, this fleet): the KEEP_SAMPLED family hits a hard
+      # margin wall at the 16k cap on 2-card lanes -- full-vocab entropy + the
+      # sampled column + activation growth toward the cap kill every run at
+      # ~35-45 steps (measures generation included; g2_s0 died at step 39 asking
+      # 150MiB against ~200 free). Same shape and same recording discipline as
+      # the n8 cell: actor DP-2 + two teacher replicas, topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: d3_teachability
     axis: D
@@ -353,6 +377,14 @@ arms:
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_TEACH_K: "16"
       SIMOPD_D_RETENTION: "0.05"
+      # 4-card lane (2026-08-08, this fleet): the KEEP_SAMPLED family hits a hard
+      # margin wall at the 16k cap on 2-card lanes -- full-vocab entropy + the
+      # sampled column + activation growth toward the cap kill every run at
+      # ~35-45 steps (measures generation included; g2_s0 died at step 39 asking
+      # 150MiB against ~200 free). Same shape and same recording discipline as
+      # the n8 cell: actor DP-2 + two teacher replicas, topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   # ---- E: in-support objective ----
   - run_id: e1_pl_rank
@@ -602,6 +634,14 @@ arms:
       SIMOPD_FIRE_ALPHA: "1.0"
       SIMOPD_FIRE_BETA: "1.0"
       SIMOPD_FIRE_MODE: "both"
+      # 4-card lane (2026-08-08, this fleet): the KEEP_SAMPLED family hits a hard
+      # margin wall at the 16k cap on 2-card lanes -- full-vocab entropy + the
+      # sampled column + activation growth toward the cap kill every run at
+      # ~35-45 steps (measures generation included; g2_s0 died at step 39 asking
+      # 150MiB against ~200 free). Same shape and same recording discipline as
+      # the n8 cell: actor DP-2 + two teacher replicas, topology fingerprinted.
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
 
   - run_id: g4_failure_only
     axis: G
