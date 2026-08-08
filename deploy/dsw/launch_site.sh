@@ -38,11 +38,14 @@ if pgrep -f campaign_daemon.sh >/dev/null 2>&1; then
     echo "daemon already running on this box -- leaving it (it re-reads the manifest)"
 fi
 _busy=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | wc -l)
-if [ "$_busy" -gt 0 ] && [ "${FORCE:-0}" != 1 ]; then
-    echo "FATAL: $_busy compute process(es) on the GPUs -- 8k drain not done, or something" >&2
-    echo "       else is training. Wait it out, or FORCE=1 after verifying:" >&2
-    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv >&2
-    exit 1
+if [ "$_busy" -gt 0 ]; then
+    # Report, do not exit. This guard once refused mid-script and the operator
+    # was left with no daemon and no obvious reason (08-08) -- and busy cards
+    # are usually THIS campaign's own lanes, which campaign.sh already accounts
+    # for run by run. A genuinely unknown user still stops the launch, there.
+    echo "note: $_busy compute process(es) already on the GPUs -- campaign.sh will"
+    echo "      account for them (it refuses if it cannot name them):"
+    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv | sed 's/^/      /'
 fi
 source "${SIMOPD_VENV:-simopd}/bin/activate" 2>/dev/null || true
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
