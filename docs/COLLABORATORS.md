@@ -6,7 +6,8 @@ floor. Target: ICLR 2027. Everything that defines a run is pinned in this repo;
 your job is compute, not design. The three local machines (m1-m3, 24×A100) run
 four of its own supplement arms; **everything labeled `remote` in
 `configs/campaign.tsv` is open for collaborators** -- the vanilla floor plus
-all 15 main-batch arms, and a 6-arm supplement cohort, 3 seeds each. The site that claims `vanilla` uses those
+all 15 main-batch arms, a 6-arm supplement cohort, and the 2-arm n=8 mini-cell
+(4-card lanes), 3 seeds each. The site that claims `vanilla` uses those
 rows as its own floor (no extra floor rows needed); every other site still
 mints its own per rule 5.
 
@@ -34,8 +35,16 @@ mints its own per rule 5.
 ## Hardware per run
 
 2×A100-80G (1 actor + 1 teacher GPU; the teacher is a separate vLLM server the
-lane starts for you). ~14-28h per run at the 16k cap. The n8 mini-cell
-(`vanilla_n8`, `j1_kdrl`) is deferred (wave 8, `hold`) -- not claimable.
+lane starts for you). ~14-28h per run at the 16k cap.
+
+**Wave 8, the n=8 mini-cell, is different and needs 4 cards per run**
+(`vanilla_n8` + `j1_kdrl`, ~18-27h each). Claim **both arms or neither**: j1
+is judged only against vanilla_n8, so half a cell produces no verdict. The
+arms carry their own topology (`NGPUS_PER_NODE`/`TEACHER_WORLD_SIZE=2`); you
+supply the lane shape once, `echo 4 > .campaign/GPUS_PER_RUN.<yourlabel>`,
+before launching. Both arms must run at the SAME site -- the cell is the
+comparison. Your 2-card vanilla floor does not serve as this cell's baseline;
+vanilla_n8 is its baseline by construction, which is why it ships with it.
 
 ## Site bring-up (once)
 
@@ -63,7 +72,8 @@ Open a PR that edits `configs/campaign.tsv` only:
 `bash deploy/campaign.sh --plan` must stay clean (it enforces single ownership of
 every (arm, seed)). Wave 6 first; wave 7 (supplement) only after your wave-6 rows
 are running. NOT claimable: `a1/a2/a3` (gated on our side), the wave-8 `hold`
-cell, and the four supplement arms **already running locally since 2026-08-08**
+cell (wave 8 is claimable -- see the hardware section), and the four supplement
+arms **already running locally since 2026-08-08**
 (`c4_pi_tail_budget`, `e2_set_coverage`, `e3_zvalue`, `g5_rgopd_gate` -- wave 5,
 machines m1-m3). Everything labeled `remote` is yours to take; nothing else is.
 

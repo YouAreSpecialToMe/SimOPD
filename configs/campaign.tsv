@@ -7,7 +7,8 @@
 # wave 6 = REMOTE main batch (vanilla floor + 11 arms), wave 7 = REMOTE supplement.
 #          host 'remote' matches no local machine. Claim by PR: 'remote' ->
 #          site:<label>; contract in docs/COLLABORATORS.md.
-# wave 8 = HOLD: n8 mini cell, deferred whole (ruling 08-08). Not claimable.
+# wave 8 = REMOTE n8 mini cell (4-card lanes). J axis stays at one arm -- no
+#          expansion, ruling 08-07 -- but the cell itself is claimable.
 # Pilot waves 1-3 retired (runs archived pre-reset); a2 gated below.
 
 5	m1	c4_pi_tail_budget	0	S local FINAL (08-08): four SUPPLEMENT arms -- our own contributions run at home. 4x3=12 runs=24 cards, one simultaneous round
@@ -97,12 +98,16 @@
 7	remote	h3_random_segment	1
 7	remote	h3_random_segment	2
 
-# wave 8 = HOLD: the n8 mini cell, deferred whole (4-card lanes cost double; J-axis
-#          first-order question waits). Revive = relabel to a machine + restore its
-#          4-card lane shape in .campaign/GPUS_PER_RUN.mX.
-8	hold	vanilla_n8	0	n8 cell control, deferred with its treatment
-8	hold	vanilla_n8	1
-8	hold	vanilla_n8	2
-8	hold	j1_kdrl	0	n8 cell treatment; judged only vs vanilla_n8 (same cell)
-8	hold	j1_kdrl	1
-8	hold	j1_kdrl	2
+# wave 8 = the n=8 mini cell, REMOTE (ruling 08-08: the 4-card work goes to a
+#          collaborator). CLAIM BOTH ARMS OR NEITHER -- j1 is judged only against
+#          vanilla_n8, so a half-claimed cell yields no verdict at all. Needs
+#          4-card lanes: echo 4 > .campaign/GPUS_PER_RUN.<yourlabel> before
+#          launching (the arms carry NGPUS_PER_NODE/TEACHER_WORLD_SIZE=2
+#          themselves). ~18-27h per run. A site's own 2-card vanilla floor is
+#          NOT this cell's floor -- vanilla_n8 is, by construction.
+8	remote	vanilla_n8	0	n8 cell CONTROL -- claim together with j1_kdrl (all 6 rows), 4-card lanes
+8	remote	vanilla_n8	1
+8	remote	vanilla_n8	2
+8	remote	j1_kdrl	0	n8 cell TREATMENT; judged only vs vanilla_n8 (same cell, same site)
+8	remote	j1_kdrl	1
+8	remote	j1_kdrl	2

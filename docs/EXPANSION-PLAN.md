@@ -185,8 +185,11 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 发车"直接满足,~14-28h 一轮完毕。**vanilla 移远程池**(用户裁定):判决配对在分析期发生,地板晚到
 不迟到;认领 vanilla 的站点以其为自家地板,其余站点照约自铸。**登记 caveat:本地
 4 臂对远程地板 = 跨集群比较,回补本地 vanilla(下一轮腾出泳道即 3 run)前判决带
-c1 类告诫**。锚阶段撤销(0.472@0 已录);无泳道 cap、无备用道。a2 仍门控;
-n8 cell 缓期 wave 8 `hold` 不变。**远程池**:wave 6 主批 15 臂×3、
+c1 类告诫**。锚阶段撤销(0.472@0 已录);无泳道 cap、无备用道。a2 仍门控。
+**n8 cell 转远程(08-08 裁定"这个 4 卡给 collaborator 跑")**:wave 8 两臂 6 行
+host=remote,4 卡道;J 轴不扩员的 08-07 裁定不变——交出去的是这一个 cell 的算力,
+不是新实验。契约要求整 cell 同站认领(j1 只对 vanilla_n8 判),站点自铸的 2 卡
+vanilla 地板不充当其基线。**远程池**:wave 6 主批 15 臂×3、
 wave 7 后补 10 臂×3,host=remote,本地 daemon 天然不触;认领 = PR 改 host 为
 site:<label>,契约(站点自铸 vanilla 地板×3 + probe、pin 纪律、离线 suite 评测
 回交)全文 docs/COLLABORATORS.md。执行入口:`deploy/dsw/launch_m{1,2,3}.sh`
