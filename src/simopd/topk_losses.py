@@ -270,7 +270,17 @@ def _lse_chunked(student_logits, chunk=256):
     saturated the 16k cap) is never materialized. Plain autograd ops per chunk:
     values and gradients are exact, and backward touches one [chunk, V] softmax
     at a time (~150MB at chunk=256 on a 152k vocab)."""
-    return torch.cat([torch.logsumexp(sl.float(), dim=-1)
+    # checkpoint per chunk: the naive loop let autograd RETAIN every chunk's fp32
+    # intermediates until backward -- two streamed passes (lse + entropy) resident
+    # at once cost MORE than the old monolith and ground b3_s1 to 64MiB free at
+    # the same step 83 (2026-08-09 07:15). Recompute-in-backward is the other
+    # half of the flash trick; use_reentrant=False keeps values and grads exact.
+    from torch.utils.checkpoint import checkpoint
+
+    def _f(sl):
+        return torch.logsumexp(sl.float(), dim=-1)
+
+    return torch.cat([checkpoint(_f, sl, use_reentrant=False)
                       for sl in student_logits.split(chunk, dim=-2)], dim=-1)
 
 
@@ -279,11 +289,15 @@ def _entropy_from_logits(student_logits, lse, chunk=256):
     elementwise-equal to _student_entropy(log_softmax(logits)) with no [T, V]
     intermediate. Gradient equivalence is covered by the same CPU suite as
     _lse_chunked."""
-    outs = []
-    for sl, sub in zip(student_logits.split(chunk, dim=-2), lse.split(chunk, dim=-1)):
+    from torch.utils.checkpoint import checkpoint
+
+    def _f(sl, sub):
         slf = sl.float()
         p = (slf - sub.unsqueeze(-1)).exp()
-        outs.append(sub - (p * slf).sum(dim=-1))
+        return sub - (p * slf).sum(dim=-1)
+
+    outs = [checkpoint(_f, sl, sub, use_reentrant=False)
+            for sl, sub in zip(student_logits.split(chunk, dim=-2), lse.split(chunk, dim=-1))]
     return torch.cat(outs, dim=-1)
 
 
