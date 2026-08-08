@@ -284,7 +284,7 @@ def _stat_mask(teacher_topk_log_probs, data, total):
     return m.unsqueeze(0)
 
 
-def _student_entropy(student_log_probs, chunk=4096):
+def _student_entropy(student_log_probs, chunk=1024):
     """Full-vocabulary token entropy, computed here rather than taken from
     model_output['entropy'] -- that key only exists when calculate_entropy is on,
     and the usual way to switch it on (entropy_coeff != 0) adds an entropy bonus
@@ -295,8 +295,15 @@ def _student_entropy(student_log_probs, chunk=4096):
     and that growth of the caching allocator's reserved pool is what killed d1_tip:
     verl's sleep/wake weight sync OOM'd at step 2's wake_up, the first sync after
     the optimizer moments (12.7GB) materialise. Per-token entropy is independent
-    across tokens, so slicing changes the peak (~2.5GB at 4096) and not one bit of
-    the result; verified elementwise against the naive form."""
+    across tokens, so slicing changes the peak and not one bit of the result;
+    verified elementwise against the naive form.
+
+    chunk=1024 (2026-08-08, was 4096): at the 16k protocol the microbatch is 17408
+    tokens, and the 4096-chunk transient (~2.5GB) OOM'd d1_tip_s0's second attempt
+    with 2.05GB free -- history repeating at the new cap, through the same
+    function its own docstring convicted last time. 1024 puts the transient at
+    ~0.6GB for a few extra kernel launches; every arm shares the benefit because
+    the shadow panel routes through _tip_score everywhere."""
     out = torch.empty(student_log_probs.shape[:-1],
                       dtype=student_log_probs.dtype, device=student_log_probs.device)
     for i in range(0, student_log_probs.shape[1], chunk):
