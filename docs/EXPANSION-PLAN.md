@@ -174,6 +174,16 @@ migrate_stale 迁移、全式版正名重发。d1/d2/d3 底损失为带符号采
 - 新机器:`MACHINE=mX bash deploy/up.sh` 一次,此后免名;纯池子机器可直接入列
 - 一切失败:先 `logs/campaign_last_*.txt` / daemon 日志 / `triage.py`,**py-spy 后再清扫**
 - 熔断 3 败隔离;放行 `MAX_RUN_RETRIES=99`;阈值原则:**先看健康长什么样**
+- **2026-08-08 首轮 16k 故障与处置(两病两治,均数值中性、不分批)**:
+  (1) c4 三 seed step-0 死 = `hf-mirror.com` **429**(12 泳道同时列教师仓库)——
+  治:`HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE=1` 落在 run_opd_baseline.sh 最内层
+  (权重本就在盘上;预注册协议本该依赖本地文件而非他人可用性)+ 泳道错峰 15s。
+  (2) e2/e3 六 seed 在 36-51 步死 = vLLM `wake_up` 重映射 KV 时 **CUDA OOM**
+  (16k 下 actor 静态态+激活把地址空间打碎)——治:FSDP `param_offload/
+  optimizer_offload=True` + `PYTORCH_CUDA_ALLOC_CONF=expandable_segments`。
+  两治只改张量**住在哪**,算术/RNG/指纹不动,故**不构成第二批次**;代价是步时略增。
+  `ROLLOUT_GPU_MEM_UTIL` 全程不得动(非数值中性,见其注释)。若 OOM 复发,下一档
+  是 `PPO_MAX_TOKEN_LEN_PER_GPU` 减半——那个**在指纹里**,须作分批登记。
 
 ### 8.2 24 卡本地 + 远程协作分工(2026-08-07,用户裁定)
 

@@ -170,6 +170,30 @@ max_ckpt_keep=${MAX_CKPT_KEEP:--1}   # -1 = keep ALL (PROTOCOL 3.7: the suite
 # anchor-round default, where the whole batch starts together.
 rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 
+# --- memory placement and the hub, both fixed at the innermost layer (2026-08-08) ---
+#
+# 1. FSDP offload during rollout. free_cache_engine sleeps the vLLM engine for the
+#    actor update, but the reverse handoff is what broke: at 16k the actor's static
+#    state plus activations leave the address space too fragmented for vLLM's
+#    wake_up to re-map its cache, and the run dies mid-training with "CUDA Error:
+#    out of memory at cumem_allocator.cpp" (e2/e3, steps 36-51, 08-08). Offloading
+#    params and optimizer to host memory between updates gives the mapping room.
+#    Purely WHERE tensors live -- the arithmetic, the RNG stream and the fingerprint
+#    are untouched, so this does not fork the batch. Costs some step time.
+# 2. expandable_segments fights the fragmentation itself rather than its symptom;
+#    same neutrality argument.
+# 3. HF_HUB_OFFLINE. Twelve lanes starting at once each ask hf-mirror.com to list the
+#    teacher repo, and the mirror answers 429 -- three c4 seeds died at step 0 for a
+#    rate limit that had nothing to do with the arm (08-08). The weights are already
+#    on disk; going offline makes the run depend on local files instead of somebody
+#    else's uptime, which is what a pre-registered protocol wants anyway. If a model
+#    is genuinely missing, the failure is immediate and legible instead of a race.
+fsdp_param_offload=${FSDP_PARAM_OFFLOAD:-True}
+fsdp_optimizer_offload=${FSDP_OPTIMIZER_OFFLOAD:-True}
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 
 project_name=${PROJECT_NAME:-simopd}
@@ -309,6 +333,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_epochs=1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
+    actor_rollout_ref.actor.fsdp_config.param_offload=${fsdp_param_offload} \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=${fsdp_optimizer_offload} \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \

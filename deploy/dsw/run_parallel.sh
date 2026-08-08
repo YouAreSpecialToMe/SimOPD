@@ -223,6 +223,12 @@ for lane in $(seq 0 $((LANES - 1))); do
     LANE_RUNS="$lane_runs" LANE_STEPS="$STEPS" LANE_TEST_FREQ="$TEST_FREQ" \
     LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" SNAP="$SNAP" \
     nohup bash deploy/dsw/_lane.sh > "$log" 2>&1 &
+    # Stagger. Twelve lanes hitting model loading, Ray init and (before
+    # HF_HUB_OFFLINE) the hub in the same second is a thundering herd: the
+    # mirror answered 429 and three runs died at step 0 for it (08-08).
+    # Whatever the next shared resource turns out to be, it gets the same
+    # courtesy for the price of a few seconds per lane.
+    [ "$lane" -lt $((LANES - 1)) ] && sleep "${LANE_STAGGER_SEC:-15}"
 done
 
 wait_msg="lanes launched; follow with:  tail -f $LOG_DIR/lane0_${STAMP}.log"
