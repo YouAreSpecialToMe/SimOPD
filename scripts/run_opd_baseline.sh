@@ -197,7 +197,19 @@ rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 # the optimizer stays resident by default and the GPU side is bought back by
 # expandable_segments plus the smaller entropy chunk instead. Flip
 # FSDP_OPTIMIZER_OFFLOAD=True on a box with room, or when running fewer lanes.
-fsdp_param_offload=${FSDP_PARAM_OFFLOAD:-True}
+# BOTH OFF -- back to verl's default, which is the only memory configuration this
+# stack has ever trained under (e2/e3 reached steps 36-51 on it before the wake_up
+# OOM). Turning both on to cure that OOM cost ~26GB of HOST memory per lane and
+# raylet started killing workers; turning only the optimizer back off left
+# param_offload=True, a combination nobody had ever run -- params live on the host
+# and are re-gathered every forward while verl also syncs weights into vLLM each
+# step -- and all four lanes on m1 then hung at step 0 (2026-08-09). Two levers
+# remain against the wake_up OOM and neither touches the host: expandable_segments
+# (fragmentation is what makes cuMemMap fail while torch reports free memory) and
+# the 1024-token entropy chunk (~2.5GB transient down to ~0.6GB, the transient this
+# file already documents as having starved wake_up once). Either flag can be turned
+# on deliberately on a box with host memory to spare.
+fsdp_param_offload=${FSDP_PARAM_OFFLOAD:-False}
 fsdp_optimizer_offload=${FSDP_OPTIMIZER_OFFLOAD:-False}
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
