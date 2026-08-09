@@ -179,7 +179,19 @@ python scripts/arm.py check >/dev/null 2>&1 || {
     _fail=1
 }
 [ "$_fail" = 0 ] || { echo "pre-flight failed; nothing launched." >&2; exit 1; }
-echo "pre-flight ok: ${_have_gpus} GPUs, ${_free_gb}G free (need ~${_need_gb}G), assets present, no stale Ray"
+# Host RAM, the pool nobody was counting. Each lane's FSDP offload lives here, as do
+# Ray's object store and vLLM's host buffers; when it runs out raylet kills workers
+# and the lane HANGS instead of failing, which reads as "stuck at step 1" (2026-08-09).
+_ram_gb=$(awk '/MemAvailable/{printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+_per_lane=$([ "${FSDP_OPTIMIZER_OFFLOAD:-False}" = True ] && echo 26 || echo 8)
+_ram_need=$(( LANES * _per_lane ))
+if [ "$_ram_gb" -gt 0 ] && [ "$_ram_gb" -lt "$_ram_need" ]; then
+    echo "WARNING: ${_ram_gb}G host RAM available, ~${_ram_need}G wanted for $LANES lanes" >&2
+    echo "         (~${_per_lane}G each: FSDP offload + Ray object store + vLLM host buffers)." >&2
+    echo "         raylet kills workers when this runs out and the lane hangs rather than" >&2
+    echo "         failing. Run fewer lanes, or FSDP_OPTIMIZER_OFFLOAD=False (default)." >&2
+fi
+echo "pre-flight ok: ${_have_gpus} GPUs, ${_free_gb}G free (need ~${_need_gb}G), ${_ram_gb}G host RAM (~${_ram_need}G wanted), assets present, no stale Ray"
 
 # One immutable snapshot shared by every lane; see the note in slurm/campaign.sbatch.
 SNAP="${SNAP_ROOT:-$SIMOPD_ROOT/../simopd_data/snapshots}/$(date +%Y%m%d_%H%M%S)_$$"

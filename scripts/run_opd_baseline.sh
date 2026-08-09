@@ -188,8 +188,17 @@ rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 #    on disk; going offline makes the run depend on local files instead of somebody
 #    else's uptime, which is what a pre-registered protocol wants anyway. If a model
 #    is genuinely missing, the failure is immediate and legible instead of a race.
+# Offload trades GPU memory for HOST memory, and the host is the scarcer pool here:
+# the optimizer side alone is ~19GB per lane (6.3 fp32 master + 12.7 AdamW moments)
+# and four lanes on a 94GB box then compete with Ray's object store and vLLM's host
+# buffers. On 2026-08-09 that is exactly what happened -- raylet's OOM monitor killed
+# workers and the rollout hung at "running: 13, finished: 115" for half an hour, with
+# c4 (the heaviest arm) hit first. Params are cheap to offload (~3.2GB) and stay on;
+# the optimizer stays resident by default and the GPU side is bought back by
+# expandable_segments plus the smaller entropy chunk instead. Flip
+# FSDP_OPTIMIZER_OFFLOAD=True on a box with room, or when running fewer lanes.
 fsdp_param_offload=${FSDP_PARAM_OFFLOAD:-True}
-fsdp_optimizer_offload=${FSDP_OPTIMIZER_OFFLOAD:-True}
+fsdp_optimizer_offload=${FSDP_OPTIMIZER_OFFLOAD:-False}
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
