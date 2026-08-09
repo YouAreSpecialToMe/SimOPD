@@ -112,6 +112,21 @@ for entry in $LANE_RUNS; do
     rc=$?   # capture before anything else, including the substitution below
     RESULT[$NAME]=$([ $rc -eq 0 ] && echo OK || echo FAIL)
     echo "################ $NAME -> ${RESULT[$NAME]} ################"
+    # Keep a per-failure artifact. Lane logs are per-launch, so a run that dies and
+    # is relaunched every few minutes buries its own traceback under later attempts
+    # and the operator ends up with "it failed, I cannot see why" (c4 s1/s2,
+    # 2026-08-09). One file per failure, named for the run, is cheap and survives
+    # everything: relaunches, sweeps, migrations.
+    if [ "${RESULT[$NAME]}" = FAIL ]; then
+        _fdir="${LOG_DIR:-logs}/failures"; mkdir -p "$_fdir"
+        _fsnap="$_fdir/${NAME}_$(date +%Y%m%d_%H%M%S).log"
+        {
+            echo "### $NAME rc=$rc at $(date -u +%FT%TZ) on $(hostname) GPUs ${CUDA_VISIBLE_DEVICES:-?}"
+            echo "### source lane log: ${LANE_LOG_PATH:-<stdout of _lane.sh>}"
+            tail -n 400 "${LANE_LOG_PATH:-/dev/null}" 2>/dev/null
+        } > "$_fsnap" 2>&1
+        echo "failure snapshot: $_fsnap"
+    fi
     date +"end %F %T"
     sweep_lane "$RUN_PGID"
     left=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | wc -l)

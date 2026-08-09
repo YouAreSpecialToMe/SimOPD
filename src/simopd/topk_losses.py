@@ -286,7 +286,7 @@ def _stat_mask(teacher_topk_log_probs, data, total):
     return m.unsqueeze(0).to(teacher_topk_log_probs.device)
 
 
-def _student_entropy(student_log_probs, chunk=4096):
+def _student_entropy(student_log_probs, chunk=int(os.environ.get("SIMOPD_ENTROPY_CHUNK", "1024"))):
     """Full-vocabulary token entropy, computed here rather than taken from
     model_output['entropy'] -- that key only exists when calculate_entropy is on,
     and the usual way to switch it on (entropy_coeff != 0) adds an entropy bonus
@@ -298,7 +298,13 @@ def _student_entropy(student_log_probs, chunk=4096):
     verl's sleep/wake weight sync OOM'd at step 2's wake_up, the first sync after
     the optimizer moments (12.7GB) materialise. Per-token entropy is independent
     across tokens, so slicing changes the peak (~2.5GB at 4096) and not one bit of
-    the result; verified elementwise against the naive form."""
+    the result; verified elementwise against the naive form.
+
+    Default lowered 4096 -> 1024 (~0.6GB) on 2026-08-09: at the 16k cap the same
+    wake_up starvation reappeared, and c4 -- the heaviest arm, running three shadow
+    selectors on top of its own kernel -- kept dying at step 1 while its sibling
+    seed ran. Elementwise identical, no fingerprint field, so it costs a little
+    kernel-launch overhead and nothing else. SIMOPD_ENTROPY_CHUNK overrides."""
     out = torch.empty(student_log_probs.shape[:-1],
                       dtype=student_log_probs.dtype, device=student_log_probs.device)
     for i in range(0, student_log_probs.shape[1], chunk):

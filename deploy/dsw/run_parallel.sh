@@ -222,6 +222,7 @@ for lane in $(seq 0 $((LANES - 1))); do
     RAY_TMPDIR="${RAY_TMPDIR:-/tmp}/ray_lane${RAY_TMPDIR_TAG:-}${lane}" \
     LANE_RUNS="$lane_runs" LANE_STEPS="$STEPS" LANE_TEST_FREQ="$TEST_FREQ" \
     LANE_SAVE_FREQ="$SAVE_FREQ" LANE_TAG="$TAG" SNAP="$SNAP" \
+    LANE_LOG_PATH="$log" LOG_DIR="$LOG_DIR" \
     nohup bash deploy/dsw/_lane.sh > "$log" 2>&1 &
     # Stagger. Twelve lanes hitting model loading, Ray init and (before
     # HF_HUB_OFFLINE) the hub in the same second is a thundering herd: the
