@@ -697,10 +697,15 @@ def compute_set_coverage_topk(student_logits, teacher_topk_log_probs, teacher_to
     """
     from verl.trainer.distillation.fsdp.losses import kl_divergence
 
-    student_log_probs, t_lp, t_id, _, _ = _prepare(
+    # Streaming port (2026-08-09): all three e2 seeds die at step 50-53 in
+    # _prepare's materialized log_softmax (16.7-18.6GiB single ask); every
+    # engine-side lever (rollout pool, token cap, optimizer offload) prints
+    # into hydra but leaves update-phase residency unchanged. Same lse
+    # machinery the KEEP_SAMPLED family has been cruising on since ckpt 75.
+    lse, t_lp, t_id, _, _ = _prepare_streaming(
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
-    s = torch.gather(student_log_probs, dim=-1, index=t_id)
+    s = torch.gather(student_logits, dim=-1, index=t_id) - lse.unsqueeze(-1)
     coverage_log = torch.logsumexp(s, dim=-1)
     coverage_loss = -coverage_log
 
@@ -710,10 +715,12 @@ def compute_set_coverage_topk(student_logits, teacher_topk_log_probs, teacher_to
 
     losses = coverage_loss + PL_ANCHOR_COEF * value_anchor
 
-    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
+    stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
-        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
-    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+        slp = F.log_softmax(student_logits, dim=-1)
+        out_shadow = _shadow_panel(slp, t_lp, t_id, s, stu_topk_ids)
+    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=s,
+                               s_ent=_entropy_from_logits(student_logits, lse))
     if SHADOW_ENABLED:
         out.update(out_shadow)
     out["distillation_losses"] = losses
@@ -737,10 +744,14 @@ def compute_zvalue_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids
     """
     from verl.trainer.distillation.fsdp.losses import kl_divergence
 
-    student_log_probs, t_lp, t_id, _, _ = _prepare(
+    # Streaming port (2026-08-09), same surgery as e2 above: shares _prepare's
+    # materialized [T,V] bomb and e2's exact consumption shape (top-k gathers
+    # only), so it gets the fix BEFORE its own late-step spike (b2_s1 died the
+    # same way at 172 on the untouched verl-side path).
+    lse, t_lp, t_id, _, _ = _prepare_streaming(
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
-    s = torch.gather(student_log_probs, dim=-1, index=t_id)
+    s = torch.gather(student_logits, dim=-1, index=t_id) - lse.unsqueeze(-1)
     s_std = s.std(dim=-1, keepdim=True, correction=0)
     t_std = t_lp.std(dim=-1, keepdim=True, correction=0)
     s_z = (s - s.mean(dim=-1, keepdim=True)) / (s_std + 1e-6)
@@ -749,10 +760,12 @@ def compute_zvalue_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids
     tch_n = torch.log_softmax(t_z, dim=-1)
     losses = kl_divergence(log_q=tch_n, log_p=stu_n)
 
-    stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
+    stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
-        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
-    out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
+        slp = F.log_softmax(student_logits, dim=-1)
+        out_shadow = _shadow_panel(slp, t_lp, t_id, s, stu_topk_ids)
+    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=s,
+                               s_ent=_entropy_from_logits(student_logits, lse))
     if SHADOW_ENABLED:
         out.update(out_shadow)
     out["distillation_losses"] = losses
