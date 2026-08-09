@@ -11,6 +11,7 @@ verl's original function untouched.
 
 import math
 import os
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -313,11 +314,43 @@ def _student_entropy(student_log_probs, chunk=int(os.environ.get("SIMOPD_ENTROPY
     return out
 
 
+_POP_WARNED = set()
+
+
+def _pop(x, mask, who):
+    """The population a batch statistic is defined over, never empty.
+
+    Every batch-relative normaliser here reduces over the response tokens the stat
+    mask selects, and torch refuses to reduce an empty tensor: quantile() raises
+    outright, min() raises, and the run dies mid-training with a traceback that
+    names a normaliser rather than the rollout that emptied it. A micro-batch WITH
+    NO RESPONSE TOKENS is a real draw -- a rollout that emits EOS immediately, or a
+    dynamic micro-batch that packs only such sequences -- and being seed-determined
+    it recurs on exactly the same step at every relaunch: c4 seeds 1 and 2 died at
+    step 1 on every retry while seed 0 ran on (2026-08-09).
+
+    An empty selection is not a reason to stop; it is a reason to fall back to the
+    same population the arm uses when no stat mask exists at all (see _stat_mask),
+    which is the fallback this file already sanctions. Logged once per site so the
+    ledger can say how often it happened."""
+    flat = x[mask] if mask is not None else x
+    if flat.numel() == 0:
+        if who not in _POP_WARNED:
+            _POP_WARNED.add(who)
+            print(f"[simopd] {who}: stat mask selected no tokens in a micro-batch; "
+                  f"batch statistics fall back to the full packed population "
+                  f"(logged once per process)", file=sys.stderr, flush=True)
+        flat = x
+    return flat
+
+
 def _minmax(x, mask=None):
     """Batch-relative min-max normalisation, as TIP specifies. A micro-batch is a
     smaller population than TIP's, so the normaliser is noisier; realised
     selection rates are logged so that noise stays visible."""
-    flat = x[mask] if mask is not None else x
+    flat = _pop(x, mask, "_minmax")
+    if flat.numel() == 0:
+        return torch.zeros_like(x)
     lo, hi = flat.min(), flat.max()
     return (x - lo) / (hi - lo).clamp_min(1e-8)
 
@@ -477,7 +510,14 @@ def _topk_by_score(score, retention, mask=None):
     response tokens; positions outside it are never selected (their loss is
     discarded downstream anyway, but keeping them out preserves the realized
     retention the ledger reports)."""
-    pop = (score[mask] if mask is not None else score).float().flatten()
+    # Note the asymmetry when the stat mask selects nothing: the THRESHOLD
+    # population falls back to the full set (a quantile needs a non-empty input),
+    # while the SELECTABLE set stays the mask -- so nothing is selected, which is
+    # the right answer for a micro-batch with no response tokens: those positions
+    # are prompt or dummy rows whose loss is discarded downstream anyway.
+    pop = _pop(score, mask, "_topk_by_score").float().flatten()
+    if pop.numel() == 0:
+        return torch.zeros_like(score, dtype=torch.bool)
     thresh = torch.quantile(pop, 1.0 - retention)
     keep = score >= thresh
     if mask is not None:
@@ -737,7 +777,9 @@ def _robust_norm(x, mask=None):
     Their tip_compat.py default ('batch_quantile'); plain min-max is the fallback
     they ship but not the shipped default. Same micro-batch-population caveat as
     _minmax."""
-    flat = (x[mask] if mask is not None else x).float().flatten()
+    flat = _pop(x, mask, "_robust_norm").float().flatten()
+    if flat.numel() == 0:
+        return torch.zeros_like(x)
     lo = torch.quantile(flat, 0.05)
     hi = torch.quantile(flat, 0.95)
     return ((x - lo) / (hi - lo).clamp_min(1e-8)).clamp(0.0, 1.0)
