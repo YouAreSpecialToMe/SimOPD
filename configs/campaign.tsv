@@ -130,7 +130,7 @@
 2	m5	b1_skew_kl	1
 2	m6	b1_skew_kl	2
 2	m7	b2_forward_kl	1
-2	m8	b2_forward_kl	2
+2	m8	b2_forward_kl	2	needs=/nonexistent/parked-b2s2 -- 2026-08-09 ~21:20: seed-specific monolith spike at 208 (verl-side compute_forward_kl_topk, live tree). Relay with PYTORCH_CUDA_ALLOC_CONF=expandable_segments died even earlier (202). Death < next bank 225 => zombie march. PARKED at bank 200; same disposition as b2_s1@150.
 2	m9	b3_eopd_gate	1
 2	m10	b3_eopd_gate	2
 2	m11	c1_lsm_topk32_renorm	1
@@ -199,7 +199,7 @@
 5	m3	c2_quantile_budget	2
 5	m7	b2_forward_kl	0	needs=/nonexistent/lane-queue-guard -- BAKED into a live lane's LANE_RUNS (2026-08-08); any claim of this row double-launches it. The guard path never exists, so claims skip; the lane queue does not read this file and runs it on schedule. Remove the guard only if that lane dies before reaching it.
 5	m8	b2_forward_kl	1	needs=/nonexistent/parked-b2s1 -- 2026-08-09 ~13:00: seed-specific monolith spike at step 172 inside verl-side compute_forward_kl_topk (live tree, NOT snapshot-isolated; s0/s2 crossed 172 clean). Deterministic re-death below next bank 175 => zombie march. PARKED at bank 150; do not relaunch without the verl-side streaming port.
-5	m15	b2_forward_kl	2
+5	m15	b2_forward_kl	2	needs=/nonexistent/parked-b2s2 -- 2026-08-09 ~21:20: seed-specific monolith spike at 208 (verl-side compute_forward_kl_topk, live tree). Relay with PYTORCH_CUDA_ALLOC_CONF=expandable_segments died even earlier (202). Death < next bank 225 => zombie march. PARKED at bank 200; same disposition as b2_s1@150.
 5	m12	vanilla_n8	0	4-card lane: NGPUS 2 + TWS 2; box launched manually with GPUS_PER_RUN=4 (daemon unsets the width)
 5	m13	vanilla_n8	1
 5	m14	vanilla_n8	2
