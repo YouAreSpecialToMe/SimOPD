@@ -151,7 +151,9 @@ def compute_reverse_kl_topk(
     out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
     if SHADOW_ENABLED:
         out.update(_shadow_panel(student_log_probs, teacher_topk_log_probs, teacher_topk_ids,
-                                 student_topk_log_probs, student_topk_ids))
+                                 student_topk_log_probs, student_topk_ids,
+                                 _stat_mask(teacher_topk_log_probs, data,
+                                            student_topk_log_probs.shape[1])))
     return out
 
 
@@ -434,6 +436,14 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids):
 
 
 def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat=None):
+    # PASS THE STAT MASK. The panel runs the D-axis selectors, and those are
+    # batch-relative: without the mask their normalisers see prompt and dummy rows,
+    # which the 2026-08-07 audit measured dragging TIP's divergence normaliser ~30x.
+    # Five kernels (c1, c2, e1, e2, e3) consumed the panel without it until r6
+    # 2026-08-09 -- they did not crash, they just computed their shadow masks over a
+    # different population than d1/d2/d3 and c4 did, which is worse: the V-wave
+    # redundancy verdict is a CROSS-ARM Jaccard, and half the roster was measuring
+    # with another ruler.
     """What the OTHER D-axis selectors would have picked, inside this run.
 
     Redundancy prediction #4 (plan §4) says TIP, Teachability and SelecTKD select
@@ -564,7 +574,8 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
     stu_topk_ids = torch.topk(student_log_probs, k=k, dim=-1).indices
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
-                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
+                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(out_shadow)
@@ -609,7 +620,8 @@ def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
-                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
+                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(out_shadow)
@@ -647,7 +659,8 @@ def compute_set_coverage_topk(student_logits, teacher_topk_log_probs, teacher_to
 
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
     if SHADOW_ENABLED:
-        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
+        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(out_shadow)
@@ -686,7 +699,8 @@ def compute_zvalue_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids
 
     stu_topk_ids = torch.topk(student_log_probs, k=t_lp.shape[-1], dim=-1).indices
     if SHADOW_ENABLED:
-        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids)
+        out_shadow = _shadow_panel(student_log_probs, t_lp, t_id, s, stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(out_shadow)
