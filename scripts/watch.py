@@ -46,7 +46,13 @@ RUN_RE = re.compile(r"#+ RUN: (\S+) #+")
 # there is the job working, not the job hung.
 READY_RE = re.compile(r"all initialize finished, ready to fit")
 DONE_RE = re.compile(r"#+ (\S+) -> (OK|FAIL) #+")
-TQDM_RE = re.compile(r"\|\s*(\d+)/(\d+) \[([\d:]+)<([\d:?]+),\s*([\d.]+)s/it\]")
+# Only verl's TRAINING bar (trainer_base.py: desc="Training Progress"). The old
+# pattern matched any tqdm line, so a freshly restarted run showed its safetensors
+# shard loader -- "3/3" -- as if it were three training steps of three, which reads
+# at a glance like a finished run and cost an incident's worth of diagnosis
+# (2026-08-09). Other bars (weight loading, vLLM request queues, validation
+# generation) are startup noise and must not stand in for progress.
+TQDM_RE = re.compile(r"Training Progress:.*?\|\s*(\d+)/(\d+) \[([\d:]+)<([\d:?]+),\s*([\d.]+)s/it\]")
 
 STALL_MIN = 25          # startup is legitimately ~5 min; 25 means something is wrong
 MODE_A_GROWTH = 1.5     # response length this many times its early value
