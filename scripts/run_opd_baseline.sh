@@ -198,6 +198,24 @@ use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False
 
 project_name=${PROJECT_NAME:-simopd}
 experiment_name=${EXPERIMENT_NAME:-vanilla_$(basename $STUDENT_MODEL)_from_$(basename $TEACHER_MODEL)}
+# A SHORT run under a protocol name is the worst outcome this project has: it ends,
+# writes "-> OK", and campaign.sh records the row DONE forever -- a false green that
+# nothing retries. It has happened once already (a stale STEPS=3 from a rehearsal
+# leaked out of an operator shell; daemon_campaign.sh now unsets it, which protects
+# the daemon path only) and again on 2026-08-09, when e2_set_coverage_s1 launched as
+# "step 3/3" from a manual invocation. Probes, controls and rehearsals all carry a
+# TAG or REHEARSAL, and that is exactly the discriminator: an UNTAGGED run is a
+# protocol run and must use the protocol horizon. Deliberate exceptions say so.
+if [ "$total_training_steps" -ge 0 ] && [ "$total_training_steps" -lt 250 ]    && [ -z "${LANE_TAG:-}${TAG:-}" ] && [ "${REHEARSAL:-0}" != 1 ]    && [ "${SIMOPD_SHORT_RUN_OK:-0}" != 1 ]; then
+    echo "FATAL: total_training_steps=$total_training_steps under an untagged protocol" >&2
+    echo "       name ($experiment_name). A short run here finishes, reports OK, and is" >&2
+    echo "       recorded DONE -- the false green nothing ever retries." >&2
+    echo "       unset STEPS TOTAL_TRAINING_STEPS      # if this leaked from your shell" >&2
+    echo "       TAG=probe ...                         # if it really is a probe" >&2
+    echo "       SIMOPD_SHORT_RUN_OK=1 ...             # if you mean it, on the record" >&2
+    exit 1
+fi
+
 logger=${LOGGER:-'["console","wandb"]'}
 
 data_dir=${DATA_DIR:-$HOME/data/simopd_math}
