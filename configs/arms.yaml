@@ -312,6 +312,13 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: pi_tail_budget
       USE_POLICY_GRADIENT: "False"
+      # 2026-08-09: the heaviest arm on the roster -- its own kernel plus three
+      # shadow selectors plus full-vocab entropy -- kept dying at step 1 where the
+      # optimizer moments materialise and vLLM's wake_up needs contiguous pages.
+      # SIMOPD_SHADOW is fingerprint-exempt by construction, so dropping the panel
+      # costs c4 its column in the V-wave redundancy Jaccard and NOTHING else: same
+      # batch, same verdict, same comparability.
+      SIMOPD_SHADOW: "0"
       DISTILLATION_TOPK: "32"
       SIMOPD_PI_TAIL_EPS: "0.05"
 
