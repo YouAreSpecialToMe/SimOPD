@@ -5,11 +5,15 @@ _Student **Qwen3-1.7B-Base** ← Teacher **Qwen3-4B-Instruct-2507**, response ca
 24-node / 192-GPU fleet — including the four arms (c4/e2/e3/g5) originally ceded to the collaborating
 site and relaunched here on 2026-08-09._
 
-_Regenerated 2026-08-11 03:06 from live logs, checkpoint trees and eval artifacts._
+_Regenerated 2026-08-11 03:14 from live logs, checkpoint trees and eval artifacts._
 
-**Anchors.** In-loop greedy MATH500 of the base student: **0.468** (every curve's step-0).
-Offline pipeline on the same model: 0.4740 (pipeline-consistency check).
-Offline suite composite of the base student: **0.1453** (step −1 convention).
+**Anchors.** In-loop greedy MATH500 of the base student: **0.468**, measured through verl's own val path
+(`docs/PROTOCOL-unified.md` §step-0). Note this campaign runs with `val_before_train=False`, so **no 16k
+curve carries its own step-0 point** — the first in-loop reading of every arm is step 25, and 0.468 is
+carried over from the 8k-cap measurement of the same base model. It is a common constant across all arms,
+so arm-vs-arm comparison is unaffected; only absolute "gain over baseline" statements inherit its ~0.006
+protocol offset (`eval_offline.py` reports 0.4740 for the same model). A protocol-matched 16k re-measurement
+is queued. Offline suite composite of the base student: **0.1453** (step −1 convention).
 
 ### Reference points (same offline suite as every checkpoint)
 
@@ -17,6 +21,12 @@ Offline suite composite of the base student: **0.1453** (step −1 convention).
 |---|---|---|---|---|---|
 | **Qwen3-1.7B-Base** — untrained student (step −1) | **0.1453** | 0.0167 | 0.1906 | 0.0637 | 0.3100 |
 | **Qwen3-4B-Instruct-2507** — teacher (ceiling) | _eval queued_ | – | – | – | – |
+
+Prior protocol measurements of the same teacher, kept here until the rows above fill (`docs/METRICS.md`):
+**MATH500 greedy 0.896**, **AMC23 avg@32 0.9133** — against the student's 0.468 / 0.434 those give the
+denominators for **Gap Recovery Rate** = (arm − base) / (teacher − base), the campaign's headline
+normalisation. On the in-loop metric the available gap is **0.428** (0.468 → 0.896), so c2's 0.684 recovers
+**50.5%** of it, j1's 0.639 recovers 40.0%, and the collapsed arms recover none.
 
 The untrained student is the **lower bound** — what the 1.7B model scores with no distillation at all — and
 the 4B teacher is the **upper bound** an on-policy distillation run can approach. Every composite in §3 is
@@ -26,7 +36,7 @@ and this table's MATH500 column (**0.3100**) are the same model under different 
 mean@1 in-loop versus τ=0.7 avg@3 in the suite — so the two must never be compared across tables.
 
 **Fleet state.** 24 of 29 arms have all three seeds at step 250; 4 arms (a2/e2/g5/h2) are in
-their last steps; b2 is parked at its per-seed memory ceiling (§4.5). Post-hoc suite: **185 of 750
+their last steps; b2 is parked at its per-seed memory ceiling (§4.5). Post-hoc suite: **186 of 750
 checkpoint-evaluations** complete, the rest grinding.
 
 ## 1. In-loop eval (greedy MATH500, every 25 steps)
@@ -62,10 +72,10 @@ died at the length wall and are excluded. Sorted by step-250 value.
 | f1_soft_log | sampled | 0.588±0.012 | 0.609±0.006 | 0.624±0.012 | 0.631±0.002 | 0.620±0.015 | 0.632±0.011 | 0.623±0.013 | 0.457±0.003 | 0.463±0.028 | 0.447±0.016 | 0.012 | 250/250/250 |
 | d3_teachability | samp+sel | 0.581±0.006 | 0.622±0.016 | 0.565±0.008 | 0.542±0.014 | 0.428±0.002 | 0.435±0.028 | 0.416±0.017 | 0.437±0.012 | 0.431±0.011 | 0.415±0.007 | 0.012 | 250/250/250 |
 | b3_eopd_gate | samp+sel | 0.582±0.016 | 0.612±0.008 | 0.555±0.011 | 0.354±0.009 | 0.113±0.024 | 0.025±0.007 | 0.018±0.007 | 0.003±0.001 | 0.001±0.001 | 0.003±0.003 | 0.009 | 250/250/250 |
-| g5_rgopd_gate | sampled | 0.618±0.016 | 0.612±0.013 | 0.627±0.012 | 0.581±0.028 | 0.496±0.019 | 0.464±0.031 | 0.425±0.012 | – | – | – | 0.019 | 188/190/189 |
-| e2_set_coverage | topk | 0.596±0.005 | 0.597±0.001 | 0.588±0.010 | 0.581±0.014 | 0.498±0.004 | 0.469±0.015 | 0.460±0.023 | – | – | – | 0.010 | 183/182/184 |
+| g5_rgopd_gate | sampled | 0.618±0.016 | 0.612±0.013 | 0.627±0.012 | 0.581±0.028 | 0.496±0.019 | 0.464±0.031 | 0.425±0.012 | – | – | – | 0.019 | 188/191/189 |
+| e2_set_coverage | topk | 0.596±0.005 | 0.597±0.001 | 0.588±0.010 | 0.581±0.014 | 0.498±0.004 | 0.469±0.015 | 0.460±0.023 | – | – | – | 0.010 | 183/183/185 |
 | b2_forward_kl | sampled | 0.541±0.016 | 0.572±0.016 | 0.519±0.002 | 0.458±0.011 | 0.487±0.009 | 0.459±0.023 | 0.408±0.020·2 | 0.460·1 | – | – | 0.013 | 196/172/208 |
-| a2_coldstart | sampled | 0.430±0.021 | 0.437±0.016 | 0.439±0.027 | 0.468±0.018 | 0.465±0.021 | 0.467±0.033 | 0.489±0.008 | 0.478±0.007 | – | – | 0.019 | 202/218/211 |
+| a2_coldstart | sampled | 0.430±0.021 | 0.437±0.016 | 0.439±0.027 | 0.468±0.018 | 0.465±0.021 | 0.467±0.033 | 0.489±0.008 | 0.478±0.007 | – | – | 0.019 | 203/218/211 |
 | h2_last_segment | sampled | 0.475±0.003 | 0.260±0.011 | 0.096±0.052 | 0.097±0.062 | 0.164±0.076 | 0.228±0.021 | 0.385±0.041 | 0.453±0.032 | – | – | 0.037 | 224/224/224 |
 
 **Reading.** Three regimes are visible. (i) **Monotone climbers** — c2 (0.635→**0.684**), c4 (→0.639),
@@ -86,10 +96,10 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 
 | method | GPUs/run | seeds at 250 | ckpts saved | wall-h/seed | GPU·h (arm, 3 seeds) |
 |---|---|---|---|---|---|
-| a2_coldstart | 2 | 0/3 | 8/8/8 | 65.7 | 394 |
+| a2_coldstart | 2 | 0/3 | 8/8/8 | 65.8 | 395 |
 | b1_skew_kl | 2 | 3/3 | 10/10/10 | 34.6 | 208 |
 | b2_forward_kl | 2 | 0/3 | 7/6/8 | 34.1 | 205 |
-| b3_eopd_gate | 4 | 3/3 | 10/10/10 | 101.5 | 1218 |
+| b3_eopd_gate | 4 | 3/3 | 10/10/10 | 101.6 | 1220 |
 | b4_jsd | 2 | 3/3 | 10/10/10 | 29.9 | 179 |
 | b5_k2 | 2 | 3/3 | 10/10/10 | 58.6 | 352 |
 | c1_lsm_topk32_renorm | 2 | 3/3 | 10/10/10 | 7.6 | 45 |
@@ -100,7 +110,7 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | d2_selectkd | 4 | 3/3 | 10/10/10 | 32.4 | 389 |
 | d3_teachability | 4 | 3/3 | 10/10/10 | 38.5 | 461 |
 | e1_pl_rank | 2 | 3/3 | 10/10/10 | 23.1 | 139 |
-| e2_set_coverage | 2 | 0/3 | 7/7/7 | 45.8 | 275 |
+| e2_set_coverage | 2 | 0/3 | 7/7/7 | 45.9 | 276 |
 | e3_zvalue | 2 | 3/3 | 10/10/10 | 43.2 | 259 |
 | f1_soft_log | 2 | 3/3 | 10/10/10 | 40.1 | 241 |
 | f2_hard_clip | 2 | 3/3 | 10/10/10 | 42.5 | 255 |
@@ -108,14 +118,14 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | g1_verified_only | 2 | 3/3 | 10/10/10 | 40.0 | 240 |
 | g2_fire_likelihood | 4 | 3/3 | 10/10/10 | 47.8 | 573 |
 | g4_failure_only | 2 | 3/3 | 10/10/10 | 59.5 | 357 |
-| g5_rgopd_gate | 2 | 0/3 | 7/7/7 | 39.5 | 237 |
+| g5_rgopd_gate | 2 | 0/3 | 7/7/7 | 39.6 | 238 |
 | h1_first_segment | 2 | 3/3 | 10/10/10 | 13.7 | 82 |
-| h2_last_segment | 2 | 0/3 | 9/9/9 | 63.6 | 382 |
+| h2_last_segment | 2 | 0/3 | 9/9/9 | 63.8 | 383 |
 | h3_random_segment | 2 | 3/3 | 10/10/10 | 35.0 | 210 |
 | j1_kdrl | 4 | 3/3 | 10/10/10 | 8.4 | 101 |
 | vanilla | 2 | 3/3 | 10/10/10 | 59.3 | 356 |
 | vanilla_n8 | 4 | 3/3 | 10/10/10 | 57.8 | 694 |
-| **fleet total** | | | | | **9196** |
+| **fleet total** | | | | | **9201** |
 
 **Where the GPU·h went.** b3 alone burned 1209 GPU·h — ~13% of the campaign — for a scientifically dead
 arm, almost all of it in the two-day OOM war (§4.2). The next three biggest (vanilla_n8 694, g2 573,
@@ -175,7 +185,7 @@ across-seed std over fully-reported steps; the last column counts completed chec
 | g2_fire_likelihood | 0.274±0.008 | – | – | – | – | – | – | – | – | – | 0.008 | 3/30 |
 | vanilla | 0.280±0.002 | – | – | – | – | – | – | – | – | – | 0.002 | 3/30 |
 | vanilla_n8 | 0.285±0.005 | – | – | – | – | – | – | – | – | – | 0.005 | 3/30 |
-| b5_k2 | 0.276·1 | – | – | – | – | – | – | – | – | – | – | 1/30 |
+| b5_k2 | 0.275±0.000·2 | – | – | – | – | – | – | – | – | – | – | 2/30 |
 | a2_coldstart | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
 | e2_set_coverage | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
 | e3_zvalue | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
@@ -342,7 +352,7 @@ their curves complete up to their stopping points. Full per-row history lives in
 
 - **Training**: a2×3 (~200-215), h2×3 (~222), e2×3 (~180), g5×3 (~186) — all expected to reach 250 within
   the day. b2×3 stay parked.
-- **Post-hoc suite**: 185/750 checkpoint-evaluations done, ~75 sweeps in flight. a2's partial sweeps
+- **Post-hoc suite**: 186/750 checkpoint-evaluations done, ~75 sweeps in flight. a2's partial sweeps
   will be re-dispatched after it completes so its last checkpoints are covered (`eval_suite` is
   idempotent — completed artifacts are skipped).
 - **Deliverables pending**: full 29×10 composite table, per-benchmark breakdown at 250, and the
