@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 244" width="1060" height="244" role="img" aria-label="axis colour key">
+<style>
+  .ink{fill:#1f2328} .mute{fill:#656d76} .paper{fill:#ffffff}
+  .grid{stroke:#d8dee4} .axis{stroke:#656d76} .bg-line{stroke:#d8dee4}
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  @media (prefers-color-scheme: dark) {
+    .ink{fill:#e6edf3} .mute{fill:#8b949e} .paper{fill:#0d1117}
+    .grid{stroke:#30363d} .axis{stroke:#8b949e} .bg-line{stroke:#30363d}
+  }
+</style>
+<style>.k0{stroke:#981d0b}.k0f{fill:#981d0b}.k1{stroke:#98440b}.k1f{fill:#98440b}.k2{stroke:#9f6611}.k2f{fill:#9f6611}.k3{stroke:#a08417}.k3f{fill:#a08417}.k4{stroke:#8c8a19}.k4f{fill:#8c8a19}.k5{stroke:#7c9220}.k5f{fill:#7c9220}.k6{stroke:#31980b}.k6f{fill:#31980b}.k7{stroke:#1d9c13}.k7f{fill:#1d9c13}.k8{stroke:#1b9e29}.k8f{fill:#1b9e29}.k9{stroke:#229c47}.k9f{fill:#229c47}.k10{stroke:#0b9862}.k10f{fill:#0b9862}.k11{stroke:#169a7f}.k11f{fill:#169a7f}.k12{stroke:#219793}.k12f{fill:#219793}.k13{stroke:#0b7098}.k13f{fill:#0b7098}.k14{stroke:#1864a5}.k14f{fill:#1864a5}.k15{stroke:#2758b0}.k15f{fill:#2758b0}.k16{stroke:#0b1298}.k16f{fill:#0b1298}.k17{stroke:#2a18a5}.k17f{fill:#2a18a5}.k18{stroke:#5027b0}.k18f{fill:#5027b0}.k19{stroke:#630b98}.k19f{fill:#630b98}.k20{stroke:#8613a1}.k20f{fill:#8613a1}.k21{stroke:#a91ca9}.k21f{fill:#a91ca9}.k22{stroke:#b02796}.k22f{fill:#b02796}.k23{stroke:#980b51}.k23f{fill:#980b51}.k24{stroke:#a51844}.k24f{fill:#a51844}.k25{stroke:#b0273a}.k25f{fill:#b0273a}.k26{stroke:#57980b}.k26f{fill:#57980b}.k27{stroke:#535965}.k27f{fill:#535965}.k28{stroke:#2e3138}.k28f{fill:#2e3138}
+@media (prefers-color-scheme: dark){.k0{stroke:#e75f4b}.k0f{fill:#e75f4b}.k1{stroke:#e78a4b}.k1f{fill:#e78a4b}.k2{stroke:#e5ae5c}.k2f{fill:#e5ae5c}.k3{stroke:#e4cc6c}.k3f{fill:#e4cc6c}.k4{stroke:#e4e37c}.k4f{fill:#e4e37c}.k5{stroke:#d3e48b}.k5f{fill:#d3e48b}.k6{stroke:#75e74b}.k6f{fill:#75e74b}.k7{stroke:#6ce562}.k7f{fill:#6ce562}.k8{stroke:#77e483}.k8f{fill:#77e483}.k9{stroke:#8be4a6}.k9f{fill:#8be4a6}.k10{stroke:#4be7ab}.k10f{fill:#4be7ab}.k11{stroke:#6ce4cc}.k11f{fill:#6ce4cc}.k12{stroke:#8be4e1}.k12f{fill:#8be4e1}.k13{stroke:#4bbbe7}.k13f{fill:#4bbbe7}.k14{stroke:#6cade4}.k14f{fill:#6cade4}.k15{stroke:#8babe4}.k15f{fill:#8babe4}.k16{stroke:#5158e7}.k16f{fill:#5158e7}.k17{stroke:#7c6ce4}.k17f{fill:#7c6ce4}.k18{stroke:#a68be4}.k18f{fill:#a68be4}.k19{stroke:#ac4be7}.k19f{fill:#ac4be7}.k20{stroke:#cc62e5}.k20f{fill:#cc62e5}.k21{stroke:#e477e4}.k21f{fill:#e477e4}.k22{stroke:#e48bd3}.k22f{fill:#e48bd3}.k23{stroke:#e74b98}.k23f{fill:#e74b98}.k24{stroke:#e46c92}.k24f{fill:#e46c92}.k25{stroke:#e48b98}.k25f{fill:#e48b98}.k26{stroke:#9fe74b}.k26f{fill:#9fe74b}.k27{stroke:#9ca4b4}.k27f{fill:#9ca4b4}.k28{stroke:#d0d4dc}.k28f{fill:#d0d4dc}}</style>
+<rect class="paper" width="1060" height="244" fill="#ffffff"/>
+<text class="ink" x="10" y="20" fill="#1f2328" font-size="13" font-weight="600">Colour key — hue is the experimental axis, lightness separates arms within it</text>
+<text class="mute" x="10" y="42" fill="#656d76" font-size="11">baseline</text>
+<rect class="k27f" x="172" y="30" width="15" height="11" fill="#535965" rx="2"/>
+<text class="k27f" x="191" y="40" fill="#535965" font-size="10">vanilla</text>
+<rect class="k28f" x="234" y="30" width="15" height="11" fill="#2e3138" rx="2"/>
+<text class="k28f" x="253" y="40" fill="#2e3138" font-size="10">vanilla_n8</text>
+<text class="mute" x="10" y="63" fill="#656d76" font-size="11">A · on/off-policy mix</text>
+<rect class="k0f" x="172" y="51" width="15" height="11" fill="#981d0b" rx="2"/>
+<text class="k0f" x="191" y="61" fill="#981d0b" font-size="10">a2_coldstart</text>
+<text class="mute" x="10" y="84" fill="#656d76" font-size="11">B · divergence family</text>
+<rect class="k1f" x="172" y="72" width="15" height="11" fill="#98440b" rx="2"/>
+<text class="k1f" x="191" y="82" fill="#98440b" font-size="10">b1_skew_kl</text>
+<rect class="k2f" x="251" y="72" width="15" height="11" fill="#9f6611" rx="2"/>
+<text class="k2f" x="270" y="82" fill="#9f6611" font-size="10">b2_forward_kl</text>
+<rect class="k3f" x="346" y="72" width="15" height="11" fill="#a08417" rx="2"/>
+<text class="k3f" x="365" y="82" fill="#a08417" font-size="10">b3_eopd_gate</text>
+<rect class="k4f" x="436" y="72" width="15" height="11" fill="#8c8a19" rx="2"/>
+<text class="k4f" x="455" y="82" fill="#8c8a19" font-size="10">b4_jsd</text>
+<rect class="k5f" x="492" y="72" width="15" height="11" fill="#7c9220" rx="2"/>
+<text class="k5f" x="511" y="82" fill="#7c9220" font-size="10">b5_k2</text>
+<text class="mute" x="10" y="105" fill="#656d76" font-size="11">C · support / budget</text>
+<rect class="k6f" x="172" y="93" width="15" height="11" fill="#31980b" rx="2"/>
+<text class="k6f" x="191" y="103" fill="#31980b" font-size="10">c1_lsm_topk32_renorm</text>
+<rect class="k7f" x="307" y="93" width="15" height="11" fill="#1d9c13" rx="2"/>
+<text class="k7f" x="326" y="103" fill="#1d9c13" font-size="10">c2_quantile_budget</text>
+<rect class="k8f" x="430" y="93" width="15" height="11" fill="#1b9e29" rx="2"/>
+<text class="k8f" x="449" y="103" fill="#1b9e29" font-size="10">c3_intersection</text>
+<rect class="k9f" x="537" y="93" width="15" height="11" fill="#229c47" rx="2"/>
+<text class="k9f" x="556" y="103" fill="#229c47" font-size="10">c4_pi_tail_budget</text>
+<text class="mute" x="10" y="126" fill="#656d76" font-size="11">D · token selection</text>
+<rect class="k10f" x="172" y="114" width="15" height="11" fill="#0b9862" rx="2"/>
+<text class="k10f" x="191" y="124" fill="#0b9862" font-size="10">d1_tip</text>
+<rect class="k11f" x="228" y="114" width="15" height="11" fill="#169a7f" rx="2"/>
+<text class="k11f" x="247" y="124" fill="#169a7f" font-size="10">d2_selectkd</text>
+<rect class="k12f" x="312" y="114" width="15" height="11" fill="#219793" rx="2"/>
+<text class="k12f" x="331" y="124" fill="#219793" font-size="10">d3_teachability</text>
+<text class="mute" x="10" y="147" fill="#656d76" font-size="11">E · ranking anchors</text>
+<rect class="k13f" x="172" y="135" width="15" height="11" fill="#0b7098" rx="2"/>
+<text class="k13f" x="191" y="145" fill="#0b7098" font-size="10">e1_pl_rank</text>
+<rect class="k14f" x="251" y="135" width="15" height="11" fill="#1864a5" rx="2"/>
+<text class="k14f" x="270" y="145" fill="#1864a5" font-size="10">e2_set_coverage</text>
+<rect class="k15f" x="358" y="135" width="15" height="11" fill="#2758b0" rx="2"/>
+<text class="k15f" x="377" y="145" fill="#2758b0" font-size="10">e3_zvalue</text>
+<text class="mute" x="10" y="168" fill="#656d76" font-size="11">F · loss shaping</text>
+<rect class="k16f" x="172" y="156" width="15" height="11" fill="#0b1298" rx="2"/>
+<text class="k16f" x="191" y="166" fill="#0b1298" font-size="10">f1_soft_log</text>
+<rect class="k17f" x="256" y="156" width="15" height="11" fill="#2a18a5" rx="2"/>
+<text class="k17f" x="275" y="166" fill="#2a18a5" font-size="10">f2_hard_clip</text>
+<rect class="k18f" x="346" y="156" width="15" height="11" fill="#5027b0" rx="2"/>
+<text class="k18f" x="365" y="166" fill="#5027b0" font-size="10">f3_power</text>
+<text class="mute" x="10" y="189" fill="#656d76" font-size="11">G · gating on outcome</text>
+<rect class="k19f" x="172" y="177" width="15" height="11" fill="#630b98" rx="2"/>
+<text class="k19f" x="191" y="187" fill="#630b98" font-size="10">g1_verified_only</text>
+<rect class="k20f" x="284" y="177" width="15" height="11" fill="#8613a1" rx="2"/>
+<text class="k20f" x="303" y="187" fill="#8613a1" font-size="10">g2_fire_likelihood</text>
+<rect class="k21f" x="407" y="177" width="15" height="11" fill="#a91ca9" rx="2"/>
+<text class="k21f" x="426" y="187" fill="#a91ca9" font-size="10">g4_failure_only</text>
+<rect class="k22f" x="514" y="177" width="15" height="11" fill="#b02796" rx="2"/>
+<text class="k22f" x="533" y="187" fill="#b02796" font-size="10">g5_rgopd_gate</text>
+<text class="mute" x="10" y="210" fill="#656d76" font-size="11">H · segment masking</text>
+<rect class="k23f" x="172" y="198" width="15" height="11" fill="#980b51" rx="2"/>
+<text class="k23f" x="191" y="208" fill="#980b51" font-size="10">h1_first_segment</text>
+<rect class="k24f" x="284" y="198" width="15" height="11" fill="#a51844" rx="2"/>
+<text class="k24f" x="303" y="208" fill="#a51844" font-size="10">h2_last_segment</text>
+<rect class="k25f" x="391" y="198" width="15" height="11" fill="#b0273a" rx="2"/>
+<text class="k25f" x="410" y="208" fill="#b0273a" font-size="10">h3_random_segment</text>
+<text class="mute" x="10" y="231" fill="#656d76" font-size="11">J · KD + RL</text>
+<rect class="k26f" x="172" y="219" width="15" height="11" fill="#57980b" rx="2"/>
+<text class="k26f" x="191" y="229" fill="#57980b" font-size="10">j1_kdrl</text>
+</svg>

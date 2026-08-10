@@ -4,7 +4,7 @@ _Every number here is scraped from the live lane logs (`logs/*/lane*.log`) of th
 student **Qwen3-1.7B-Base** ← teacher **Qwen3-4B-Instruct-2507**, 16,384-token response cap, 250 steps,
 29 arms × 3 seeds. Where a row was relaunched, the newest log segment carrying a given step wins, so
 restarts never double-count. Tables are seed-means on the 25-step checkpoint grid; charts are every
-logged step. Generated 2026-08-11 06:24._
+logged step. Generated 2026-08-11 06:42._
 
 _Caveat on the tail: 4 arms are still training (`a2_coldstart`, `e2_set_coverage`, `g5_rgopd_gate`, `h2_last_segment`) and
 `b2_forward_kl` is parked at step 175–200. Their seeds do not all reach the same step, so a seed-mean at
@@ -31,6 +31,19 @@ d[d.arm == 'vanilla'].pivot_table(index='step', columns='seed', values='response
 ```
 
 ## 1. The four charts that matter
+
+Every arm is drawn in its own colour and **named at the end of its own line**. With 29 curves a
+legend is unreadable — you would spend the whole time looking away from the chart — so identity
+lives next to the curve and colour is used for something colour is actually good at: **hue is the
+experimental axis, lightness separates arms inside it.**
+
+Read colour as the *family*, not the arm. Twenty-nine categorical colours cannot all be told apart —
+that is a limit of perception, not of effort — so arms within one axis are deliberately close (the B
+axis is a run of oranges) while different axes stay well apart. Every colour also has a second variant
+that swaps in under `prefers-color-scheme: dark`; both variants are fitted to clear a 3.5:1 contrast
+ratio against their background, so the charts are legible in either GitHub theme.
+
+![colour key](img/dyn-axis-key.svg)
 
 ### Rollout length
 
