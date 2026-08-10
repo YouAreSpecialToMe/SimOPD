@@ -103,3 +103,10 @@ axis entirely), B1/C4 run themselves via waves 9/10, C2/C3 opportunistic on
 freed lanes, A3 after its precompute lands. The ledger harvest (§1) is
 independent of all of these and can run today on any machine that sees the
 lane logs.
+
+## 4. Analysis tasks (log harvest only, no new runs)
+
+| # | task | what it settles |
+|---|---|---|
+| M1 | **Compression dose-response formalization**: measured effective \|signal\| (p99 from the `_signal_quantiles` panels) vs lock step across {vanilla, f2, f1, b1, f3} — five arms, same support/branch/budget, magnitude transform the only knob; nominal bounds order ∞/10/log/2.3/1, locks order 122/198/208/247/never | whether unbounded sampled-token magnitude *is* the length-runaway driver (falsifiable: measured magnitudes must reproduce the nominal ordering); registered in the ledger 2026-08-11 |
+| M2 | b3_gate open-rate inside the 50–100 transition window | the last nail in b3's degenerate-fixed-point account |
