@@ -5,7 +5,7 @@ _Student **Qwen3-1.7B-Base** ← Teacher **Qwen3-4B-Instruct-2507**, response ca
 24-node / 192-GPU fleet — including the four arms (c4/e2/e3/g5) originally ceded to the collaborating
 site and relaunched here on 2026-08-09._
 
-_Regenerated 2026-08-11 04:11 from live logs, checkpoint trees and eval artifacts._
+_Regenerated 2026-08-11 04:21 from live logs, checkpoint trees and eval artifacts._
 
 **Anchors (protocol-matched, measured 2026-08-11).** On the **in-loop axis** — MATH500, greedy mean@1,
 16,384-token cap, the exact protocol every training curve is made of — the untrained student scores
@@ -76,11 +76,11 @@ died at the length wall and are excluded. Sorted by step-250 value.
 | f1_soft_log | sampled | 0.588±0.012 | 0.609±0.006 | 0.624±0.012 | 0.631±0.002 | 0.620±0.015 | 0.632±0.011 | 0.623±0.013 | 0.457±0.003 | 0.463±0.028 | 0.447±0.016 | 0.012 | -2.4% | 250/250/250 |
 | d3_teachability | samp+sel | 0.581±0.006 | 0.622±0.016 | 0.565±0.008 | 0.542±0.014 | 0.428±0.002 | 0.435±0.028 | 0.416±0.017 | 0.437±0.012 | 0.431±0.011 | 0.415±0.007 | 0.012 | -9.7% | 250/250/250 |
 | b3_eopd_gate | samp+sel | 0.582±0.016 | 0.612±0.008 | 0.555±0.011 | 0.354±0.009 | 0.113±0.024 | 0.025±0.007 | 0.018±0.007 | 0.003±0.001 | 0.001±0.001 | 0.003±0.003 | 0.009 | -101.6% | 250/250/250 |
-| g5_rgopd_gate | sampled | 0.618±0.016 | 0.612±0.013 | 0.627±0.012 | 0.581±0.028 | 0.496±0.019 | 0.464±0.031 | 0.425±0.012 | – | – | – | 0.019 | – | 192/194/193 |
-| e2_set_coverage | topk | 0.596±0.005 | 0.597±0.001 | 0.588±0.010 | 0.581±0.014 | 0.498±0.004 | 0.469±0.015 | 0.460±0.023 | – | – | – | 0.010 | – | 186/186/188 |
+| g5_rgopd_gate | sampled | 0.618±0.016 | 0.612±0.013 | 0.627±0.012 | 0.581±0.028 | 0.496±0.019 | 0.464±0.031 | 0.425±0.012 | – | – | – | 0.019 | – | 192/195/193 |
+| e2_set_coverage | topk | 0.596±0.005 | 0.597±0.001 | 0.588±0.010 | 0.581±0.014 | 0.498±0.004 | 0.469±0.015 | 0.460±0.023 | – | – | – | 0.010 | – | 187/186/189 |
 | b2_forward_kl | sampled | 0.541±0.016 | 0.572±0.016 | 0.519±0.002 | 0.458±0.011 | 0.487±0.009 | 0.459±0.023 | 0.408±0.020·2 | 0.460·1 | – | – | 0.013 | – | 196/172/208 |
-| a2_coldstart | sampled | 0.430±0.021 | 0.437±0.016 | 0.439±0.027 | 0.468±0.018 | 0.465±0.021 | 0.467±0.033 | 0.489±0.008 | 0.478±0.007 | – | – | 0.019 | – | 206/222/215 |
-| h2_last_segment | sampled | 0.475±0.003 | 0.260±0.011 | 0.096±0.052 | 0.097±0.062 | 0.164±0.076 | 0.228±0.021 | 0.385±0.041 | 0.453±0.032 | 0.438±0.075 | – | 0.042 | – | 226/225/226 |
+| a2_coldstart | sampled | 0.430±0.021 | 0.437±0.016 | 0.439±0.027 | 0.468±0.018 | 0.465±0.021 | 0.467±0.033 | 0.489±0.008 | 0.478±0.007 | – | – | 0.019 | – | 207/222/215 |
+| h2_last_segment | sampled | 0.475±0.003 | 0.260±0.011 | 0.096±0.052 | 0.097±0.062 | 0.164±0.076 | 0.228±0.021 | 0.385±0.041 | 0.453±0.032 | 0.438±0.075 | – | 0.042 | – | 227/226/226 |
 
 **Reading.** Three regimes are visible. (i) **Monotone climbers** — c2 (0.635→**0.684**), c4 (→0.639),
 e1, c1, c3: every one is a top-k *value/order* objective, and none of them collapses. (ii) **Late
@@ -100,10 +100,10 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 
 | method | GPUs/run | seeds at 250 | ckpts saved | wall-h/seed | GPU·h (arm, 3 seeds) |
 |---|---|---|---|---|---|
-| a2_coldstart | 2 | 0/3 | 8/8/8 | 66.8 | 401 |
+| a2_coldstart | 2 | 0/3 | 8/8/8 | 66.9 | 402 |
 | b1_skew_kl | 2 | 3/3 | 10/10/10 | 34.6 | 208 |
 | b2_forward_kl | 2 | 0/3 | 7/6/8 | 34.1 | 205 |
-| b3_eopd_gate | 4 | 3/3 | 10/10/10 | 102.6 | 1231 |
+| b3_eopd_gate | 4 | 3/3 | 10/10/10 | 102.8 | 1233 |
 | b4_jsd | 2 | 3/3 | 10/10/10 | 29.9 | 179 |
 | b5_k2 | 2 | 3/3 | 10/10/10 | 58.6 | 352 |
 | c1_lsm_topk32_renorm | 2 | 3/3 | 10/10/10 | 7.6 | 45 |
@@ -114,7 +114,7 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | d2_selectkd | 4 | 3/3 | 10/10/10 | 32.4 | 389 |
 | d3_teachability | 4 | 3/3 | 10/10/10 | 38.5 | 461 |
 | e1_pl_rank | 2 | 3/3 | 10/10/10 | 23.1 | 139 |
-| e2_set_coverage | 2 | 0/3 | 7/7/7 | 46.9 | 281 |
+| e2_set_coverage | 2 | 0/3 | 7/7/7 | 47.0 | 282 |
 | e3_zvalue | 2 | 3/3 | 10/10/10 | 43.2 | 259 |
 | f1_soft_log | 2 | 3/3 | 10/10/10 | 40.1 | 241 |
 | f2_hard_clip | 2 | 3/3 | 10/10/10 | 42.5 | 255 |
@@ -122,14 +122,14 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | g1_verified_only | 2 | 3/3 | 10/10/10 | 40.0 | 240 |
 | g2_fire_likelihood | 4 | 3/3 | 10/10/10 | 47.8 | 573 |
 | g4_failure_only | 2 | 3/3 | 10/10/10 | 59.5 | 357 |
-| g5_rgopd_gate | 2 | 0/3 | 7/7/7 | 40.6 | 243 |
+| g5_rgopd_gate | 2 | 0/3 | 7/7/7 | 40.7 | 244 |
 | h1_first_segment | 2 | 3/3 | 10/10/10 | 13.7 | 82 |
-| h2_last_segment | 2 | 0/3 | 9/9/9 | 64.7 | 388 |
+| h2_last_segment | 2 | 0/3 | 9/9/9 | 64.9 | 389 |
 | h3_random_segment | 2 | 3/3 | 10/10/10 | 35.0 | 210 |
 | j1_kdrl | 4 | 3/3 | 10/10/10 | 8.4 | 101 |
 | vanilla | 2 | 3/3 | 10/10/10 | 59.3 | 356 |
 | vanilla_n8 | 4 | 3/3 | 10/10/10 | 57.8 | 694 |
-| **fleet total** | | | | | **9235** |
+| **fleet total** | | | | | **9241** |
 
 **Where the GPU·h went.** b3 alone burned 1209 GPU·h — ~13% of the campaign — for a scientifically dead
 arm, almost all of it in the two-day OOM war (§4.2). The next three biggest (vanilla_n8 694, g2 573,
