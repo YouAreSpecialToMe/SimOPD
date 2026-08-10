@@ -43,6 +43,7 @@ EXPECT_PG = {
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,
     "b4_jsd": False, "b4_jsd_b0.1": False, "b4_jsd_b0.9": False, "b5_k2": False,
     "c1_lsm_topk32_renorm": True, "c2_quantile_budget": False,
+    "c2_qb_fixed8": False, "c2_qb_perseq": False,
     "c3_intersection": False, "c4_pi_tail_budget": False,
     "d1_tip": True, "d2_selectkd": True, "d3_teachability": True,
     "e1_pl_rank": False, "e2_set_coverage": False, "e3_zvalue": False,

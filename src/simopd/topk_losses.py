@@ -559,6 +559,14 @@ D_RETENTION = float(os.environ.get("SIMOPD_D_RETENTION", "0.5"))
 # C2: candidate pool width and the average per-token support size to aim for.
 QB_TARGET_BUDGET = float(os.environ.get("SIMOPD_QB_TARGET_BUDGET", "8"))
 QB_MARGIN = os.environ.get("SIMOPD_QB_MARGIN", "max")  # q | pi | max
+# Pinning granularity of the budget (registered knob, 2026-08-11): where tau's
+# population lives. batch = the shipped 16k behaviour (one tau over the packed
+# micro-batch); sequence = one tau per trajectory (budget flows only across
+# positions); fixed = no tau at all, teacher-rank top-B (the zero-adaptivity
+# endpoint AND the matched-budget fixed control that c2-vs-c1 was missing).
+QB_SCOPE = os.environ.get("SIMOPD_QB_SCOPE", "batch")  # batch | sequence | fixed
+if QB_SCOPE not in ("batch", "sequence", "fixed"):
+    raise ValueError(f"SIMOPD_QB_SCOPE must be batch|sequence|fixed, got {QB_SCOPE!r}")
 # E1: weight on the value-KL anchor beside the rank loss.
 PL_ANCHOR_COEF = float(os.environ.get("SIMOPD_PL_ANCHOR_COEF", "0.1"))
 
@@ -590,14 +598,58 @@ def _topk_by_score(score, retention, mask=None):
     return keep
 
 
+def _qb_tau_per_sequence(margin, stat, teacher_topk_log_probs, frac):
+    """One tau per trajectory (QB_SCOPE=sequence): budget flows across positions
+    within a sequence but never between sequences.
+
+    Sequence spans come from the nested teacher tensor's offsets, the same source
+    _stat_mask trusts; the population inside each span is its response tokens
+    (stat mask) or the full span when stat is unavailable. Prompt-only spans get
+    tau=+inf -- only the forced rank-0 column survives there, and those rows'
+    losses are dropped downstream anyway. Falls back to one batch-level tau,
+    loudly, when spans are unavailable (dense CPU harnesses) -- mirroring
+    _stat_mask's contract.
+    """
+    import sys as _sys
+
+    flat = margin.float()
+    try:
+        offs = teacher_topk_log_probs.offsets()
+        lens = [int(x) for x in (offs[1:] - offs[:-1]).tolist()]
+        assert sum(lens) == flat.shape[-2], f"spans {sum(lens)} vs packed {flat.shape[-2]}"
+    except Exception as e:
+        print(f"[simopd] qb per-sequence tau unavailable ({e!r}); falling back to one "
+              f"batch-level tau", file=_sys.stderr, flush=True)
+        return torch.quantile((flat[stat] if stat is not None else flat).flatten(), frac)
+    # ON THE KERNEL'S DEVICE (r6 discipline: tensors are born where they are used).
+    tau = torch.empty(flat.shape[:-1], dtype=flat.dtype, device=flat.device)
+    pos = 0
+    for fl in lens:
+        span = slice(pos, pos + fl)
+        m_span = flat[..., span, :]
+        pop = (m_span[stat[..., span]] if stat is not None else m_span).flatten()
+        tau[..., span] = (torch.quantile(pop, frac) if pop.numel()
+                          else torch.finfo(flat.dtype).max)
+        pos += fl
+    return tau.unsqueeze(-1)
+
+
 def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
-    """C axis [OURS]: per-token adaptive support by a batch-level margin quantile.
+    """C axis [OURS]: per-token adaptive support by a margin quantile.
 
     Fixed top-k spends the same vocabulary budget on a token the student is sure
-    about and on a genuine fork. Here a single batch-level threshold tau is placed
-    on a per-candidate margin, so the realised support size varies per token while
-    the average is pinned to QB_TARGET_BUDGET -- budget-matched against a fixed-k
-    arm in expectation, but allocated where the distributions actually disagree.
+    about and on a genuine fork. Here a threshold tau is placed on a per-candidate
+    margin, so the realised support size varies per token while the average is
+    pinned to QB_TARGET_BUDGET -- budget-matched against a fixed-k arm in
+    expectation, but allocated where the distributions actually disagree.
+
+    SIMOPD_QB_SCOPE (registered 2026-08-11) picks where tau's population lives --
+    the pinning-granularity ladder {fixed, sequence, batch}. RECORDED DEVIATION on
+    the shipped batch scope: its population is the PACKED MICRO-BATCH, and once
+    16k responses saturate the 17408 packing cap a micro-batch holds a single
+    sequence -- so the c2 16k rows drift from cross-sequence pinning (early,
+    short responses) to de-facto per-sequence pinning (late). The ladder turns
+    that drift from a latent confound into a measured axis.
     """
     from verl.trainer.distillation.fsdp.losses import kl_divergence
 
@@ -611,9 +663,19 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
     margin = {"q": q, "pi": pi}.get(QB_MARGIN, torch.maximum(q, pi))
 
     k = t_lp.shape[-1]
-    frac = 1.0 - min(QB_TARGET_BUDGET / k, 1.0)
-    tau = torch.quantile((margin[stat] if stat is not None else margin).float().flatten(), frac)
-    keep = margin >= tau
+    if QB_SCOPE == "fixed":
+        # Rung 0: teacher-rank top-B. The payload is rank-ordered, so the first
+        # B columns ARE fixed top-B; margin is deliberately unused.
+        keep = torch.zeros_like(margin, dtype=torch.bool)
+        keep[..., : max(int(QB_TARGET_BUDGET), 1)] = True
+    elif QB_SCOPE == "sequence":
+        frac = 1.0 - min(QB_TARGET_BUDGET / k, 1.0)
+        tau = _qb_tau_per_sequence(margin, stat, teacher_topk_log_probs, frac)
+        keep = margin >= tau
+    else:  # batch -- the shipped 16k behaviour, bit-for-bit
+        frac = 1.0 - min(QB_TARGET_BUDGET / k, 1.0)
+        tau = torch.quantile((margin[stat] if stat is not None else margin).float().flatten(), frac)
+        keep = margin >= tau
     keep[..., 0] = True  # the teacher's own top-1 is never dropped, so no support is empty
 
     neg = torch.finfo(t_lp.dtype).min

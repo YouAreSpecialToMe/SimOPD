@@ -93,11 +93,13 @@ extrapolated from the arm's own measured wall-h.
 | C1 | **c1-direct paper-form ablation** (`USE_POLICY_GRADIENT=False`, 3 seeds) | c1 is the only top-k arm on the PG branch; its last-place 0.524 conflates "fixed-k is bad" with "PG drags divergence-valued losses". This cell decides whether "the literature default is the worst C cell" is writable. Highest analysis priority per GPU·h | ~50 GPU·h + 30 suite cells |
 | C2 | c1 renorm-vs-tailbucket internal ablation (pre-registered with the arm) | second constructive test of the headline theorem: does explicitly bucketing the tail mass close the gap? | ~50 GPU·h |
 | C3 | **full-vocab upper bound, one run** — feasible now that the streaming-lse rewrite removed the [T,V] materialization | the width axis needs its upper endpoint; how far c2's 0.684 sits from it completes the "average budget 8 suffices" story | 1 run, 4-card lane |
+| C4 | **c2 pinning-granularity ladder** `c2_qb_fixed8` / `c2_qb_perseq` — **already in the manifest as wave 10** (`SIMOPD_QB_SCOPE`, same kernel/payload/branch, keep rule the only moving part; CPU battery 6/6) | c2's "batch-level" tau lives on the packed micro-batch, which collapses to a single sequence once 16k lengths saturate the 17408 packing cap — the shipped c2 rows drift from cross-sequence to de-facto per-sequence pinning (recorded deviation, 2026-08-11). perseq-vs-c2 decides whether that drift was harmless (P1/P2 registered in the ledger); fixed8 doubles as the missing matched-budget fixed control (c2-vs-c1 conflates budget size with allocation policy) | ~600 GPU·h + 60 suite cells |
 | S | suite completion: 555 checkpoint-evals remaining + the teacher suite row (eval queued) | every in-loop reading in this doc is a curve reading, not a verdict, until per-bench paired tests run on the full sweep | eval only |
 
 ### Priority order
 
 C1 first (cheapest decision-per-GPU·h on the roster), then A1 (unblocks the A
-axis entirely), B1 runs itself via wave 9, C2/C3 opportunistic on freed lanes,
-A3 after its precompute lands. The ledger harvest (§1) is independent of all of
-these and can run today on any machine that sees the lane logs.
+axis entirely), B1/C4 run themselves via waves 9/10, C2/C3 opportunistic on
+freed lanes, A3 after its precompute lands. The ledger harvest (§1) is
+independent of all of these and can run today on any machine that sees the
+lane logs.

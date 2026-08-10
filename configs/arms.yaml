@@ -323,7 +323,16 @@ arms:
     note: "src/simopd/topk_losses.py [OURS]. One batch-level threshold on a per-candidate
            margin: realised support varies per token while the mean is pinned to
            QB_TARGET_BUDGET, so it is budget-matched against fixed top-k in expectation.
-           Verified adaptive (budget p5/p50/p95 = 6/9/12 at target 8), not fixed-k in disguise"
+           Verified adaptive (budget p5/p50/p95 = 6/9/12 at target 8), not fixed-k in disguise.
+           RECORDED DEVIATION (2026-08-11): 'batch-level' tau is computed over the PACKED
+           MICRO-BATCH population (response rows only, per _stat_mask), and once 16k
+           responses saturate the 17408 packing cap a micro-batch holds a single
+           sequence -- so the shipped 16k rows DRIFT from cross-sequence pinning
+           (early, short responses) to de-facto per-sequence pinning (late). The
+           SIMOPD_QB_SCOPE knob (default batch = shipped behaviour bit-for-bit, CPU
+           battery check 1) turns the granularity into the registered ladder below
+           (c2_qb_fixed8 / c2_qb_perseq / this arm). This env deliberately does NOT
+           set the knob: adding it would flip the completed rows' fingerprints"
     env:
       DISTILLATION_LOSS_MODE: qb_quantile_budget
       # AUDIT 2026-08-07: divergence-valued losses take verl's DIRECT branch
@@ -338,6 +347,52 @@ arms:
       SIMOPD_QB_MARGIN: max
 
   # ---- D: token selection / weighting ----
+  - run_id: c2_qb_fixed8
+    axis: C
+    cohort: supplement
+    desc: "[OURS] QB pinning ladder rung 0: fixed teacher-rank top-8 (per-token pinning, zero adaptivity)"
+    status: stock
+    note: "ADDED 2026-08-11, pinning-granularity ladder {fixed, sequence, batch} via
+           SIMOPD_QB_SCOPE -- same kernel, same top-64 payload, same direct branch,
+           same margin machinery; the keep rule is the ONLY moving part. Two jobs:
+           (1) the zero-adaptivity endpoint of the ladder; (2) the MISSING
+           matched-budget fixed control -- the c2-vs-c1 comparison conflates budget
+           size (8 vs 32) with allocation policy, and this cell fixes the budget at
+           c2's own 8. fixed8-vs-c2 = pure adaptivity effect at matched budget;
+           fixed8-vs-c1(direct, gap cell C1) = pure budget-size effect at fixed
+           policy. CPU battery: budget == B at every token, first-B-ranks rule"
+    env:
+      DISTILLATION_LOSS_MODE: qb_quantile_budget
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "64"
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_QB_MARGIN: max
+      SIMOPD_QB_SCOPE: fixed
+
+  - run_id: c2_qb_perseq
+    axis: C
+    cohort: supplement
+    desc: "[OURS] QB pinning ladder rung 1: one tau per trajectory (budget flows across positions, never across sequences)"
+    status: stock
+    note: "ADDED 2026-08-11, middle rung of the SIMOPD_QB_SCOPE ladder (see
+           c2_qb_fixed8). Decomposes WHERE c2's win comes from and resolves the
+           recorded saturation drift on c2 (see its note): if perseq ~= c2, the
+           cross-sequence reallocation never mattered and the drift was harmless;
+           if perseq < c2, budget flowing to hard prompts is a real effect and c2's
+           curve is a granularity mixture. Side benefit: per-sequence tau makes the
+           loss decomposable per sample -- no batch-composition coupling (a token's
+           support no longer depends on what else got packed alongside), the
+           standing reviewer objection to batch-level thresholds. CPU battery:
+           end-to-end budgets == manual per-span quantiles on real jagged offsets;
+           one-sequence micro-batch reduces exactly to batch scope"
+    env:
+      DISTILLATION_LOSS_MODE: qb_quantile_budget
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "64"
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_QB_MARGIN: max
+      SIMOPD_QB_SCOPE: sequence
+
   - run_id: c3_intersection
     axis: C
     cohort: supplement

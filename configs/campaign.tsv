@@ -296,3 +296,16 @@
 9	m15	b4_jsd_b0.9	0
 9	m16	b4_jsd_b0.9	1
 9	m18	b4_jsd_b0.9	2
+
+# ---- wave 10: c2's pinning-granularity ladder (SIMOPD_QB_SCOPE, registered 2026-08-11) ----
+# Same kernel/payload/branch as c2; the keep rule is the only moving part. fixed8 is
+# both the zero-adaptivity endpoint and the matched-budget fixed control c2-vs-c1 was
+# missing; perseq resolves c2's recorded saturation drift (micro-batch tau collapses
+# to per-sequence once 16k lengths fill the 17408 packing cap). 2-card rows -- keep
+# off the quad boxes. Queues behind wave 9 by the wave column's own semantics.
+10	m15	c2_qb_fixed8	0
+10	m16	c2_qb_fixed8	1
+10	m18	c2_qb_fixed8	2
+10	m15	c2_qb_perseq	0
+10	m16	c2_qb_perseq	1
+10	m18	c2_qb_perseq	2
