@@ -43,6 +43,11 @@ mean@1 in-loop versus τ=0.7 avg@3 in the suite — so the two must never be com
 their last steps; b2 is parked at its per-seed memory ceiling (§4.5). Post-hoc suite: **195 of 750
 checkpoint-evaluations** complete, the rest grinding.
 
+**Why most curves fall after ~step 100:** it is a termination collapse, not a reasoning collapse — the
+rollout length distribution drifts past the 16,384-token cap and the score becomes `P(finish) × accuracy`.
+Paired greedy diagnostics, the 29-arm cross-tab and the one knob that predicts it are in
+[`late-training-collapse.md`](late-training-collapse.md).
+
 ## 1. In-loop eval (greedy MATH500, every 25 steps)
 
 **mean±std across the arm's 3 seeds** (sample std, n−1); `·N` appears only when a seed is missing at that
