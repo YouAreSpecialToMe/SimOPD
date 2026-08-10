@@ -11,6 +11,15 @@
 远程算力协作:名册中 `remote` 标记的臂开放认领,契约与交付见
 **[docs/COLLABORATORS.md](docs/COLLABORATORS.md)**(先读 The contract)。
 
+## 结果与分析(16k campaign,29 臂 × 3 seed)
+
+| 文档 | 内容 |
+|---|---|
+| [docs/campaign_16k_report.md](docs/campaign_16k_report.md) | **实况报告**:in-loop 曲线(mean±std)、效率、post-eval 大表、参照上下界与 GRR、中途工程变更与事故账 |
+| [docs/training-dynamics.md](docs/training-dynamics.md) | **训练过程指标**:response length / 截断率 / entropy / grad norm / 蒸馏内部量 / 单步耗时随训练的变化 —— 图 + 表 + 可下载 CSV |
+| [docs/late-training-collapse.md](docs/late-training-collapse.md) | **后期掉分的成因**:配对诊断证明这是"不会停"而非"不会算";29 臂横断证据与唯一显著的配置轴 |
+| [docs/data/](docs/data/) | 训练指标原始导出(逐 seed 逐 step,43 个指标,wide-form CSV) |
+
 ## 文档
 
 | 文档 | 内容 |

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 470" width="940" height="470" role="img" aria-label="In-loop eval — MATH500 greedy mean@1">
+<style>
+  .ink{fill:#1f2328} .mute{fill:#656d76} .paper{fill:#ffffff}
+  .grid{stroke:#d8dee4} .axis{stroke:#656d76} .bg-line{stroke:#d8dee4}
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  @media (prefers-color-scheme: dark) {
+    .ink{fill:#e6edf3} .mute{fill:#8b949e} .paper{fill:#0d1117}
+    .grid{stroke:#30363d} .axis{stroke:#8b949e} .bg-line{stroke:#30363d}
+  }
+</style>
+<rect class="paper" width="940" height="470" fill="#ffffff"/>
+<text class="ink" x="62" y="26" fill="#1f2328" font-size="16" font-weight="600">In-loop eval — MATH500 greedy mean@1</text>
+<text class="mute" x="62" y="44" fill="#656d76" font-size="12">every 25 steps; the untrained student scores 0.4580 on the same protocol</text>
+<line class="grid" x1="62" y1="399.1" x2="768" y2="399.1" stroke="#d8dee4" stroke-width="1"/>
+<text class="mute" x="54" y="403.1" fill="#656d76" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="62" y1="310.8" x2="768" y2="310.8" stroke="#d8dee4" stroke-width="1"/>
+<text class="mute" x="54" y="314.8" fill="#656d76" font-size="11" text-anchor="end">0.25</text>
+<line class="grid" x1="62" y1="222.5" x2="768" y2="222.5" stroke="#d8dee4" stroke-width="1"/>
+<text class="mute" x="54" y="226.5" fill="#656d76" font-size="11" text-anchor="end">0.5</text>
+<line class="grid" x1="62" y1="134.3" x2="768" y2="134.3" stroke="#d8dee4" stroke-width="1"/>
+<text class="mute" x="54" y="138.3" fill="#656d76" font-size="11" text-anchor="end">0.75</text>
+<text class="mute" x="140.4" y="438" fill="#656d76" font-size="11" text-anchor="middle">50</text>
+<text class="mute" x="297.3" y="438" fill="#656d76" font-size="11" text-anchor="middle">100</text>
+<text class="mute" x="454.2" y="438" fill="#656d76" font-size="11" text-anchor="middle">150</text>
+<text class="mute" x="611.1" y="438" fill="#656d76" font-size="11" text-anchor="middle">200</text>
+<text class="mute" x="768.0" y="438" fill="#656d76" font-size="11" text-anchor="middle">250</text>
+<line class="axis" x1="62" y1="418" x2="768" y2="418" stroke="#656d76" stroke-width="1"/>
+<text class="mute" x="415" y="456" fill="#656d76" font-size="12" text-anchor="middle">training step</text>
+<text class="mute" transform="translate(16,239) rotate(-90)" fill="#656d76" font-size="12" text-anchor="middle">accuracy</text>
+<line x1="62" y1="79.2" x2="768" y2="79.2" stroke="#d1242f" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.75"/>
+<text x="764" y="73.2" fill="#d1242f" font-size="11" text-anchor="end">teacher 0.9060</text>
+<path class="bg-line" d="M62.0,247.2 L140.4,244.6 L218.9,243.9 L297.3,233.8 L375.8,234.8 L454.2,234.1 L532.7,226.3 L611.1,230.3 L689.6,229.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,189.3 L140.4,177.8 L218.9,177.1 L297.3,181.3 L375.8,182.7 L454.2,183.2 L532.7,171.4 L611.1,176.9 L689.6,238.5 L768.0,231.2" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,208.2 L140.4,197.1 L218.9,215.7 L297.3,237.4 L375.8,227.2 L454.2,237.1 L532.7,255.0 L611.1,236.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,193.8 L140.4,189.8 L218.9,211.0 L297.3,213.3 L375.8,230.3 L454.2,226.8 L532.7,220.4 L611.1,218.3 L689.6,215.9 L768.0,214.0" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,181.1 L140.4,178.3 L218.9,180.6 L297.3,187.5 L375.8,215.7 L454.2,232.4 L532.7,246.8 L611.1,231.7 L689.6,230.5 L768.0,236.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,199.2 L140.4,181.3 L218.9,187.7 L297.3,215.9 L375.8,203.2 L454.2,195.0 L532.7,191.0 L611.1,191.7 L689.6,191.2 L768.0,187.7" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,177.6 L140.4,181.3 L218.9,187.7 L297.3,191.2 L375.8,189.8 L454.2,189.8 L532.7,180.4 L611.1,176.4 L689.6,173.8 L768.0,173.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,194.3 L140.4,180.2 L218.9,181.1 L297.3,195.2 L375.8,212.2 L454.2,237.1 L532.7,234.5 L611.1,236.9 L689.6,226.3 L768.0,231.9" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,184.9 L140.4,180.2 L218.9,188.9 L297.3,183.0 L375.8,172.9 L454.2,172.9 L532.7,201.6 L611.1,231.9 L689.6,232.4 L768.0,229.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,215.0 L140.4,223.0 L218.9,223.9 L297.3,212.9 L375.8,206.8 L454.2,197.8 L532.7,203.0 L611.1,197.3 L689.6,198.3 L768.0,197.1" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,188.6 L140.4,188.4 L218.9,191.5 L297.3,193.8 L375.8,223.2 L454.2,233.4 L532.7,236.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,204.2 L140.4,180.9 L218.9,174.0 L297.3,179.7 L375.8,201.1 L454.2,214.8 L532.7,217.6 L611.1,206.5 L689.6,194.3 L768.0,191.2" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,191.5 L140.4,183.9 L218.9,178.7 L297.3,176.4 L375.8,180.2 L454.2,175.9 L532.7,179.2 L611.1,237.6 L689.6,235.5 L768.0,241.1" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,186.0 L140.4,176.4 L218.9,180.9 L297.3,175.4 L375.8,176.6 L454.2,176.4 L532.7,170.3 L611.1,235.2 L689.6,234.3 L768.0,237.6" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,214.3 L140.4,200.4 L218.9,204.6 L297.3,194.0 L375.8,200.9 L454.2,203.2 L532.7,203.9 L611.1,221.6 L689.6,226.1 L768.0,231.9" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,320.4 L140.4,339.3 L218.9,356.2 L297.3,194.0 L375.8,177.8 L454.2,197.6 L532.7,208.4 L611.1,212.2 L689.6,218.5 L768.0,212.2" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,181.6 L140.4,183.0 L218.9,181.8 L297.3,178.7 L375.8,203.5 L454.2,222.1 L532.7,229.3 L611.1,236.4 L689.6,224.4 L768.0,218.5" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,182.0 L140.4,181.8 L218.9,177.1 L297.3,193.6 L375.8,223.5 L454.2,234.8 L532.7,249.1 L611.1,245.4 L689.6,234.5 L768.0,240.2" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,180.9 L140.4,183.0 L218.9,177.8 L297.3,193.8 L375.8,223.9 L454.2,235.2 L532.7,249.1" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,191.7 L140.4,177.3 L218.9,177.6 L297.3,177.1 L375.8,182.0 L454.2,176.6 L532.7,181.1 L611.1,175.9 L689.6,178.0 L768.0,178.3" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,231.2 L140.4,307.3 L218.9,365.2 L297.3,364.9 L375.8,341.2 L454.2,318.6 L532.7,263.2 L611.1,239.2 L689.6,244.4" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,203.0 L140.4,170.0 L218.9,182.7 L297.3,183.0 L375.8,185.1 L454.2,188.4 L532.7,188.9 L611.1,187.7 L689.6,188.6 L768.0,193.3" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path class="bg-line" d="M62.0,179.2 L140.4,176.9 L218.9,182.3 L297.3,203.0 L375.8,212.6 L454.2,229.6 L532.7,246.3 L611.1,232.9 L689.6,227.2 L768.0,234.5" fill="none" stroke="#d8dee4" stroke-width="1.1" opacity="0.85"/>
+<path d="M62.0,193.6 L140.4,183.0 L218.9,203.0 L297.3,274.1 L375.8,359.3 L454.2,390.1 L532.7,392.7 L611.1,398.1 L689.6,398.8 L768.0,398.1" fill="none" stroke="#bf3989" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M62.0,251.7 L140.4,227.0 L218.9,221.1 L297.3,214.5 L375.8,210.8 L454.2,211.7 L532.7,215.0 L611.1,215.9 L689.6,212.2 L768.0,214.0" fill="none" stroke="#1a7f37" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M62.0,175.0 L140.4,183.7 L218.9,181.3 L297.3,183.2 L375.8,174.0 L454.2,173.6 L532.7,171.0 L611.1,167.2 L689.6,163.2 L768.0,157.6" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M62.0,194.0 L140.4,179.4 L218.9,199.7 L297.3,207.7 L375.8,247.9 L454.2,245.4 L532.7,252.2 L611.1,244.9 L689.6,246.8 L768.0,252.7" fill="none" stroke="#8250df" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M62.0,204.6 L140.4,196.6 L218.9,192.9 L297.3,182.7 L375.8,176.2 L454.2,174.3 L532.7,173.6 L611.1,171.0 L689.6,172.6 L768.0,173.6" fill="none" stroke="#9a6700" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M62.0,185.8 L140.4,177.8 L218.9,178.3 L297.3,195.9 L375.8,216.4 L454.2,231.2 L532.7,244.4 L611.1,243.2 L689.6,231.7 L768.0,231.9" fill="none" stroke="#d1242f" stroke-width="2.2" stroke-linejoin="round"/>
+<line x1="782" y1="62" x2="802" y2="62" stroke="#bf3989" stroke-width="2.4"/>
+<text class="ink" x="807" y="66" fill="#1f2328" font-size="11.5">b3 eopd gate</text>
+<line x1="782" y1="81" x2="802" y2="81" stroke="#1a7f37" stroke-width="2.4"/>
+<text class="ink" x="807" y="85" fill="#1f2328" font-size="11.5">c1 top-32 renorm</text>
+<line x1="782" y1="100" x2="802" y2="100" stroke="#0969da" stroke-width="2.4"/>
+<text class="ink" x="807" y="104" fill="#1f2328" font-size="11.5">c2 quantile budget</text>
+<line x1="782" y1="119" x2="802" y2="119" stroke="#8250df" stroke-width="2.4"/>
+<text class="ink" x="807" y="123" fill="#1f2328" font-size="11.5">d3 teachability</text>
+<line x1="782" y1="138" x2="802" y2="138" stroke="#9a6700" stroke-width="2.4"/>
+<text class="ink" x="807" y="142" fill="#1f2328" font-size="11.5">j1 kdrl (+task reward)</text>
+<line x1="782" y1="157" x2="802" y2="157" stroke="#d1242f" stroke-width="2.4"/>
+<text class="ink" x="807" y="161" fill="#1f2328" font-size="11.5">vanilla (k1, PG)</text>
+<line x1="782" y1="176" x2="802" y2="176" stroke="#d8dee4" stroke-width="1.6" class="bg-line"/>
+<text class="mute" x="807" y="180" fill="#656d76" font-size="11.5">other arms</text>
+</svg>

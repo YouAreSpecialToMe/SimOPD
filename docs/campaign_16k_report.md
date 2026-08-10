@@ -48,6 +48,10 @@ rollout length distribution drifts past the 16,384-token cap and the score becom
 Paired greedy diagnostics, the 29-arm cross-tab and the one knob that predicts it are in
 [`late-training-collapse.md`](late-training-collapse.md).
 
+**Training-process metrics** — rollout length, truncation rate, policy entropy, gradient norm, the
+distillation internals and step time, as charts, per-arm tables and downloadable per-seed CSVs — are in
+[`training-dynamics.md`](training-dynamics.md).
+
 ## 1. In-loop eval (greedy MATH500, every 25 steps)
 
 **mean±std across the arm's 3 seeds** (sample std, n−1); `·N` appears only when a seed is missing at that
