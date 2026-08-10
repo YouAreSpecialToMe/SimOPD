@@ -278,3 +278,21 @@
 8	m2	d3_teachability	0	pre-launched 2026-08-08 13:0x on the freed quad (user: do not queue behind b3); poisoned fp so the copy baked in m19 lane self-refuses; needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
 8	m23	d3_teachability	1	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s0 twin kill; poisoned fp so the m20-baked copy self-refuses; needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
 8	m24	d3_teachability	2	pre-launched 2026-08-08 13:0x on the quad freed by the d2_s2 twin kill; poisoned fp so the m21-baked copy self-refuses; needs=/nonexistent/manual-wall4-guard: launched by hand via start_wall4.sh with GPU_LIST, daemons keep off (a width-2 grab hangs on the 4-card placement group)
+
+# ---- wave 9: b4's beta ladder, the one pre-registered ablation B axis still owed ----
+# SIMOPD_JSD_BETA was registered as an internal ablation when b4_jsd landed (2026-08-07);
+# these six rows execute it. Same kernel, same renorm top-32 support, same DIRECT branch
+# as b4_jsd -- beta is the only moving part, so the three rungs read as one ladder.
+# Wave 9 = they queue behind everything: no lane touches these until its waves <=8 list
+# is done, which is what the wave column is for. 2-card rows (jsd_topk is a top-k
+# distributional loss, 1+1 like b4_jsd itself) -- do NOT place them on the quad boxes.
+# Machines: three wave-8-free pair boxes. b4_jsd itself ran m17/m18/m19; keeping the
+# ladder on one box family would be tidier but is NOT required -- the fleet is one
+# silicon type (7x 8xH100), so cross-box inside it is not a registered deviation the
+# way A100-vs-H100 is. Reassign freely as lanes open; note the move in the row.
+9	m15	b4_jsd_b0.1	0
+9	m16	b4_jsd_b0.1	1
+9	m18	b4_jsd_b0.1	2
+9	m15	b4_jsd_b0.9	0
+9	m16	b4_jsd_b0.9	1
+9	m18	b4_jsd_b0.9	2

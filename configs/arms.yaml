@@ -225,6 +225,54 @@ arms:
       DISTILLATION_TOPK: "32"
       SIMOPD_JSD_BETA: "0.5"
 
+  - run_id: b4_jsd_b0.1
+    axis: B
+    cohort: supplement
+    desc: "JSD-beta=0.1 (teacher-leaning rung of b4's pre-registered beta ladder)"
+    status: stock
+    note: "ADDED 2026-08-11: executes the internal ablation registered WITH b4_jsd on
+           2026-08-07 (SIMOPD_JSD_BETA over GKD's own {0.1,0.5,0.9}; GKD reports the
+           optimum is task-dependent, so a single beta cannot stand for the divergence).
+           Zero new code -- same jsd_topk kernel, same renorm top-32 support, same
+           DIRECT branch; beta is the ONLY moving part across the three rungs, which is
+           what makes the ladder readable. Scaled limits (verified numerically with
+           b4): jsd/beta -> renorm FKL as beta->0, so this rung is the mass-covering
+           end WITHOUT leaving the distributional family.
+           WHY NOW (the 16k read this rung adjudicates): the campaign's B-axis result
+           is that FKL content is fatal in one form (b3 adds a top-k FKL term onto the
+           sampled PG base -> 0.003, the only arm that collapses and never returns) and
+           merely mediocre in another (b2's global truncated FKL, chronic ~0.46), while
+           b4 at the symmetric midpoint is stable (0.524@250). Two hypotheses survive:
+           (H1) once the signal is DISTRIBUTIONAL, direction is second-order -- all
+           three rungs then land close together; (H2) direction still drives the
+           outcome and the midpoint merely averages two failure modes -- the rungs then
+           spread monotonically. They make opposite predictions, which is the point"
+    env:
+      DISTILLATION_LOSS_MODE: jsd_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_JSD_BETA: "0.1"
+
+  - run_id: b4_jsd_b0.9
+    axis: B
+    cohort: supplement
+    desc: "JSD-beta=0.9 (student-leaning rung of b4's pre-registered beta ladder)"
+    status: stock
+    note: "ADDED 2026-08-11, the other end of the same ladder -- see b4_jsd_b0.1 for
+           the registration and the H1/H2 framing. Scaled limit jsd/(1-beta) -> renorm
+           RKL as beta->1, so this rung is the mode-seeking end. It carries the sharper
+           of the two readings: the sampled-token RKL arms (vanilla and its family) are
+           exactly the ones that collapse late, so if mode-seeking per se drove that
+           collapse this rung should be the ladder's worst; if instead the collapse
+           belongs to the SAMPLED estimator rather than to the direction, this rung
+           stays as flat as b4@0.5 and the collapse story is settled on the C axis, not
+           this one. Same kernel/support/branch as the other two rungs"
+    env:
+      DISTILLATION_LOSS_MODE: jsd_topk
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_JSD_BETA: "0.9"
+
   - run_id: b5_k2
     axis: B
     cohort: supplement
