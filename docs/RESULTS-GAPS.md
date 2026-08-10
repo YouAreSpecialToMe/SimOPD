@@ -1,0 +1,103 @@
+# What the 16k campaign still owes — missing measurements and cells
+
+_Status 2026-08-11, against `docs/campaign_16k_report.md` (04:21 regeneration:
+72/87 rows at 250, suite 195/750). This doc is the gap list: what must still be
+recorded, harvested, or run before the analysis phase can write its verdicts.
+It changes no run-defining file; everything here is either log harvesting or
+new manifest rows that go through the normal claim/repin path._
+
+## 1. The compute ledger (the one real hole in our records)
+
+Every curve in the report has **steps** on the x-axis. But arms differ wildly in
+response length — c1 finishes a seed in 7.6 wall-h where vanilla takes 59.3
+(8×) — so at equal steps the arms have generated, scored and trained on very
+different token counts. Equal steps ≠ equal compute ≠ equal data. And because
+OPD is on-policy, **data and compute are the same axis** (every training token
+must be generated and teacher-scored at cost), so acc-vs-tokens is
+simultaneously the data-efficiency and the compute-efficiency curve.
+
+This matters most on the C axis: is c2's table-topping 0.684 partly *bought*
+with longer generations, and is c1's 0.524 partly *excused* by an 8× cheaper
+bill? Whether "adaptive budget allocation wins" survives compute normalization
+decides how that headline sentence is written.
+
+### 1.1 Why "FLOPs" reduces to token counters
+
+Per response token the model FLOPs are one constant across all arms (loss-kernel
+differences — top-8 vs top-32 gathers, quantile thresholds — are <0.1% noise):
+
+```
+FLOPs/token ≈ 2·N_T (teacher scoring) + 2·N_S (student decode) + 6·N_S (student update)
+            ≈ 8.0 + 3.4 + 10.2  ≈ 21.6 GFLOPs/token      (N_S=1.7B, N_T=4B)
+```
+
+(prompt-prefill terms are common across arms and drop out of comparisons).
+So analytic FLOPs is a linear map of the counters — **the counters are the
+measurement**. Nothing needs re-running: the lane logs already carry
+`response_length/mean`, `response_length/clip_ratio`, s/it, entropy and the verl
+timing keys per step (`scripts/watch.py:200` parses them today). What is missing
+is the harvest, not the instrumentation.
+
+### 1.2 Ledger columns to harvest per run
+
+| column | source | serves |
+|---|---|---|
+| cumulative generated tokens (per-step prefix sum of mean length × batch) | lane logs | acc-vs-token / acc-vs-FLOPs curves |
+| cumulative **supervised** tokens | retention-scaled for D/H arms (D: `SIMOPD_D_RETENTION=0.5`; h1/h2/h3: K=100 window; SelecTKD: realized accept rate), full response otherwise | the H-axis budget claim is only readable on this axis — per supervised token h1 may top the table |
+| teacher-scored tokens | = response tokens | teacher-side share of the bill |
+| phase timing split (rollout / scoring / update) | verl timing keys in the same logs | quantifies the ~50% duty cycle; locates each arm's bottleneck |
+| peak VRAM per arm | scattered OOM-war notes → one systematic column | the 16k-feasibility story; why the 4-card lanes exist |
+| teacher payload width k (32 vs 64) | protocol constant | c2's bandwidth/memory cost note |
+| analytic FLOPs | constant × counters | the paper's reproducible compute axis |
+
+### 1.3 Deliverables built from the ledger
+
+1. **Compute-normalized twin of report §1** — same in-loop table/curves with
+   x = cumulative generated tokens (log axis). This is the correct coordinate
+   system for every C-axis comparison.
+2. **Compute-to-target table** — tokens and FLOPs to reach a threshold
+   (e.g. 0.55 in-loop): the reviewer-friendly efficiency summary.
+3. **Matched-budget readings** — interpolate every arm at a common token budget
+   (e.g. vanilla's total) as the replacement for equal-step comparison.
+
+### 1.4 Accounting discipline (proposed for the protocol)
+
+Report **analytic FLOPs** (reproducible, derived from counters) and **measured
+GPU·h** (hardware-bound, restart-inflated) side by side and never conflate
+them. The report already proves the need: restart overhead, not the objective,
+dominates measured cost variance (b3's 1,220 GPU·h is mostly OOM war, not
+method).
+
+Implementation: one fleet-side script (`scripts/compute_ledger.py`, to be
+written) walking the same log globs as `campaign_table.py`. No new
+instrumentation, no re-runs, no run-defining changes.
+
+## 2. Two smaller harvests while we're in the logs
+
+- **Grad-norm curves** for the collapse analysis — is the 150–200-step collapse
+  preceded by a gradient spike, or silent? Same logs, same harvest pass.
+- **Peak VRAM per arm** as a first-class column (see ledger above) instead of
+  incident-note archaeology.
+
+## 3. Missing experiment cells (backlog by axis)
+
+Everything below goes through the normal manifest/claim path; sizes are
+extrapolated from the arm's own measured wall-h.
+
+| # | cell | why it exists | size |
+|---|---|---|---|
+| A1 | **a2 validity recipe cell**: rebuild stage 1 with `gen_coldstart_data.py --filter validity` + the pinned SFT hyperparameters (1 epoch, lr 1e-5, cosine, warmup 0.05), then 3 OPD seeds | the three flying a2 rows predate audit r6 and are the `--filter verifier` **ablation** cell (rename to `*_ablation` after they bank 250); the recipe cell is what the Rethinking citation may claim | ~400 GPU·h + 30 suite cells |
+| A2 | a2 suite sweep (currently **0/30**) + entropy/length panel comparison against the collapse-point state of the sampled family | decides "collapse-immune" vs "collapse-delayed" for the only sampled arm still climbing | eval only |
+| A3 | a1/a3 unlock: `gen_offpolicy` precompute (all train prompts, full-prefix keys) + 3-step rehearsal + **register opposing predictions in the ledger before launch** (direction-follows-sampler ⇒ a3 should show SFT-like dynamics) | the λ dose line {a3, a1, vanilla} under the protocol estimator — a literature-absent object | precompute + 6 runs × 2 cards |
+| B1 | β ladder `b4_jsd_b0.1` / `b4_jsd_b0.9` — **already in the manifest as wave 9** (queues behind all existing waves; 2-card rows, keep off the quad boxes) | H1 (form) vs H2 (direction) opposing predictions, registered in `arm-provenance-r4.md` | ~358 GPU·h + 60 suite cells |
+| C1 | **c1-direct paper-form ablation** (`USE_POLICY_GRADIENT=False`, 3 seeds) | c1 is the only top-k arm on the PG branch; its last-place 0.524 conflates "fixed-k is bad" with "PG drags divergence-valued losses". This cell decides whether "the literature default is the worst C cell" is writable. Highest analysis priority per GPU·h | ~50 GPU·h + 30 suite cells |
+| C2 | c1 renorm-vs-tailbucket internal ablation (pre-registered with the arm) | second constructive test of the headline theorem: does explicitly bucketing the tail mass close the gap? | ~50 GPU·h |
+| C3 | **full-vocab upper bound, one run** — feasible now that the streaming-lse rewrite removed the [T,V] materialization | the width axis needs its upper endpoint; how far c2's 0.684 sits from it completes the "average budget 8 suffices" story | 1 run, 4-card lane |
+| S | suite completion: 555 checkpoint-evals remaining + the teacher suite row (eval queued) | every in-loop reading in this doc is a curve reading, not a verdict, until per-bench paired tests run on the full sweep | eval only |
+
+### Priority order
+
+C1 first (cheapest decision-per-GPU·h on the roster), then A1 (unblocks the A
+axis entirely), B1 runs itself via wave 9, C2/C3 opportunistic on freed lanes,
+A3 after its precompute lands. The ledger harvest (§1) is independent of all of
+these and can run today on any machine that sees the lane logs.
