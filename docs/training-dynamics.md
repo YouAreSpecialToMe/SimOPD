@@ -4,7 +4,7 @@ _Every number here is scraped from the live lane logs (`logs/*/lane*.log`) of th
 student **Qwen3-1.7B-Base** ← teacher **Qwen3-4B-Instruct-2507**, 16,384-token response cap, 250 steps,
 29 arms × 3 seeds. Where a row was relaunched, the newest log segment carrying a given step wins, so
 restarts never double-count. Tables are seed-means on the 25-step checkpoint grid; charts are every
-logged step. Generated 2026-08-11 06:42._
+logged step. Generated 2026-08-11 06:59._
 
 _Caveat on the tail: 4 arms are still training (`a2_coldstart`, `e2_set_coverage`, `g5_rgopd_gate`, `h2_last_segment`) and
 `b2_forward_kl` is parked at step 175–200. Their seeds do not all reach the same step, so a seed-mean at
@@ -29,6 +29,27 @@ import pandas as pd
 d = pd.read_csv('docs/data/training_metrics_16k_full.csv.gz')
 d[d.arm == 'vanilla'].pivot_table(index='step', columns='seed', values='response_length/mean')
 ```
+
+## 0.1 Where both endpoints are
+
+Both reference models were measured on the **exact in-loop protocol** — MATH500, greedy mean@1, the
+same 16,384-token budget — so they sit on the same axis as every training curve, and the charts below
+draw them as dashed lines.
+
+| model | MATH500 greedy | P(finish) | length mean | length median |
+|---|---|---|---|---|
+| **Qwen3-1.7B-Base** — the untrained student every arm starts from | **0.4580** | 0.832 | 3219 | 553 |
+| **Qwen3-4B-Instruct-2507** — the teacher, i.e. the ceiling | **0.9060** | 0.988 | 1642 | 694 |
+| available gap | **0.4480** | | | |
+
+Two things worth carrying into every chart below. **The teacher is short** — a median of 694 tokens and 1.2% truncated — so when an arm drifts to 16,384 tokens it is moving *away* from its target, not toward it. And **the untrained student already
+truncates 16.8% of the time**, which is the floor this campaign starts from.
+
+Because the campaign runs `val_before_train=False`, no arm logs its own step 0. Every arm is
+initialised from that same base checkpoint, so its measured score is a legitimate shared origin and
+the in-loop chart now starts there. The one exception is **`a2_coldstart`**, which starts from a
+cold-start SFT checkpoint that has never been evaluated on this protocol — its curve still begins at
+step 25 rather than being given a number it does not have.
 
 ## 1. The four charts that matter
 
@@ -92,6 +113,42 @@ to decisive** — a cheap early-stopping signal for any follow-up campaign.
 average **916 s/step** against **450 s/step** for arms that do not, and
 the extremes differ by 9.6× (110 s/step for `c1_lsm_topk32_renorm`, 1059 s/step at the top). A large share of this campaign's GPU-hours
 went into generating tokens after the answer had already been written.
+
+### 2.2 In-loop score, arm by arm
+
+| arm | 0 | 25 | 50 | 75 | 100 | 125 | 150 | 175 | 200 | 225 | 250 | trend |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `c2_quantile_budget` | 0.458 | 0.635 | 0.610 | 0.617 | 0.611 | 0.637 | 0.639 | 0.646 | 0.657 | 0.668 | 0.684 | `▆██████████` |
+| `c4_pi_tail_budget` | 0.458 | 0.627 | 0.617 | 0.599 | 0.589 | 0.593 | 0.593 | 0.619 | 0.631 | 0.638 | 0.639 | `▆███▇▇▇████` |
+| `j1_kdrl` | 0.458 | 0.551 | 0.573 | 0.584 | 0.613 | 0.631 | 0.637 | 0.639 | 0.646 | 0.641 | 0.639 | `▆▇▇▇███████` |
+| `h1_first_segment` | 0.458 | 0.587 | 0.628 | 0.627 | 0.629 | 0.615 | 0.630 | 0.617 | 0.632 | 0.626 | 0.625 | `▆▇█████████` |
+| `c3_intersection` | 0.458 | 0.566 | 0.617 | 0.599 | 0.519 | 0.555 | 0.578 | 0.589 | 0.587 | 0.589 | 0.599 | `▆▇██▇▇▇▇▇▇█` |
+| `e3_zvalue` | 0.458 | 0.552 | 0.618 | 0.637 | 0.621 | 0.561 | 0.522 | 0.514 | 0.545 | 0.580 | 0.589 | `▆▇███▇▇▇▇▇▇` |
+| `h3_random_segment` | 0.458 | 0.555 | 0.649 | 0.613 | 0.612 | 0.606 | 0.597 | 0.595 | 0.599 | 0.596 | 0.583 | `▆▇████▇▇█▇▇` |
+| `e1_pl_rank` | 0.458 | 0.521 | 0.499 | 0.496 | 0.527 | 0.545 | 0.570 | 0.555 | 0.571 | 0.569 | 0.572 | `▆▇▆▆▇▇▇▇▇▇▇` |
+| `g1_verified_only` | 0.458 | 0.223 | 0.169 | 0.121 | 0.581 | 0.627 | 0.571 | 0.540 | 0.529 | 0.511 | 0.529 | `▆▃▂▂▇█▇▇▇▆▇` |
+| `b4_jsd` | 0.458 | 0.581 | 0.593 | 0.533 | 0.526 | 0.478 | 0.488 | 0.506 | 0.512 | 0.519 | 0.524 | `▆▇▇▇▇▆▆▆▆▇▇` |
+| `c1_lsm_topk32_renorm` | 0.458 | 0.417 | 0.487 | 0.504 | 0.523 | 0.533 | 0.531 | 0.521 | 0.519 | 0.529 | 0.524 | `▆▅▆▆▇▇▇▇▇▇▇` |
+| `g2_fire_likelihood` | 0.458 | 0.616 | 0.612 | 0.615 | 0.624 | 0.554 | 0.501 | 0.481 | 0.461 | 0.495 | 0.511 | `▆████▇▆▆▆▆▆` |
+| `a2_coldstart` | – | 0.430 | 0.437 | 0.439 | 0.468 | 0.465 | 0.467 | 0.489 | 0.478 | 0.480 | – | ` ▆▆▆▆▆▆▆▆▆ ` |
+| `d2_selectkd` | 0.458 | 0.607 | 0.620 | 0.595 | 0.612 | 0.641 | 0.641 | 0.559 | 0.473 | 0.472 | 0.480 | `▆██▇███▇▆▆▆` |
+| `b1_skew_kl` | 0.458 | 0.594 | 0.627 | 0.629 | 0.617 | 0.613 | 0.611 | 0.645 | 0.629 | 0.455 | 0.475 | `▆▇███████▆▆` |
+| `d1_tip` | 0.458 | 0.580 | 0.620 | 0.617 | 0.577 | 0.529 | 0.459 | 0.466 | 0.459 | 0.489 | 0.473 | `▆▇██▇▇▆▆▆▆▆` |
+| `f3_power` | 0.458 | 0.523 | 0.563 | 0.551 | 0.581 | 0.561 | 0.555 | 0.553 | 0.503 | 0.490 | 0.473 | `▆▇▇▇▇▇▇▇▆▆▆` |
+| `vanilla` | 0.458 | 0.604 | 0.627 | 0.625 | 0.575 | 0.517 | 0.475 | 0.438 | 0.441 | 0.474 | 0.473 | `▆███▇▇▆▆▆▆▆` |
+| `vanilla_n8` | 0.458 | 0.623 | 0.629 | 0.614 | 0.555 | 0.528 | 0.480 | 0.433 | 0.471 | 0.487 | 0.466 | `▆███▇▇▆▆▆▆▆` |
+| `b2_forward_kl` | 0.458 | 0.541 | 0.572 | 0.519 | 0.458 | 0.487 | 0.459 | 0.408 | 0.460 | – | – | `▆▇▇▇▆▆▆▅▆  ` |
+| `b5_k2` | 0.458 | 0.617 | 0.625 | 0.619 | 0.599 | 0.519 | 0.472 | 0.431 | 0.474 | 0.477 | 0.460 | `▆████▇▆▆▆▆▆` |
+| `e2_set_coverage` | 0.458 | 0.596 | 0.597 | 0.588 | 0.581 | 0.498 | 0.469 | 0.460 | – | – | – | `▆▇▇▇▇▆▆▆   ` |
+| `f2_hard_clip` | 0.458 | 0.603 | 0.631 | 0.618 | 0.633 | 0.630 | 0.631 | 0.648 | 0.464 | 0.467 | 0.457 | `▆███████▆▆▆` |
+| `g4_failure_only` | 0.458 | 0.615 | 0.615 | 0.629 | 0.582 | 0.497 | 0.465 | 0.425 | 0.435 | 0.466 | 0.450 | `▆███▇▆▆▅▆▆▆` |
+| `f1_soft_log` | 0.458 | 0.588 | 0.609 | 0.624 | 0.631 | 0.620 | 0.632 | 0.623 | 0.457 | 0.463 | 0.447 | `▆▇██████▆▆▆` |
+| `h2_last_segment` | 0.458 | 0.475 | 0.260 | 0.096 | 0.097 | 0.164 | 0.228 | 0.385 | 0.453 | 0.438 | – | `▆▆▄▂▂▂▃▅▆▆ ` |
+| `g5_rgopd_gate` | 0.458 | 0.618 | 0.612 | 0.627 | 0.581 | 0.496 | 0.464 | 0.425 | – | – | – | `▆███▇▆▆▅   ` |
+| `d3_teachability` | 0.458 | 0.581 | 0.622 | 0.565 | 0.542 | 0.428 | 0.435 | 0.416 | 0.437 | 0.431 | 0.415 | `▆▇█▇▇▆▆▅▆▆▅` |
+| `b3_eopd_gate` | 0.458 | 0.582 | 0.612 | 0.555 | 0.354 | 0.113 | 0.025 | 0.018 | 0.003 | 0.001 | 0.003 | `▆▇█▇▅▂▁▁▁▁▁` |
+
+_Step 0 is the measured untrained-student anchor (0.4580), identical for every arm because every arm starts from that checkpoint; `a2_coldstart` is the one exception and is blank there. The teacher scores 0.9060 on this protocol._
 
 ## 3. What the policy produces
 
