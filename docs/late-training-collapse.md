@@ -1,7 +1,8 @@
 # Why the late-training score falls — a termination collapse, not a reasoning collapse
 
-_Analysis of the 16k campaign, written 2026-08-11 from live training logs, checkpoint evals and
-three purpose-run greedy diagnostics. Read-only: no arm config, loss kernel or launcher was touched._
+_Analysis of the 16k campaign, written 2026-08-11 from live training logs, checkpoint evals, three
+purpose-run greedy diagnostics and three response-text dumps. Read-only: no arm config, loss kernel or
+launcher was touched._
 
 **Claim.** The late-training drop that `vanilla` and ~17 other arms show is not the model getting
 worse at mathematics. It is the model losing the ability to **stop**. The response-length
@@ -93,17 +94,156 @@ Note also that at step 100, *before* the collapse, `vanilla`'s accuracy given a 
 **higher** than `c2`'s at step 250 (0.760). Nothing about c2's objective makes the student a better
 mathematician. It makes it a student that finishes.
 
-## 4. The same story across all 29 arms
+## 4. What the model is actually writing
+
+Everything above is arithmetic on lengths and scores. This section reads the responses.
+
+Neither pipeline kept them: verl's validation path runs at `log_val_generations=0` with
+`validation_data_dir=null`, so the in-loop generations were scored and discarded, and
+`scripts/eval_offline.py` holds the completions only long enough to score them before writing a row
+that keeps `resp_len` and `correct` but not the text. The evaluations are greedy at temperature 0,
+so they regenerate: `eval_offline_textdump.py` imports `eval_offline`'s loader, `INSTRUCTION` and
+template rather than copying them, and reproduces the archived step-250 diagnostic on **11 of 12**
+problems (`resp_len` and `truncated` identical). The one that differs now terminates instead of
+truncating — vLLM batch-composition nondeterminism at a batch of 12 versus 500, not a different model.
+
+The 12 problems were chosen from the paired diagnostic in §2: eight that `vanilla` solved at
+step 100 in **276–500 tokens** and lost at step 250, and four it truncates at step 250 yet still
+scores correct. `c2` finishes all twelve.
+
+| model | mean length | truncated | correct | distinct 20-grams | exact tail cycle |
+|---|---|---|---|---|---|
+| untrained student | 257 | 0/12 | **12/12** | 1.000 | 0/12 |
+| vanilla OPD @250 | 15053 | 11/12 | **5/12** | 0.198 | 4/12 |
+| teacher | 246 | 0/12 | **12/12** | 1.000 | 0/12 |
+
+Both endpoints answer these problems in about **250 tokens with zero repetition and 12/12 correct**.
+The model trained between them uses 60× more tokens and gets 5.
+
+### 4.1 The failure is a terminal loop, not degraded reasoning
+
+`test/prealgebra/2019.json` — *What is $\frac{9}{2}$ expressed as a decimal?* The model produces a clean, correct
+solution with the teacher's own section headings, reaches `\boxed{4.5}` at token ~407, and then
+does this until the cap, 16,384 tokens later:
+
+```
+**Final Answer:** $\boxed{4.5}$    Yes.             ---
+**Final Answer:** $\boxed{4.5}$    (Yes.)           ---
+**Final Answer:** $\boxed{4.5}$    (We are done.)   ---
+```
+
+A 17-word cycle, repeated 154 times. The loop body says *"(We are done.)"* — the model has the
+answer, states that it is finished, and cannot emit the end-of-sequence token.
+
+That is not one problem's quirk. Across the 11 blown-up responses the model emits the same
+final-answer line **696–1271 times** (median 864).
+
+### 4.2 It reaches the answer in the budget the untrained student already had
+
+| | tokens |
+|---|---|
+| `vanilla@250` spends **reaching** its answer | 445 (median 400) |
+| the untrained student needs for the whole answer | 265 (median 269) |
+| `vanilla@250` spends **after** its answer | 15,939 |
+
+**97.3% of every blown-up response is the terminal loop.** The
+reasoning phase did not get longer or worse — it is roughly the length it always was. What was
+appended is 16,000 tokens of a model unable to stop, and that is also where the campaign's compute
+went — see `training-dynamics.md` §2.1: 916 s/step for capped arms against 450.
+
+### 4.3 The grader then throws the correct answer away
+
+verl's MATH scorer takes the **last** `\boxed` in the text (`last_boxed_only_string`, `rfind`). After
+hundreds of loop iterations, the last one is whatever the 16,384-token cap happened to slice through.
+
+| problem | gold | first `\boxed` | count | what went wrong at the end | scored |
+|---|---|---|---|---|---|
+| `algebra/1529.json` | `1` | `1` | 963 | drifted | **0** |
+| `algebra/2214.json` | `4` | `4` | 980 | – | ✓ |
+| `algebra/518.json` | `\frac 34` | `\dfrac{3}{4}` | 696 | cut open by the cap | **0** |
+| `counting_and_probability/761.json` | `3` | `3` | 1271 | cut open by the cap | **0** |
+| `prealgebra/1233.json` | `10` | `10\%` | 829 | cut open by the cap | **0** |
+| `prealgebra/1298.json` | `15x - 80` | `15x - 80` | 3 | – | ✓ |
+| `prealgebra/1317.json` | `4` | `4` | 864 | cut open by the cap | **0** |
+| `prealgebra/192.json` | `2` | `2` | 1120 | cut open by the cap | **0** |
+| `prealgebra/1922.json` | `1251` | `1251` | 836 | cut open by the cap | **0** |
+| `prealgebra/1973.json` | `4` | `4` | 803 | – | ✓ |
+| `prealgebra/2019.json` | `4.5` | `4.5` | 858 | – | ✓ |
+| `prealgebra/2037.json` | `550` | `550` | 974 | – | ✓ |
+
+**The first `\boxed` matches the gold answer on 11 of 12 problems. The scorer credits 5.** 6 responses score zero because the cap cut the *final* `\boxed{` open, so
+`last_boxed_only_string` returns `None` — discarding several hundred correct boxed answers earlier in
+the same text. One more (`algebra/1529`) drifted from `1` to `-1` during the loop: the cycle is not
+always a fixed point.
+
+This is worth separating from the model's own failure. The *model* fails by not stopping; the
+*measurement* then converts a solved problem into a zero. The step-250 score is therefore a floor on
+what the checkpoint knows, and the reported collapse is deeper than the capability change behind it.
+
+### 4.4 Distillation worked — on everything except stopping
+
+| surface signature | untrained student | vanilla@250 | teacher |
+|---|---|---|---|
+| fake ```python block with hallucinated output | 3/12 | 0/12 | 0/12 |
+| teacher's `### Step 1` / `**Final Answer` template | 1/12 | 12/12 | 7/12 |
+
+The base student answers by writing a Python block and hallucinating its output — a pretraining
+artifact. After 250 steps of OPD that habit is gone and the teacher's format is in its place, on
+**12 of 12** problems, which is more consistently than the teacher itself uses it (7 of 12). On four
+problems `vanilla@250` opens with the teacher's exact first sentence; the base student never does.
+
+So the distillation target transferred. What the student over-learned is the *closing template* —
+and the closing template is precisely the string it loops on. It learned `**Final Answer:**
+$\boxed{X}$` as a high-probability attractor and did not learn the one token that comes after it.
+
+### 4.5 The supervision for stopping disappears from the training signal
+
+Here is the mechanism that ties the text back to the cross-arm statistics. In on-policy distillation every token of the
+student's own rollout carries gradient, but **a truncated rollout contains no end-of-sequence token
+at all**. So the density of stop-supervision is `(1 − clip_ratio) / mean_length` — one EOS per
+terminated sequence, spread over every token the batch trains on:
+
+| arm | step 25 | step 50 | step 100 | step 150 | step 200 | step 250 |
+|---|---|---|---|---|---|---|
+| `c1_lsm_topk32_renorm` | 0.6881 | 0.7598 | 0.8953 | 0.7654 | 0.8104 | 0.7416 |
+| `j1_kdrl` | 0.7317 | 0.9103 | 0.7357 | 0.5120 | 0.2858 | 0.2236 |
+| `c2_quantile_budget` | 0.5636 | 0.0614 | 0.1029 | 0.1089 | 0.1090 | 0.1148 |
+| `c4_pi_tail_budget` | 0.7506 | 0.0882 | 0.1073 | 0.1138 | 0.1142 | 0.1119 |
+| `b1_skew_kl` | 0.5878 | 0.0506 | 0.1009 | 0.1111 | 0.1057 | 0.0056 |
+| `d2_selectkd` | 0.5416 | 0.0217 | 0.0894 | 0.0935 | 0.0000 | 0.0002 |
+| `vanilla` | 0.5336 | 0.0234 | 0.0721 | 0.0002 | 0.0002 | 0.0003 |
+| `b5_k2` | 0.5760 | 0.0272 | 0.0801 | 0.0000 | 0.0002 | 0.0003 |
+| `d3_teachability` | 0.5109 | 0.1325 | 0.0635 | 0.0002 | 0.0002 | 0.0000 |
+| `b3_eopd_gate` | 0.5255 | 0.0716 | 0.0073 | 0.0000 | 0.0005 | 0.0000 |
+
+EOS tokens per 1,000 training tokens. `vanilla` goes from 0.5336 to 0.000320 — a
+**1670× collapse**. `c2` falls 4.9× and stops.
+
+Across all 29 arms, r(log₁₀ terminal EOS density, final score) = **+0.653** and against the
+fall from peak **-0.574** — a tighter fit than raw truncation gives.
+
+**This is a reframing, not an independent measurement**: the quantity is an algebraic transform of
+`clip_ratio` and `response_length/mean`, so it cannot confirm the account on its own. What it adds is
+the right unit. A run whose rollouts stop showing the model how to stop is a run whose gradient has
+nothing left to say about EOS, and the loop in §4.1 is what fills the gap. The direction is
+self-reinforcing — longer rollouts mean fewer EOS demonstrations mean longer rollouts — which is what
+the one-way ratchet in §2 looks like from the training side.
+
+The step is still a hypothesis in one place: nothing here shows *why* the drift starts, only why it
+does not stop once started. §6's knob (the policy-gradient form) is the best available candidate for
+the trigger, and separating trigger from ratchet needs an intervention run, not more of this data.
+
+## 5. The same story across all 29 arms
 
 Terminal truncation rate is the single strongest cross-arm predictor of the fall:
 
-- Pearson r(terminal truncation, fall from peak) = **+0.590**, Spearman ρ = +0.684 (n=29 arms)
-- Pearson r(terminal truncation, final score) = **-0.617**, Spearman ρ = -0.755
+- Pearson r(terminal truncation, fall from peak) = **+0.588**, Spearman ρ = +0.667 (n=29 arms)
+- Pearson r(terminal truncation, final score) = **-0.617**, Spearman ρ = -0.750
 
 | cap binding at the last step | arms | mean fall from peak | mean final | mean length | mean entropy |
 |---|---|---|---|---|---|
 | no | 11 | **0.030** | 0.586 | 7159 | 1.157 |
-| yes | 18 | **0.169** | 0.439 | 16073 | 0.284 |
+| yes | 18 | **0.169** | 0.439 | 16078 | 0.284 |
 
 **The within-run test is the decisive one.** For every (arm, seed) trajectory that crossed from the
 slack regime (<50 % of rollouts truncated) into the capped regime, compare the in-loop score at the
@@ -131,7 +271,7 @@ last slack step against the score at the end. That makes each run its own contro
 
 **17 of 17 arms fell after crossing. Zero rose.** Mean Δ -0.126, median -0.121.
 
-## 5. Which knob predicts it
+## 6. Which knob predicts it
 
 `USE_POLICY_GRADIENT` defaults to `True` (`scripts/run_opd_baseline.sh:76`); ten arms set it to `False`.
 In the PG form the per-token distillation loss is fed in as an **advantage** —
@@ -156,7 +296,7 @@ form (`USE_POLICY_GRADIENT=False`). `b5_k2` ends at 99.5 % truncation, 16,338 to
 and ends at 9.6 % truncation, 4,067 tokens, −0.007 from peak. A verifier reward scores a capped rollout
 zero, which is exactly the pressure the pure distillation objective lacks.
 
-## 6. What this is *not*
+## 7. What this is *not*
 
 **Not an entropy collapse.** Capped arms do end at lower policy entropy (mean 0.284 vs 1.157), but entropy is neither necessary nor
 sufficient: `h1_first_segment` (0.077, fall 0.007), `j1_kdrl` (0.156, fall 0.007), `e3_zvalue` (0.172, fall 0.049) all end at entropy *below* `vanilla`'s 0.240 while keeping their length distribution inside
@@ -169,7 +309,7 @@ uninformative — contemporaneous r(Δtruncation, Δscore) = −0.264, but the t
 weak and near-symmetric (−0.074 truncation-leads vs −0.109 score-leads, n=659 step pairs). The
 directional evidence comes from the paired diagnostic in §2, not from the time series.
 
-## 7. Honest exceptions
+## 8. Honest exceptions
 
 - **1 arm falls ≥0.10 without the cap binding**: `f3_power` (fall 0.107, truncation 0.010, length 9523). A second failure mode exists and this analysis does not explain it.
 - **`a2_coldstart` and `h2_last_segment` are capped from steps 31 and 37** — before they ever had a
@@ -178,10 +318,10 @@ directional evidence comes from the paired diagnostic in §2, not from the time 
 - **`b2_forward_kl` is a supervised-form arm that did cap** (0.867). It is also the arm parked mid-run,
   so its curve is short and its last point is step 200.
 - The diagnostics in §1–§3 are **one seed** (s0) at three checkpoints, run greedily. The cross-arm
-  statistics in §4–§5 cover all 29 arms × 3 seeds. The mechanism claim rests on the former; the
+  statistics in §5–§6 cover all 29 arms × 3 seeds. The mechanism claim rests on the former; the
   prevalence claim rests on the latter.
 
-## 8. Per-arm reference
+## 9. Per-arm reference
 
 `lock` = first step after which ≥90 % of rollouts hit the cap for the rest of the run. `truncation`,
 `length` and `entropy` here are **training-rollout** metrics at the last logged step (sampled,
@@ -204,9 +344,9 @@ and 4,505 there. `peak`/`final`/`fall` are the in-loop greedy MATH500 val, seed-
 | `g1_verified_only` | G | yes | – | 0.627 | 125 | 0.529 | 0.097 | 250 | – | 0.714 | 13928 | 0.208 |
 | `b2_forward_kl` | B | no | – | 0.572 | 50 | 0.460 | 0.112 | 200 | – | 0.867 | 15329 | 0.793 |
 | `b1_skew_kl` | B | yes | – | 0.645 | 175 | 0.475 | 0.169 | 250 | 247 | 0.911 | 15724 | 0.311 |
-| `e2_set_coverage` | E | no | – | 0.597 | 50 | 0.460 | 0.137 | 175 | 128 | 0.961 | 16101 | 0.198 |
 | `g2_fire_likelihood` | G | yes | yes | 0.624 | 100 | 0.511 | 0.113 | 250 | 143 | 0.969 | 16037 | 0.230 |
 | `f1_soft_log` | F | yes | – | 0.632 | 150 | 0.447 | 0.185 | 250 | 208 | 0.971 | 16185 | 0.277 |
+| `e2_set_coverage` | E | no | – | 0.597 | 50 | 0.460 | 0.137 | 175 | 128 | 0.977 | 16218 | 0.191 |
 | `f2_hard_clip` | F | yes | – | 0.648 | 175 | 0.457 | 0.191 | 250 | 198 | 0.977 | 16196 | 0.234 |
 | `d1_tip` | D | yes | yes | 0.620 | 50 | 0.473 | 0.147 | 250 | 127 | 0.990 | 16281 | 0.240 |
 | `vanilla_n8` | - | yes | – | 0.629 | 50 | 0.466 | 0.163 | 250 | 117 | 0.991 | 16276 | 0.256 |
@@ -214,15 +354,20 @@ and 4,505 there. `peak`/`final`/`fall` are the in-loop greedy MATH500 val, seed-
 | `b5_k2` | B | no | – | 0.625 | 50 | 0.460 | 0.165 | 250 | 125 | 0.995 | 16338 | 0.243 |
 | `vanilla` | - | yes | – | 0.627 | 50 | 0.473 | 0.153 | 250 | 122 | 0.995 | 16328 | 0.240 |
 | `d2_selectkd` | D | yes | yes | 0.641 | 125 | 0.480 | 0.161 | 250 | 191 | 0.997 | 16364 | 0.194 |
+| `g5_rgopd_gate` | G | yes | – | 0.627 | 75 | 0.425 | 0.202 | 175 | 131 | 0.997 | 16358 | 0.234 |
 | `d3_teachability` | D | yes | yes | 0.622 | 50 | 0.415 | 0.207 | 250 | 123 | 1.000 | 16384 | 0.796 |
-| `a2_coldstart` | A | yes | – | 0.489 | 175 | 0.478 | 0.011 | 200 | 31 | 1.000 | 16384 | 0.235 |
 | `b3_eopd_gate` | B | yes | yes | 0.612 | 50 | 0.003 | 0.609 | 250 | 101 | 1.000 | 16384 | 0.001 |
-| `g5_rgopd_gate` | G | yes | – | 0.627 | 75 | 0.425 | 0.202 | 175 | 131 | 1.000 | 16384 | 0.235 |
-| `h2_last_segment` | H | yes | – | 0.475 | 25 | 0.438 | 0.037 | 225 | 37 | 1.000 | 16384 | 0.184 |
+| `a2_coldstart` | A | yes | – | 0.489 | 175 | 0.480 | 0.009 | 225 | 31 | 1.000 | 16384 | 0.228 |
+| `h2_last_segment` | H | yes | – | 0.475 | 25 | 0.438 | 0.037 | 225 | 37 | 1.000 | 16384 | 0.188 |
 
 ---
 
+_The response texts behind §4 are committed at [`data/textdumps/`](data/textdumps/) (three parquets,
+one row per problem, full `response` string). They were produced by
+[`scripts/analysis/eval_offline_textdump.py`](../scripts/analysis/eval_offline_textdump.py) over the
+problem list in `scripts/analysis/textdump_pids.txt`, on two idle GPUs; no running job was preempted._
+
 _Reproduce: `extract_metrics.py` builds the tidy metric table from `logs/*/lane*.log`;
-`analyze_diag.py`, `analyze_pg.py`, `analyze_order.py` produce §2, §5 and §4 respectively;
+`analyze_diag.py`, `analyze_pg.py`, `analyze_order.py` produce §2, §6 and §5 respectively;
 the three diagnostics were run with `scripts/eval_offline.py --benchmarks math500 --n 1
 --temperature 0 --top-p 1.0 --max-tokens 16384` against the step-100/250 actor checkpoints._

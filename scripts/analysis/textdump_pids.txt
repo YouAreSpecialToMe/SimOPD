@@ -1,0 +1,12 @@
+test/prealgebra/2019.json
+test/algebra/1529.json
+test/prealgebra/1973.json
+test/prealgebra/2037.json
+test/algebra/2214.json
+test/algebra/518.json
+test/prealgebra/1922.json
+test/prealgebra/1233.json
+test/prealgebra/1298.json
+test/prealgebra/1317.json
+test/prealgebra/192.json
+test/counting_and_probability/761.json
