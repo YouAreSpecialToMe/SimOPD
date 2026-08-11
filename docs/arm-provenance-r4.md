@@ -921,3 +921,27 @@ b5↔vanilla 的任何实测分歧测的是 **surrogate 机械**(步内 micro-ba
   objective 闭环")—— 问题保留,格归档;
 - 附带效应:n=1 对 group-relative 全族的排除从"n8 是唯一窗口"变为纯 scope
   声明(窗口也入附录)。
+
+## r6 修订二(2026-08-11):ℰ 再拆 —— 评估算子 𝒬 与梯度实现 ℛ 分层
+
+用户第二轮公式修正(采纳,UNIFIED-LOSS 重写):上一版的 ℰ_η 混装了两类
+性质不同的东西,拆为:
+
+- **𝒬(evaluation)**:discrepancy 如何被有限计算观测 —— exact support sum /
+  MC at sampled token;与支撑限制算子 Q_Ω 是两个算子;
+- **ℛ(realization)**:观测到的 signal 如何变成下降场 ——
+  ℛ_PG[a]=sg(a)·∇log π、ℛ_direct[a]=∇a、ℛ_k2[r]=∇½r²=r·∇log π
+  (potential-mediated);代码以 surrogate loss 实现,ratio=1 处与场重合;
+- **k1 正名**:D_RKL 的 pointwise integrand 在采样点的 MC 观测(𝒬 层),
+  E[r]=KL 是性质不是定义,不与 k2 并列;**k2 正名**:非 RKL 估计器
+  (E[½r²]≠KL),是 ℛ 层的 potential;
+- **六层定型**:μ → (w,m) → (Ω,ν,S) → D → 𝒬 → (Φ,ℛ);Φ 位于 𝒬 与 ℛ 之间;
+- **C1 = 𝒬≠ℛ 的存在性证明**:c1 的 𝒬 钉死 exact,ℛ 仍有 PG(官方)/direct
+  (缺口格)两值,同一评估标量、两个不同的场;
+- **可识别性修订**(取代上一轮"ℰ 不可独立识别"):**ℛ 可识别**,经两对
+  matched pair —— vanilla↔b5(ℛ 换挡 @ 𝒬=MC)与 c1↔C1(ℛ 换挡 @ 𝒬=exact);
+  **𝒬 与 Ω 名册内混淆**(sampled ⟺ 单点支撑),解耦格(支撑内 MC,z~q̃_Ω)
+  原则上存在、未实例化,披露不声称;
+- **b5 复读定稿**:同 D、同 𝒬、同 r,仅 ℛ 换挡;已入库读数 lock 122→125
+  (Fisher 注记的 3 步)与场重合预测一致,残差归 surrogate 机械
+  (步内 ratio 漂移 + clip);曲线核验维持 M-task,核验后入判决措辞。
