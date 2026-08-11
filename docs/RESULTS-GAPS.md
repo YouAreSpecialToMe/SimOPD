@@ -156,7 +156,8 @@ up in wave order as training winds down.
 | DH1 random-scatter @50% / @5% | criterion-vs-random at matched budget (the selector literature's actual claim) | ~500 |
 | C2 tailbucket / C3 full-vocab upper bound | headline-theorem second test / the width axis's endpoint | ~150 |
 | bounded set-coverage repair (must be born anchor-free) | a clean reading for the E ladder's bottom rung | ~280 |
-| **total** | | **~1,280** |
+| `f2_clip2.3` matched-M pair (clip moved to b1's intrinsic ln 10 ≈ 2.3) | the magnitude-unification **screening-off test as an intervention** — M1 is its measurement half; P-M vs P-impl in the ledger (`UNIFIED-LOSS.md` §3.3) | ~195 |
+| **total** | | **~1,475** |
 
 **Archived / conditional (not counted):** `j0_grpo_only` (archived 2026-08-11:
 a reward-dominated cell is hard to claim as OPD; J stays bounded), the α ladder
@@ -165,11 +166,12 @@ a reward-dominated cell is hard to claim as OPD; J stays bounded), the α ladder
 ### Totals and recommended order
 
 - Tier 1 + Tier 2 ≈ **3,300 GPU·h** (~36% of the original campaign); all three
-  tiers ≈ **4,600 GPU·h** (~50%) plus ~420 new suite cells.
+  tiers ≈ **4,800 GPU·h** (~52%) plus ~450 new suite cells.
 - Running in parallel at zero GPU: the M1–M6 harvests and S (the ~555 remaining
   suite cells — the arbiter).
 - Recommended order: **C1 immediately** (50 GPU·h buys the biggest pending
   verdict) → Tier 1 self-runs → **A1** (unblocks the whole A axis) → **N1**
-  (the mechanism paper's causal piece) → DH1 → revisit the rest once Tier 1
-  reports. If Tier 3 must shrink, cut C2/C3 first (the theorem already has c4's
-  vote; the upper bound is a completeness piece, not a verdict piece).
+  (the mechanism paper's causal piece) → `f2_clip2.3` (cheapest Tier-3 verdict;
+  M1's intervention half) → DH1 → revisit the rest once Tier 1 reports. If
+  Tier 3 must shrink, cut C2/C3 first (the theorem already has c4's vote; the
+  upper bound is a completeness piece, not a verdict piece).
