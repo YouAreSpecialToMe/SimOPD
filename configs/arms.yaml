@@ -716,6 +716,68 @@ arms:
       DISTILLATION_LOSS_MODE: k1_power
       SIMOPD_POWER_ALPHA: "1.0"
 
+  - run_id: f2_clip2.3
+    axis: F
+    cohort: supplement
+    desc: "[OURS] hard clip moved to b1's intrinsic bound ln10=2.303 -- the matched-M screening-off intervention"
+    status: stock
+    note: "ENLISTED 2026-08-11 from the Tier-3 proposal (ledger r6) after the M1
+           first harvest CALIBRATED its prediction: b1's measured u_max sits at
+           2.303 in all three seeds (the skew estimator saturates its own bound),
+           so pinning f2's clamp there pins the same effective extreme via a
+           different design coordinate. P-M: lock ~= b1's 247 (seed noise) and
+           the magnitude screening-off closes -- dynamics factor through the
+           emergent bound M(U) regardless of implementing slot. P-impl: lock
+           deviates -- boundary gradient handling differs (clip kills the
+           gradient beyond M, skew saturates smoothly); f5_tanh localizes which.
+           Zero new code: the clamp rides ARM_ARGS into the fingerprint.
+           Registered residual mismatch (ledger): the clamp is symmetric
+           +-2.303 while b1's bound is one-sided -- f4_posclip reads on exactly
+           that. Priority 1 of the F expansion (user ruling)"
+    env:
+      LOSS_MAX_CLAMP: "2.303"
+
+  - run_id: f4_posclip
+    axis: F
+    cohort: supplement
+    desc: "[OURS] positive-only clip min(r, 10): is the positive log-ratio tail THE dose?"
+    status: stock
+    note: "REGISTERED 2026-08-11 (user design, F expansion #2). The M1 harvest's
+           discriminating statistic u_max is a positive-side extreme (teacher
+           near zero on the sampled token, r = +80..90), and b1's ONE-SIDED ln10
+           bound already reaches 247 -- this cell makes the side itself the
+           variable. P-pos: f4 ~= f2's 198 at matched M=10 => the negative tail
+           never mattered and M(U) refines to a positive-side bound. P-both: f4
+           locks earlier than f2 => the negative side contributes and the
+           compression line needs a two-sided reading. In-kernel transform
+           (vendored verl untouched; f2's clamp is downstream -- recorded seam,
+           both act on the per-token loss before the advantage detach). NOT an
+           odd transform: defined on the loss side, where the measured spike
+           lives. Panels: delta_ell_* = transformed (f1 convention), raw_k1_* =
+           untransformed (loss convention, no sign flip), posclip_hit_rate.
+           CPU battery 5/5 (scratchpad test_f45)"
+    env:
+      DISTILLATION_LOSS_MODE: k1_posclip
+      SIMOPD_CLIP_M: "10.0"
+
+  - run_id: f5_tanh
+    axis: F
+    cohort: supplement
+    desc: "[OURS] smooth bounded 10*tanh(r/10): boundedness vs the hard clip's kink"
+    status: stock
+    note: "REGISTERED 2026-08-11 (user design, F expansion #3, refinement rung).
+           Same bound as f2's clip, no discontinuity, no dead gradient beyond
+           the threshold (tanh saturates smoothly -- battery: live gradient
+           everywhere, tiny in the far tail). P-bound: f5 ~= f2 => tail
+           attenuation itself is the stabilizer, the kink is irrelevant.
+           P-shape: a gap => the boundary's gradient handling matters,
+           localizing what f2_clip2.3-vs-b1 tests across slots to within Phi.
+           Odd transform (loss-side = advantage-side, f1 argument). Same
+           panels/seam notes as f4_posclip; shares SIMOPD_CLIP_M"
+    env:
+      DISTILLATION_LOSS_MODE: k1_tanh
+      SIMOPD_CLIP_M: "10.0"
+
   # ---- G: trajectory gating ----
   - run_id: g1_verified_only
     axis: G

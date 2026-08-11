@@ -8,8 +8,10 @@ Sign convention (verified against verl 2026-07-31):
   kl_penalty(logprob=student, ref_logprob=teacher, "k1") = log p_stu - log q_tch
 and `distillation_loss` then uses `-losses` as the advantage, so the advantage is
 log q_tch - log p_stu = Delta-ell_t, exactly Demystifying's per-token signal.
-A loss-space transform therefore applies to -Delta-ell; for odd transforms (all
-of ours) that is identical to transforming Delta-ell itself.
+A loss-space transform therefore applies to -Delta-ell; for odd transforms (the
+symmetric family: f1/f2/f3) that is identical to transforming Delta-ell itself.
+k1_posclip is deliberately NOT odd -- it is defined on the loss side, where the
+measured runaway spike lives (M1 first harvest, 2026-08-11).
 """
 
 import math
@@ -31,6 +33,13 @@ from simopd import topk_losses
 topk_losses.install()
 
 _QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
+# Tail extension (M1 first harvest, 2026-08-11): the discriminating region for
+# the length runaway sits beyond ~p99.7 (f2's clip_hit_rate 0.3%), which the
+# original grid cannot see -- the goal is to locate the critical percentile,
+# not to add another correlate. Signed on purpose so both tails get their
+# extreme; labels are explicit because int(q*100) collides at 99.9.
+# Metrics-only (zero-fill precedent): existing keys and training byte-identical.
+_TAIL_QUANTILES = ((0.001, "p0_1"), (0.01, "p1"), (0.99, "p99"), (0.999, "p99_9"))
 
 # H-axis supervision window. verl's loss config is a fixed dataclass, so arm
 # hyper-parameters that it has no field for come in by env var; both the driver
@@ -101,6 +110,11 @@ def _signal_quantiles(losses, mask, name):
         f"distillation/{name}_p{int(q * 100)}": Metric(aggregation=AggregationType.MEAN, value=v)
         for q, v in zip(_QUANTILES, qs, strict=True)
     }
+    tqs = torch.quantile(x, torch.tensor([q for q, _ in _TAIL_QUANTILES], device=x.device))
+    metrics.update({
+        f"distillation/{name}_{lab}": Metric(aggregation=AggregationType.MEAN, value=v)
+        for (_, lab), v in zip(_TAIL_QUANTILES, tqs, strict=True)
+    })
     metrics[f"distillation/{name}_absmean"] = Metric(aggregation=AggregationType.MEAN, value=x.abs().mean())
     # Positional profile (H axis, 2026-08-07). Positions are padded-column indices,
     # the h1 convention (response-only right-padded tensors: column 0 = first
@@ -395,6 +409,71 @@ def k1_soft_log_compression(config, distillation_config, model_output, data):
         metrics["distillation/softlog_shrink_ratio"] = Metric(
             aggregation=AggregationType.MEAN,
             value=compressed[mask].abs().mean() / raw_abs.clamp_min(1e-8),
+        )
+    return compressed, metrics
+
+
+# F expansion (registered 2026-08-11, the M1 first-harvest follow-ups): one shared
+# threshold for the two in-kernel bounded transforms. f2's clamp lives DOWNSTREAM
+# in verl (loss_max_clamp, symmetric and shapeless); these two live in-kernel so
+# vendored verl stays unmodified. Recorded seam: both placements act on the
+# per-token loss before the advantage detach.
+CLIP_M = float(os.environ.get("SIMOPD_CLIP_M", "10.0"))
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_posclip"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_positive_clip(config, distillation_config, model_output, data):
+    """F axis [OURS]: clip the POSITIVE tail only -- min(r, M), negative side untouched.
+
+    The M1 harvest's discriminating statistic u_max is a positive-side extreme
+    (teacher near zero on the sampled token, r = +80..90), and b1's ONE-SIDED
+    ln10 bound already reaches lock 247 -- this cell makes the side itself the
+    variable. posclip ~= f2 at the same M means the negative tail never
+    mattered. NOT an odd transform: defined on the loss side
+    r = log p_stu - log q_tch, where the measured spike lives. Panels:
+    delta_ell_* = transformed (f1 convention), raw_k1_* = untransformed (loss
+    convention, no sign flip), posclip_hit_rate = fraction the clip touches.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    raw = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+    compressed = torch.clamp(raw, max=CLIP_M)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=compressed[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(compressed, mask))
+    with torch.no_grad():
+        metrics.update(_signal_quantiles(raw, mask, "raw_k1"))
+        metrics["distillation/posclip_hit_rate"] = Metric(
+            aggregation=AggregationType.MEAN, value=(raw[mask] > CLIP_M).float().mean()
+        )
+    return compressed, metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_tanh"], use_estimator=True)
+)  # type: ignore[arg-type]
+def k1_smooth_bounded(config, distillation_config, model_output, data):
+    """F axis [OURS]: smooth bounded M*tanh(r/M) -- f2's control for boundary shape.
+
+    Same bound as the hard clip, no kink, no dead gradient beyond the threshold
+    (tanh saturates smoothly). f5 ~= f2 says tail attenuation itself is the
+    stabilizer; a gap says the boundary's gradient handling matters -- the same
+    mechanical split the f2@2.303-vs-b1 pair tests across slots, here isolated
+    within Phi. Odd transform, so loss-side application equals the
+    advantage-side form (f1 argument). Panels as k1_posclip.
+    """
+    student, teacher, mask = _unpack(model_output, data)
+    raw = kl_penalty(logprob=student, ref_logprob=teacher, kl_penalty="k1")
+    compressed = CLIP_M * torch.tanh(raw / CLIP_M)
+
+    metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=compressed[mask].abs().mean())}
+    metrics.update(_delta_ell_metrics(compressed, mask))
+    with torch.no_grad():
+        metrics.update(_signal_quantiles(raw, mask, "raw_k1"))
+        metrics["distillation/tanh_shrink_ratio"] = Metric(
+            aggregation=AggregationType.MEAN,
+            value=compressed[mask].abs().mean() / raw[mask].abs().mean().clamp_min(1e-8),
         )
     return compressed, metrics
 

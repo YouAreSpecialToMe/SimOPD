@@ -985,3 +985,43 @@ b5↔vanilla 的任何实测分歧测的是 **surrogate 机械**(步内 micro-ba
 已完成指纹,launch 前落);`loss_max` 为逐微批单极值,但三种子中位数紧
 (vanilla 81.7/81.7/81.0)。M1 的**测量半边就此落地**;干预半边 = f2_clip2.3
 (其预测已由读数 2 校准)。
+
+## r6 登记(2026-08-11):F 扩张定稿(wave 14)—— 三格入列,sweep 撤销,措辞红线
+
+**机理假说定稿(用户)**:F 轴真正测到的不是"平均梯度太大",而是**极少数
+极端 token signal 决定 length runaway 的启动时间**——rare extreme admitted
+update signals → termination/length runaway,而非 overall gradient magnitude
+→ collapse。**论文措辞红线**:不写 "gradient explosion",只写窄的那句——
+"Length instability tracks rare extreme per-token update signals, while bulk
+signal and global gradient statistics do not."
+
+**三格入列(wave 14,优先级 f2_clip2.3 > f4_posclip > f5_tanh,全部 stock,
+CPU 对拍 5/5)**,各答一问:
+
+1. **f2_clip2.3(压到哪个值)**:Tier-3 提案转正,唯一带**定量校准预测**的
+   prospective test —— u_max 钉 2.303(b1 三种子实测值)⇒ P-M 预测
+   lock ≈ 247;命中则剂量机制闭环。零代码(LOSS_MAX_CLAMP 走 ARM_ARGS
+   入指纹)。
+2. **f4_posclip(哪一侧 tail)**:min(r, 10),负侧不动。u_max 本就是正侧
+   统计量、b1 的单侧界已到 247 —— P-pos(≈ f2 的 198 ⇒ 负尾从未承重,
+   M(U) 细化为正侧界)vs P-both(早于 198 锁 ⇒ 负尾有贡献,压缩线要
+   双侧重读)。in-kernel(vendored verl 不动);**非奇变换,定义在 loss 侧**
+   ——实测尖峰所在侧;模块 docstring 的 "all of ours are odd" 已修正。
+3. **f5_tanh(hard 还是 smooth)**:10·tanh(r/10),同界无拐点无死梯度。
+   P-bound(≈ f2 ⇒ 有界本身即稳定器)vs P-shape(有差 ⇒ 界外梯度处理
+   承重)——把 f2_clip2.3↔b1 的跨槽机械差异隔离到 Φ 槽内部。
+
+**撤销**:M ∈ {5, 20} sweep 不做(用户裁定)——现有剂量点 {∞, 10, 2.303,
+~1} 已张成曲线,2.303 且有 b1 跨方法校准点。内插预测(不排卡,留作曲线
+形状的记录):若未来任何 M 点落地,lock(M=20) ≈ 170±、lock(M=5) ≈ 205±。
+
+**仪表落地**:`_TAIL_QUANTILES` = {p0_1, p1, p99, p99_9}(带符号,正负尾
+分开)入 `_signal_quantiles`,waves 9–14 全部携带;目的是**定位 critical
+percentile**(现有界:p95 不判别、~p99.7 判别),不是再加一个相关指标。
+metrics-only,zero-fill 先例,已完成行指纹不动。f4/f5 加双面板:
+delta_ell_*(变换后,f1 惯例)+ raw_k1_*(原始,loss 约定不翻号)+
+posclip_hit_rate / tanh_shrink_ratio。
+
+**seam 记录**:f2 族的 clamp 在 verl 下游(loss_max_clamp),f4/f5 在
+kernel 内 —— 两处都作用于 advantage detach 之前的逐 token loss,等价;
+差异如实入注。成本:3 臂 × 3 seeds ≈ 585 GPU·h + 90 suite 格,2 卡行。

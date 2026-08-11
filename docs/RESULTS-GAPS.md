@@ -136,7 +136,8 @@ up in wave order as training winds down.
 | 10 | `c2_qb_fixed8` / `_perseq` | c2's pinning granularity + the matched-budget fixed control | ~600 | 60 |
 | 11 | `e1_pl_rank_a0` / `e2_set_coverage_a0` | E-ladder purity ("does order suffice" made legal) + near-placebo | ~420 | 60 |
 | 12 | `h4_random_scatter` / `h5_gen100` | window-vs-scatter (tail-dose test) + ESR's own truncation form | ~235 | 60 |
-| **total** | **8 arms / 24 rows** | | **~1,610** | **240** |
+| 14 | `f2_clip2.3` / `f4_posclip` / `f5_tanh` | F expansion after the M1 harvest: the calibrated screening-off test (predicted lock ≈ 247) + which-tail + hard-vs-smooth; M∈{5,20} sweep dropped by ruling | ~585 | 90 |
+| **total** | **11 arms / 33 rows** | | **~2,195** | **330** |
 
 ### Tier 2 — registered, blocked on a prerequisite
 
@@ -156,8 +157,10 @@ up in wave order as training winds down.
 | DH1 random-scatter @50% / @5% | criterion-vs-random at matched budget (the selector literature's actual claim) | ~500 |
 | C2 tailbucket / C3 full-vocab upper bound | headline-theorem second test / the width axis's endpoint | ~150 |
 | bounded set-coverage repair (must be born anchor-free) | a clean reading for the E ladder's bottom rung | ~280 |
-| `f2_clip2.3` matched-M pair (clip moved to b1's intrinsic ln 10 ≈ 2.3) | the magnitude-unification **screening-off test as an intervention** — M1 is its measurement half; P-M vs P-impl in the ledger (`UNIFIED-LOSS.md` §3.3) | ~195 |
-| **total** | | **~1,475** |
+| **total** | | **~1,280** |
+
+(`f2_clip2.3` was enlisted out of this tier into wave 14 on 2026-08-11, after
+the M1 first harvest calibrated its prediction.)
 
 **Archived / conditional (not counted):** the **entire J axis** (2026-08-11,
 upgraded from the j0-only ruling: `j0_grpo_only` never registered; `j1_kdrl` +
@@ -167,13 +170,14 @@ OPD; completed rows banked, `μ.n` pinned at 1 roster-wide), the α ladder
 
 ### Totals and recommended order
 
-- Tier 1 + Tier 2 ≈ **3,300 GPU·h** (~36% of the original campaign); all three
-  tiers ≈ **4,800 GPU·h** (~52%) plus ~450 new suite cells.
+- Tier 1 + Tier 2 ≈ **3,900 GPU·h** (~42% of the original campaign); all three
+  tiers ≈ **5,200 GPU·h** (~56%) plus ~510 new suite cells.
 - Running in parallel at zero GPU: the M1–M6 harvests and S (the ~555 remaining
   suite cells — the arbiter).
 - Recommended order: **C1 immediately** (50 GPU·h buys the biggest pending
-  verdict) → Tier 1 self-runs → **A1** (unblocks the whole A axis) → **N1**
-  (the mechanism paper's causal piece) → `f2_clip2.3` (cheapest Tier-3 verdict;
-  M1's intervention half) → DH1 → revisit the rest once Tier 1 reports. If
-  Tier 3 must shrink, cut C2/C3 first (the theorem already has c4's vote; the
-  upper bound is a completeness piece, not a verdict piece).
+  verdict) → Tier 1 self-runs (wave 14 carries M1's intervention half) →
+  **A1** (unblocks the whole A axis) → **N1** (the mechanism paper's causal
+  piece) → DH1 → revisit the rest once Tier 1 reports. If Tier 3 must shrink,
+  cut C2/C3 first (the theorem already has c4's vote; the upper bound is a
+  completeness piece, not a verdict piece — but note C2 is now the ν
+  coordinate's only mover, see `UNIFIED-LOSS.md`).

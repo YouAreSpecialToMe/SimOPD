@@ -337,3 +337,19 @@
 12	m15	h5_gen100	0
 12	m16	h5_gen100	1
 12	m18	h5_gen100	2
+# ---- wave 14: the F expansion (user design after the M1 first harvest, 2026-08-11) ----
+# Priority f2_clip2.3 > f4_posclip > f5_tanh (user ruling): the calibrated
+# prospective test first (u_max pinned at b1's measured 2.303 => predicted lock
+# ~247), then the which-tail question, then the shape refinement. The M in
+# {5,20} sweep was considered and DROPPED -- the existing dose points
+# {inf, 10, 2.303, ~1} already span the curve, with b1 as the cross-method
+# calibration point. All 2-card, behind wave 13.
+14	m15	f2_clip2.3	0
+14	m16	f2_clip2.3	1
+14	m18	f2_clip2.3	2
+14	m15	f4_posclip	0
+14	m16	f4_posclip	1
+14	m18	f4_posclip	2
+14	m15	f5_tanh	0
+14	m16	f5_tanh	1
+14	m18	f5_tanh	2

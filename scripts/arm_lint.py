@@ -49,6 +49,7 @@ EXPECT_PG = {
     "e1_pl_rank": False, "e1_pl_rank_a0": False, "e2_set_coverage": False,
     "e2_set_coverage_a0": False, "e3_zvalue": False,
     "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
+    "f2_clip2.3": True, "f4_posclip": True, "f5_tanh": True,
     "g1_verified_only": True, "g1_quota": True, "g2_fire_likelihood": True,
     "g4_failure_only": True, "g4_quota": True, "g5_rgopd_gate": True,
     "h1_first_segment": True, "h2_last_segment": True, "h3_random_segment": True,
