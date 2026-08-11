@@ -5,7 +5,7 @@ _Student **Qwen3-1.7B-Base** ← Teacher **Qwen3-4B-Instruct-2507**, response ca
 24-node / 192-GPU fleet — including the four arms (c4/e2/e3/g5) originally ceded to the collaborating
 site and relaunched here on 2026-08-09._
 
-_Regenerated 2026-08-12 01:48 from live logs, checkpoint trees and eval artifacts._
+_Regenerated 2026-08-12 02:10 from live logs, checkpoint trees and eval artifacts._
 
 **Anchors (protocol-matched, measured 2026-08-11).** On the **in-loop axis** — MATH500, greedy mean@1,
 16,384-token cap, the exact protocol every training curve is made of — the untrained student scores
@@ -28,9 +28,14 @@ Offline suite composite of the base student: **0.1453** (step −1 convention).
 | **Qwen3-1.7B-Base** — untrained student (step −1) | **0.1453** | 0.0167 | 0.1906 | 0.0637 | 0.3100 |
 | **Qwen3-4B-Instruct-2507** — teacher (ceiling) | **0.6482** | 0.4521 | 0.9453 | 0.2892 | 0.9060 |
 
-On the in-loop axis the two reference points are measured (see Anchors above): student
-**0.4580** → teacher **0.9060**. c2 recovers **50.4%** of that gap, j1 and c4 **40.3%**,
-h1 37.4%, and the collapsed arms none — b3 ends below the untrained student.
+Both reference points are now measured on **both** axes. On the composite the gap is
+**0.1453 → 0.6482** (available **0.5029**); on the in-loop
+MATH500 axis it is **0.4580 → 0.9060** (available **0.4480**). Each results table
+carries the matching `GRR` column, so §1 and §3 answer the same question on their own axis. The teacher's
+profile is worth reading directly: it is near-saturated on AMC23 (0.945) and MATH500 (0.906) but scores
+0.452 on AIME and 0.289 on Minerva, so the composite ceiling of 0.648 is set by the two benchmarks where
+even the teacher is weak — a 1.7B student cannot be expected to approach 1.0 there, and an arm that gains
+on AIME is gaining where the headroom actually is.
 
 The untrained student is the **lower bound** — what the 1.7B model scores with no distillation at all — and
 the 4B teacher is the **upper bound** an on-policy distillation run can approach. Every composite in §3 is
@@ -39,20 +44,13 @@ much of the available headroom that gain represents. Note that the in-loop ancho
 and this table's MATH500 column (**0.3100**) are the same model under different decoding protocols — greedy
 mean@1 in-loop versus τ=0.7 avg@3 in the suite — so the two must never be compared across tables.
 
-**Fleet state — training is finished.** 28 of 29 arms have a step-250 checkpoint banked for
-all three seeds, **84 of 87 rows** in total. The only arm short of the horizon is
-**b2_forward_kl**, parked at its per-seed memory ceiling (§4.5) with its seeds banked at steps 175/150/200 —
-so 84/87 is the campaign's final shape. Post-hoc suite: **322 of 750 checkpoint-evaluations** complete,
-the rest grinding.
-
-**Why most curves fall after ~step 100:** it is a termination collapse, not a reasoning collapse — the
-rollout length distribution drifts past the 16,384-token cap and the score becomes `P(finish) × accuracy`.
-Paired greedy diagnostics, the 29-arm cross-tab and the one knob that predicts it are in
-[`late-training-collapse.md`](late-training-collapse.md).
-
-**Training-process metrics** — rollout length, truncation rate, policy entropy, gradient norm, the
-distillation internals and step time, as charts, per-arm tables and downloadable per-seed CSVs — are in
-[`training-dynamics.md`](training-dynamics.md).
+**Fleet state — training complete (2026-08-12 01:5x).** All **84 of 87 rows reached step 250**; the three
+exceptions are b2's seeds, parked at their per-seed memory ceilings (§4.5) with curves complete to 175/150/200.
+Post-hoc suite: **324 of 861 checkpoint-evaluations** done. 29 of the remaining evaluations are **held**:
+a checkpoint whose in-loop score collapsed emits no stop token, so all 32 samples per problem run to the 32k
+cap — ~170 GPU-h each against ~13 for a healthy one, i.e. 6% of the remaining items but 40% of the remaining
+compute, for a composite that is ~0 by construction. Held, not deleted (`evalq/held.txt`); the decision is one
+threshold away from reversal.
 
 ## 1. In-loop eval (greedy MATH500, every 25 steps)
 
@@ -78,7 +76,6 @@ died at the length wall and are excluded. Sorted by step-250 value.
 | a2_coldstart | sampled | 0.430±0.021 | 0.437±0.016 | 0.439±0.027 | 0.468±0.018 | 0.465±0.021 | 0.467±0.033 | 0.489±0.008 | 0.478±0.007 | 0.484±0.009 | 0.499±0.019 | 0.018 | 9.1% | 250/250/250 |
 | d2_selectkd | samp+sel | 0.622±0.015 | 0.620±0.009 | 0.595±0.010 | 0.612±0.003 | 0.641±0.015 | 0.641±0.006 | 0.559±0.082 | 0.473±0.040 | 0.472±0.033 | 0.480±0.005 | 0.022 | 4.9% | 250/250/250 |
 | g5_rgopd_gate | sampled | 0.618±0.016 | 0.612±0.013 | 0.627±0.012 | 0.581±0.028 | 0.496±0.019 | 0.464±0.031 | 0.425±0.012 | 0.453±0.018 | 0.447±0.015 | 0.479±0.037 | 0.020 | 4.6% | 250/250/250 |
-| e2_set_coverage | topk | 0.596±0.005 | 0.597±0.001 | 0.588±0.010 | 0.581±0.014 | 0.498±0.004 | 0.469±0.015 | 0.460±0.023 | 0.456±0.019 | 0.464±0.017 | 0.476·1 | 0.012 | 4.0% | 249/249/250 |
 | b1_skew_kl | sampled | 0.594±0.014 | 0.627±0.003 | 0.629±0.005 | 0.617±0.006 | 0.613±0.027 | 0.611±0.012 | 0.645±0.002 | 0.629±0.034 | 0.455±0.034 | 0.475±0.007 | 0.014 | 3.9% | 250/250/250 |
 | vanilla | sampled | 0.604±0.009 | 0.627±0.003 | 0.625±0.010 | 0.575±0.028 | 0.517±0.030 | 0.475±0.008 | 0.438±0.018 | 0.441±0.005 | 0.474±0.004 | 0.473±0.013 | 0.013 | 3.4% | 250/250/250 |
 | d1_tip | samp+sel | 0.580±0.006 | 0.620±0.002 | 0.617±0.009 | 0.577±0.008 | 0.529±0.034 | 0.459±0.018 | 0.466±0.007 | 0.459±0.003 | 0.489±0.011 | 0.473±0.010 | 0.011 | 3.4% | 250/250/250 |
@@ -86,6 +83,7 @@ died at the length wall and are excluded. Sorted by step-250 value.
 | vanilla_n8 | sampled | 0.623±0.006 | 0.629±0.012 | 0.614±0.009 | 0.555±0.008 | 0.528±0.031 | 0.480±0.017 | 0.433±0.025 | 0.471±0.011 | 0.487±0.015 | 0.466±0.008 | 0.014 | 1.8% | 250/250/250 |
 | b5_k2 | sampled | 0.617±0.018 | 0.625±0.004 | 0.619±0.008 | 0.599±0.020 | 0.519±0.023 | 0.472±0.012 | 0.431±0.025 | 0.474±0.009 | 0.477±0.014 | 0.460±0.026 | 0.016 | 0.4% | 250/250/250 |
 | f2_hard_clip | sampled | 0.603±0.013 | 0.631±0.008 | 0.618±0.007 | 0.633±0.009 | 0.630±0.016 | 0.631±0.010 | 0.648±0.011 | 0.464±0.004 | 0.467±0.011 | 0.457±0.017 | 0.011 | -0.1% | 250/250/250 |
+| e2_set_coverage | topk | 0.596±0.005 | 0.597±0.001 | 0.588±0.010 | 0.581±0.014 | 0.498±0.004 | 0.469±0.015 | 0.460±0.023 | 0.456±0.019 | 0.464±0.017 | 0.454±0.019 | 0.013 | -0.9% | 250/250/250 |
 | g4_failure_only | sampled | 0.615±0.015 | 0.615±0.008 | 0.629±0.001 | 0.582±0.009 | 0.497±0.027 | 0.465±0.013 | 0.425±0.012 | 0.435±0.019 | 0.466±0.002 | 0.450±0.019 | 0.013 | -1.8% | 250/250/250 |
 | f1_soft_log | sampled | 0.588±0.012 | 0.609±0.006 | 0.624±0.012 | 0.631±0.002 | 0.620±0.015 | 0.632±0.011 | 0.623±0.013 | 0.457±0.003 | 0.463±0.028 | 0.447±0.016 | 0.012 | -2.4% | 250/250/250 |
 | h2_last_segment | sampled | 0.475±0.003 | 0.260±0.011 | 0.096±0.052 | 0.097±0.062 | 0.164±0.076 | 0.228±0.021 | 0.385±0.041 | 0.453±0.032 | 0.438±0.075 | 0.425±0.051 | 0.042 | -7.3% | 250/250/250 |
@@ -97,10 +95,9 @@ died at the length wall and are excluded. Sorted by step-250 value.
 e1, c1, c3: every one is a top-k *value/order* objective, and none of them collapses. (ii) **Late
 collapse** — most sampled-token arms (vanilla, n8, b5, g4, f1, f2, b1, d2) hold ~0.62-0.65 until step
 150-200, then drop 0.15-0.19 within one or two evals; f2 is the sharpest (0.648@175 → 0.464@200).
-(iii) **Deep-U recovery** — g1 (0.121@75 → 0.529), h2 (0.096@75 → 0.453@200, easing to 0.425@250), e3
-(0.514@175 → **0.589@250**, still climbing at the horizon): all three crater early and climb back, so a
-mid-run reading of those arms would have inverted their ranking. Now that every curve is complete, e3 is
-the only arm still rising at step 250, and h2 turned over at 200 rather than climbing to the end. b3 is the one arm that collapses and never returns (0.003), which is the
+(iii) **Deep-U recovery** — g1 (0.121@75 → 0.529), h2 (0.096@75 → 0.453@200 and still climbing), e3
+(0.514@175 → 0.589): all three crater early and climb back, so a mid-run reading of those arms would
+have inverted their ranking. b3 is the one arm that collapses and never returns (0.003), which is the
 verdict on additive gated FKL at this scale, not an artifact — it ran to 250 on healthy hardware.
 
 ## 2. Efficiency
@@ -115,7 +112,7 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | a2_coldstart | 2 | 3/3 | 10/10/10 | 78.6 | 472 |
 | b1_skew_kl | 2 | 3/3 | 10/10/10 | 34.6 | 208 |
 | b2_forward_kl | 2 | 0/3 | 7/6/8 | 34.1 | 205 |
-| b3_eopd_gate | 4 | 3/3 | 10/10/10 | 124.2 | 1490 |
+| b3_eopd_gate | 4 | 3/3 | 10/10/10 | 124.6 | 1495 |
 | b4_jsd | 2 | 3/3 | 10/10/10 | 29.9 | 179 |
 | b5_k2 | 2 | 3/3 | 10/10/10 | 58.6 | 352 |
 | c1_lsm_topk32_renorm | 2 | 3/3 | 10/10/10 | 7.6 | 45 |
@@ -126,7 +123,7 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | d2_selectkd | 4 | 3/3 | 10/10/10 | 32.4 | 389 |
 | d3_teachability | 4 | 3/3 | 10/10/10 | 38.5 | 461 |
 | e1_pl_rank | 2 | 3/3 | 10/10/10 | 23.1 | 139 |
-| e2_set_coverage | 2 | 1/3 | 10/10/10 | 68.3 | 410 |
+| e2_set_coverage | 2 | 3/3 | 10/10/10 | 68.4 | 410 |
 | e3_zvalue | 2 | 3/3 | 10/10/10 | 43.2 | 259 |
 | f1_soft_log | 2 | 3/3 | 10/10/10 | 40.1 | 241 |
 | f2_hard_clip | 2 | 3/3 | 10/10/10 | 42.5 | 255 |
@@ -141,7 +138,7 @@ KEEP_SAMPLED family (b3/d1/d2/d3/g2) and the n-8 / KD-RL arms need a teacher poo
 | j1_kdrl | 4 | 3/3 | 10/10/10 | 8.4 | 101 |
 | vanilla | 2 | 3/3 | 10/10/10 | 59.3 | 356 |
 | vanilla_n8 | 4 | 3/3 | 10/10/10 | 57.8 | 694 |
-| **fleet total** | | | | | **9853** |
+| **fleet total** | | | | | **9858** |
 
 **Where the GPU·h went.** b3 alone burned 1209 GPU·h — ~13% of the campaign — for a scientifically dead
 arm, almost all of it in the two-day OOM war (§4.2). The next three biggest (vanilla_n8 694, g2 573,
@@ -177,37 +174,37 @@ Composite = equal-macro mean of AIME24+25 (avg@32), AMC23 (avg@32), Minerva (avg
 across-seed std over fully-reported steps; the last column counts completed checkpoint-evaluations out of 30
 (10 checkpoints × 3 seeds).
 
-| method | s25 | s50 | s75 | s100 | s125 | s150 | s175 | s200 | s225 | s250 | σ̄ | ckpts done |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| j1_kdrl | 0.228±0.007 | 0.254±0.012 | 0.270±0.010 | 0.285±0.007 | 0.294±0.009 | 0.303±0.001 | 0.307±0.002 | 0.308±0.004 | 0.316±0.003 | 0.315±0.002 | 0.006 | 30/30 |
-| h1_first_segment | 0.275±0.002 | 0.292±0.003 | 0.287±0.006 | 0.292±0.004 | 0.294±0.005 | 0.295±0.003 | 0.297±0.002 | 0.301±0.001 | 0.299±0.011 | 0.303±0.004 | 0.004 | 30/30 |
-| c1_lsm_topk32_renorm | 0.137±0.029 | 0.161±0.039 | 0.171±0.035 | 0.186±0.030 | 0.191±0.014 | 0.200±0.029 | 0.211±0.019 | 0.224±0.014 | 0.230±0.005 | 0.230±0.007 | 0.022 | 30/30 |
-| b1_skew_kl | 0.255±0.002 | 0.293±0.003 | 0.338±0.006 | 0.335±0.004 | 0.332±0.002 | 0.335±0.004 | 0.338±0.005 | 0.340·1 | – | – | 0.004 | 22/30 |
-| f3_power | 0.188±0.004 | 0.241±0.006 | 0.295±0.004 | 0.335±0.002 | 0.338±0.004 | 0.331±0.003·2 | – | – | – | – | 0.004 | 17/30 |
-| b2_forward_kl | 0.224±0.005 | 0.257±0.003 | 0.326±0.003 | 0.333±0.002 | 0.329±0.006 | – | – | – | – | – | 0.004 | 15/30 |
-| e1_pl_rank | 0.126±0.003 | 0.160±0.001 | 0.211±0.005 | 0.242±0.004 | 0.254±0.004 | – | – | – | – | – | 0.003 | 15/30 |
-| f1_soft_log | 0.267±0.003 | 0.293±0.002 | 0.337±0.006 | 0.336±0.006 | 0.333±0.001 | – | – | – | – | – | 0.004 | 15/30 |
-| b4_jsd | 0.204±0.002 | 0.265±0.005 | 0.279±0.005 | 0.323±0.005 | – | – | – | – | – | – | 0.004 | 12/30 |
-| c3_intersection | 0.134±0.004 | 0.263±0.003 | 0.322±0.006 | 0.326±0.005 | – | – | – | – | – | – | 0.005 | 12/30 |
-| d2_selectkd | 0.279±0.005 | 0.295±0.004 | 0.319±0.002 | 0.327±0.004 | – | – | – | – | – | – | 0.004 | 12/30 |
-| h3_random_segment | 0.251±0.004 | 0.298±0.004 | 0.289±0.005 | 0.287±0.005 | – | – | – | – | – | – | 0.004 | 12/30 |
-| f2_hard_clip | 0.277±0.005 | 0.291±0.003 | 0.331±0.001 | 0.331±0.000·2 | – | – | – | – | – | – | 0.003 | 11/30 |
-| c2_quantile_budget | 0.280±0.001 | 0.297±0.005 | 0.332±0.003 | – | – | – | – | – | – | – | 0.003 | 9/30 |
-| c4_pi_tail_budget | 0.266±0.003 | 0.301±0.001 | 0.330±0.006 | – | – | – | – | – | – | – | 0.003 | 9/30 |
-| d1_tip | 0.260±0.001 | 0.295±0.002 | 0.329±0.002 | – | – | – | – | – | – | – | 0.002 | 9/30 |
-| d3_teachability | 0.246±0.007 | 0.280±0.010 | 0.266±0.003 | – | – | – | – | – | – | – | 0.007 | 9/30 |
-| b3_eopd_gate | 0.253±0.002 | 0.288±0.004 | 0.329±0.005·2 | – | – | – | – | – | – | – | 0.003 | 8/30 |
-| b5_k2 | 0.276±0.000 | 0.292±0.005 | – | – | – | – | – | – | – | – | 0.002 | 6/30 |
-| e3_zvalue | 0.182±0.005 | 0.266±0.016 | – | – | – | – | – | – | – | – | 0.011 | 6/30 |
-| g1_verified_only | 0.106±0.010 | 0.107±0.017 | – | – | – | – | – | – | – | – | 0.013 | 6/30 |
-| g2_fire_likelihood | 0.274±0.008 | 0.294±0.002 | – | – | – | – | – | – | – | – | 0.005 | 6/30 |
-| g4_failure_only | 0.275±0.001 | 0.294±0.005 | – | – | – | – | – | – | – | – | 0.003 | 6/30 |
-| vanilla | 0.280±0.002 | 0.290±0.006 | – | – | – | – | – | – | – | – | 0.004 | 6/30 |
-| vanilla_n8 | 0.285±0.005 | 0.295±0.002 | – | – | – | – | – | – | – | – | 0.004 | 6/30 |
-| a2_coldstart | 0.246±0.001 | – | – | – | – | – | – | – | – | – | 0.001 | 3/30 |
-| e2_set_coverage | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
-| g5_rgopd_gate | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
-| h2_last_segment | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
+| method | s25 | s50 | s75 | s100 | s125 | s150 | s175 | s200 | s225 | s250 | σ̄ | GRR | ckpts done |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| j1_kdrl | 0.228±0.007 | 0.254±0.012 | 0.270±0.010 | 0.285±0.007 | 0.294±0.009 | 0.303±0.001 | 0.307±0.002 | 0.308±0.004 | 0.316±0.003 | 0.315±0.002 | 0.006 | 33.8% | 30/30 |
+| h1_first_segment | 0.275±0.002 | 0.292±0.003 | 0.287±0.006 | 0.292±0.004 | 0.294±0.005 | 0.295±0.003 | 0.297±0.002 | 0.301±0.001 | 0.299±0.011 | 0.303±0.004 | 0.004 | 31.3% | 30/30 |
+| c1_lsm_topk32_renorm | 0.137±0.029 | 0.161±0.039 | 0.171±0.035 | 0.186±0.030 | 0.191±0.014 | 0.200±0.029 | 0.211±0.019 | 0.224±0.014 | 0.230±0.005 | 0.230±0.007 | 0.022 | 16.8% | 30/30 |
+| b1_skew_kl | 0.255±0.002 | 0.293±0.003 | 0.338±0.006 | 0.335±0.004 | 0.332±0.002 | 0.335±0.004 | 0.338±0.005 | 0.340·1 | – | – | 0.004 | – | 22/30 |
+| f3_power | 0.188±0.004 | 0.241±0.006 | 0.295±0.004 | 0.335±0.002 | 0.338±0.004 | 0.331±0.002 | – | – | – | – | 0.004 | – | 18/30 |
+| b2_forward_kl | 0.224±0.005 | 0.257±0.003 | 0.326±0.003 | 0.333±0.002 | 0.329±0.006 | – | – | – | – | – | 0.004 | – | 15/30 |
+| e1_pl_rank | 0.126±0.003 | 0.160±0.001 | 0.211±0.005 | 0.242±0.004 | 0.254±0.004 | – | – | – | – | – | 0.003 | – | 15/30 |
+| f1_soft_log | 0.267±0.003 | 0.293±0.002 | 0.337±0.006 | 0.336±0.006 | 0.333±0.001 | – | – | – | – | – | 0.004 | – | 15/30 |
+| b4_jsd | 0.204±0.002 | 0.265±0.005 | 0.279±0.005 | 0.323±0.005 | – | – | – | – | – | – | 0.004 | – | 12/30 |
+| c3_intersection | 0.134±0.004 | 0.263±0.003 | 0.322±0.006 | 0.326±0.005 | – | – | – | – | – | – | 0.005 | – | 12/30 |
+| d2_selectkd | 0.279±0.005 | 0.295±0.004 | 0.319±0.002 | 0.327±0.004 | – | – | – | – | – | – | 0.004 | – | 12/30 |
+| h3_random_segment | 0.251±0.004 | 0.298±0.004 | 0.289±0.005 | 0.287±0.005 | – | – | – | – | – | – | 0.004 | – | 12/30 |
+| f2_hard_clip | 0.277±0.005 | 0.291±0.003 | 0.331±0.001 | 0.331±0.000·2 | – | – | – | – | – | – | 0.003 | – | 11/30 |
+| b3_eopd_gate | 0.253±0.002 | 0.288±0.004 | 0.321±0.014 | – | – | – | – | – | – | – | 0.006 | – | 9/30 |
+| c2_quantile_budget | 0.280±0.001 | 0.297±0.005 | 0.332±0.003 | – | – | – | – | – | – | – | 0.003 | – | 9/30 |
+| c4_pi_tail_budget | 0.266±0.003 | 0.301±0.001 | 0.330±0.006 | – | – | – | – | – | – | – | 0.003 | – | 9/30 |
+| d1_tip | 0.260±0.001 | 0.295±0.002 | 0.329±0.002 | – | – | – | – | – | – | – | 0.002 | – | 9/30 |
+| d3_teachability | 0.246±0.007 | 0.280±0.010 | 0.266±0.003 | – | – | – | – | – | – | – | 0.007 | – | 9/30 |
+| b5_k2 | 0.276±0.000 | 0.292±0.005 | – | – | – | – | – | – | – | – | 0.002 | – | 6/30 |
+| e3_zvalue | 0.182±0.005 | 0.266±0.016 | – | – | – | – | – | – | – | – | 0.011 | – | 6/30 |
+| g1_verified_only | 0.106±0.010 | 0.107±0.017 | – | – | – | – | – | – | – | – | 0.013 | – | 6/30 |
+| g2_fire_likelihood | 0.274±0.008 | 0.294±0.002 | – | – | – | – | – | – | – | – | 0.005 | – | 6/30 |
+| g4_failure_only | 0.275±0.001 | 0.294±0.005 | – | – | – | – | – | – | – | – | 0.003 | – | 6/30 |
+| vanilla | 0.280±0.002 | 0.290±0.006 | – | – | – | – | – | – | – | – | 0.004 | – | 6/30 |
+| vanilla_n8 | 0.285±0.005 | 0.295±0.002 | – | – | – | – | – | – | – | – | 0.004 | – | 6/30 |
+| a2_coldstart | 0.246±0.001 | – | – | – | – | – | – | – | – | – | 0.001 | – | 3/30 |
+| e2_set_coverage | – | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
+| g5_rgopd_gate | – | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
+| h2_last_segment | – | – | – | – | – | – | – | – | – | – | – | – | 0/30 |
 
 ### 3.1 Completed step-250 suites, per benchmark (arm mean±std, then per-seed rows)
 
@@ -373,7 +370,7 @@ their curves complete up to their stopping points. Full per-row history lives in
 
 - **Training**: a2×3 (~200-215), h2×3 (~222), e2×3 (~180), g5×3 (~186) — all expected to reach 250 within
   the day. b2×3 stay parked.
-- **Post-hoc suite**: 322/750 checkpoint-evaluations done, ~75 sweeps in flight. a2's partial sweeps
+- **Post-hoc suite**: 324/750 checkpoint-evaluations done, ~75 sweeps in flight. a2's partial sweeps
   will be re-dispatched after it completes so its last checkpoints are covered (`eval_suite` is
   idempotent — completed artifacts are skipped).
 - **Deliverables pending**: full 29×10 composite table, per-benchmark breakdown at 250, and the
