@@ -119,3 +119,57 @@ lane logs.
 | M4 | deep-U mechanism: `gate_keep_frac` (g1/g4) + h2 panels — is the crater a gated-data famine that heals as accuracy rises? | the one entropy-dynamics regime still unexplained (N3) |
 | M5 | the never-taken panel readings: overlap **mass** vs the "97–99%" claim, `pi_tail` K-scan, D-axis shadow Jaccard (redundancy prediction #4) | M-III's instruments are installed; these are the readings (N4) |
 | M6 | textdump read of f3@100 vs f3@250 — the roster's only decline that cannot be blamed on the grader (never caps, length/entropy healthy); what actually degrades? plus `power_dead_frac` / `clip_hit_rate` / `shrink_ratio` join the M1 panel sweep | the second failure mode gets its mechanism read (F axis) |
+
+## 5. The 2026-08-11 expansion — tiered budget summary
+
+Everything registered on 2026-08-11, sorted by how much deciding it still needs.
+Reference scale: the 16k campaign itself cost 9,241 GPU·h.
+
+### Tier 1 — queued, runs itself (waves 9–12; no decision needed)
+
+All stock, all 2-card, CPU batteries passed, fingerprint-split; lanes pick them
+up in wave order as training winds down.
+
+| wave | cells | adjudicates | GPU·h | suite cells |
+|---|---|---|---|---|
+| 9 | `b4_jsd_b0.1` / `_b0.9` | β ladder: H1 form / H2 direction / H3 boundedness | ~358 | 60 |
+| 10 | `c2_qb_fixed8` / `_perseq` | c2's pinning granularity + the matched-budget fixed control | ~600 | 60 |
+| 11 | `e1_pl_rank_a0` / `e2_set_coverage_a0` | E-ladder purity ("does order suffice" made legal) + near-placebo | ~420 | 60 |
+| 12 | `h4_random_scatter` / `h5_gen100` | window-vs-scatter (tail-dose test) + ESR's own truncation form | ~235 | 60 |
+| **total** | **8 arms / 24 rows** | | **~1,610** | **240** |
+
+### Tier 2 — registered, blocked on a prerequisite
+
+| cell | prerequisite | GPU·h |
+|---|---|---|
+| `g1_quota` / `g4_quota` (wave 13) | pass-quota predicate on verl v1's `filter_groups` seam + rehearsal | ~657 |
+| C1 `c1-direct` | none — **just needs a lane; the roster's best decision-per-GPU·h** | ~50 |
+| A1 a2 validity recipe cell | stage-1 rebuild (validity filter + pinned SFT hyperparameters) | ~400 |
+| A3 a1/a3 unlock | cornell `gen_offpolicy` precompute + rehearsal | ~600 |
+| **total** | | **~1,700** |
+
+### Tier 3 — proposals awaiting a go/no-go
+
+| cell | adjudicates | GPU·h |
+|---|---|---|
+| N1 causal keystone (`vanilla` + truncation-zeroing reward only) | closes the EOS-starvation loop causally — the heaviest-weight proposal | ~350 |
+| DH1 random-scatter @50% / @5% | criterion-vs-random at matched budget (the selector literature's actual claim) | ~500 |
+| C2 tailbucket / C3 full-vocab upper bound | headline-theorem second test / the width axis's endpoint | ~150 |
+| bounded set-coverage repair (must be born anchor-free) | a clean reading for the E ladder's bottom rung | ~280 |
+| **total** | | **~1,280** |
+
+**Archived / conditional (not counted):** `j0_grpo_only` (archived 2026-08-11:
+a reward-dominated cell is hard to claim as OPD; J stays bounded), the α ladder
+(trigger conditions in the ledger), the k2-dilution control.
+
+### Totals and recommended order
+
+- Tier 1 + Tier 2 ≈ **3,300 GPU·h** (~36% of the original campaign); all three
+  tiers ≈ **4,600 GPU·h** (~50%) plus ~420 new suite cells.
+- Running in parallel at zero GPU: the M1–M6 harvests and S (the ~555 remaining
+  suite cells — the arbiter).
+- Recommended order: **C1 immediately** (50 GPU·h buys the biggest pending
+  verdict) → Tier 1 self-runs → **A1** (unblocks the whole A axis) → **N1**
+  (the mechanism paper's causal piece) → DH1 → revisit the rest once Tier 1
+  reports. If Tier 3 must shrink, cut C2/C3 first (the theorem already has c4's
+  vote; the upper bound is a completeness piece, not a verdict piece).
