@@ -42,8 +42,14 @@ effects; the eval protocol is M-IV.
 - Termination pressure: b5↔j1 controlled pair (verifier zeroes a capped rollout).
 - Initialization: a2's SFT stage delivers a termination-broken init (capped from
   step 31; teacher median 694 tokens — the length is trained, not imitated).
-- Supervision window: h1/h3 (mask beyond K=100) keep length bounded — length
-  pressure appears to come from the supervised span.
+- **The position dose line** (registered, D×H cross-reading): where the
+  supervised span sits controls termination; how much is supervised does not.
+  Front window (h1, trunc 0.151) < random contiguous window (h3, 0.182) <
+  criterion-scattered selection (d1/d2/d3, 0.990–1.000) < tail window (h2,
+  locked from step 37). The budget refutation is d3 vs h1: 5% of tokens
+  criterion-scattered caps at 1.000 while 0.6% front-windowed is safe. The
+  ordering's middle step is confounded (scatter-vs-window × criterion ×
+  budget) — the DH1 bridge cells split it.
 - The early-excursion ratchet: spike-before-80 is close to decisive (40/46
   recoveries relapse); a free early-stopping signal for any follow-up campaign.
 
@@ -100,6 +106,29 @@ edge > teacher edge, budget-pinning > error-pinning — all pending C1 and compu
 normalization); the E-axis 4-rung ladder ran (values 0.524 / z 0.589 / order
 0.572 / set 0.460-parked — note the non-monotone rung order, unanalyzed); D/G/H
 families complete with selector, gating, and window results.
+
+**The supervision-support family (D ∪ H, merged reading — presentation level
+only; run_ids, axis letters, citations and fingerprints unchanged).** Both axes
+are the same mechanical operation — `loss_t = 1[t∈Keep]·Δℓ_t·rescale` — and
+differ only in how Keep is chosen. Merged, the family is a three-factor space
+the current arms sample sparsely:
+
+| factor | sampled at | by |
+|---|---|---|
+| position (WHERE) | front / random-window / tail / everywhere | h1 / h3 / h2 / d-family |
+| criterion (BY WHAT) | entropy∨wrong / verify / teach / none | d1 / d2 / d3 / h-family |
+| budget (HOW MUCH) | 0.6% (K=100) / 5% / 50% / TAR / 100% | h* / d3 / d1 / d2 / vanilla |
+
+The merge exposes a real design hole: **the D axis never had its
+random-at-matched-budget control.** d1-vs-vanilla answers "does selecting half
+work", not "does TIP's criterion beat a random half" — and the latter is the
+selector literature's actual claim. h3 is random but contiguous at K=100, a
+different budget and shape. The DH1 bridge cells (random-scatter @50% and @5%)
+close this; they need no criterion, hence no KEEP_SAMPLED payload, hence 2-card
+lanes — which also prices the criterion itself: the d-family pays 4-card lanes
+for its criteria, and if random-scatter matches them, that entire cost bought
+nothing. H's "less-is-more" budget claim survives inside the family as the
+budget factor's extreme sample point (deliberately not budget-matched).
 
 **The reorganization's sharpest finding about M-III: the instruments are
 installed but several readings were never taken.** Every top-k arm has been
