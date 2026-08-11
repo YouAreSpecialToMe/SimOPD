@@ -14,10 +14,10 @@
 <text class="ink" x="14" y="24" fill="#1f2328" font-size="16" font-weight="600">Every arm: score vs truncation, on one 0–1 axis</text>
 <text class="mute" x="14" y="42" fill="#656d76" font-size="12">blue solid = MATH500 greedy mean@1 · red dashed = fraction of rollouts hitting the 16,384-token cap · x = step 0→250, step 0 being the shared untrained-student anchor · arm name is tinted with its axis colour, matching the line charts above</text>
 <rect x="14" y="54" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
-<path d="M14.0,95.7 L35.0,54.8 L56.0,54.0 L77.0,54.0 L98.0,54.3 L119.0,54.0 L140.0,54.0 L161.0,54.0 L182.0,54.0" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
-<path d="M14.0,113.3 L35.0,112.5 L56.0,112.3 L77.0,109.3 L98.0,109.6 L119.0,109.4 L140.0,107.1 L161.0,108.3 L182.0,108.1" fill="none" stroke="#0969da" stroke-width="1.5"/>
+<path d="M14.0,95.7 L32.7,54.8 L51.3,54.0 L70.0,54.0 L88.7,54.3 L107.3,54.0 L126.0,54.0 L144.7,54.0 L163.3,54.3 L182.0,54.0" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
+<path d="M14.0,113.3 L32.7,112.5 L51.3,112.3 L70.0,109.3 L88.7,109.6 L107.3,109.4 L126.0,107.1 L144.7,108.3 L163.3,107.7 L182.0,106.1" fill="none" stroke="#0969da" stroke-width="1.5"/>
 <text class="k0f" x="16" y="172" fill="#981d0b" font-size="10.5" font-weight="600">a2_coldstart</text>
-<text class="mute" x="16" y="183" fill="#656d76" font-size="9.5">final 0.480 @ 225</text>
+<text class="mute" x="16" y="183" fill="#656d76" font-size="9.5">final 0.499 @ 250</text>
 <rect x="196" y="54" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
 <path d="M212.8,156.6 L229.6,110.3 L246.4,147.4 L263.2,150.4 L280.0,153.7 L296.8,155.3 L313.6,155.3 L330.4,154.8 L347.2,103.8 L364.0,63.2" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
 <path d="M196.0,110.4 L212.8,96.2 L229.6,92.8 L246.4,92.6 L263.2,93.9 L280.0,94.3 L296.8,94.4 L313.6,91.0 L330.4,92.5 L347.2,110.7 L364.0,108.6" fill="none" stroke="#0969da" stroke-width="1.5"/>
@@ -84,10 +84,10 @@
 <text class="k13f" x="562" y="440" fill="#0b7098" font-size="10.5" font-weight="600">e1_pl_rank</text>
 <text class="mute" x="562" y="451" fill="#656d76" font-size="9.5">final 0.572 @ 250</text>
 <rect x="742" y="322" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
-<path d="M766.0,425.2 L790.0,345.8 L814.0,359.1 L838.0,375.9 L862.0,340.7 L886.0,323.4 L910.0,324.2" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
-<path d="M742.0,378.4 L766.0,364.0 L790.0,363.9 L814.0,364.8 L838.0,365.5 L862.0,374.2 L886.0,377.2 L910.0,378.2" fill="none" stroke="#0969da" stroke-width="1.5"/>
+<path d="M758.8,425.2 L775.6,345.8 L792.4,359.1 L809.2,375.9 L826.0,340.7 L842.8,323.4 L859.6,324.2 L876.4,324.4 L893.2,323.1 L910.0,324.4" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
+<path d="M742.0,378.4 L758.8,364.0 L775.6,363.9 L792.4,364.8 L809.2,365.5 L826.0,374.2 L842.8,377.2 L859.6,378.2 L876.4,378.6 L893.2,377.7 L910.0,376.5" fill="none" stroke="#0969da" stroke-width="1.5"/>
 <text class="k14f" x="744" y="440" fill="#1864a5" font-size="10.5" font-weight="600">e2_set_coverage</text>
-<text class="mute" x="744" y="451" fill="#656d76" font-size="9.5">final 0.460 @ 175</text>
+<text class="mute" x="744" y="451" fill="#656d76" font-size="9.5">final 0.476 @ 250</text>
 <rect x="14" y="456" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
 <path d="M30.8,556.8 L47.6,542.1 L64.4,509.6 L81.2,499.9 L98.0,491.2 L114.8,492.3 L131.6,510.2 L148.4,515.3 L165.2,523.7 L182.0,534.0" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
 <path d="M14.0,512.4 L30.8,502.6 L47.6,495.7 L64.4,493.7 L81.2,495.4 L98.0,501.7 L114.8,505.7 L131.6,506.5 L148.4,503.3 L165.2,499.7 L182.0,498.8" fill="none" stroke="#0969da" stroke-width="1.5"/>
@@ -124,20 +124,20 @@
 <text class="k21f" x="198" y="708" fill="#a91ca9" font-size="10.5" font-weight="600">g4_failure_only</text>
 <text class="mute" x="198" y="719" fill="#656d76" font-size="9.5">final 0.450 @ 250</text>
 <rect x="378" y="590" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
-<path d="M402.0,692.9 L426.0,623.9 L450.0,670.4 L474.0,670.2 L498.0,603.0 L522.0,590.0 L546.0,590.0" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
-<path d="M378.0,646.4 L402.0,629.7 L426.0,630.4 L450.0,628.8 L474.0,633.5 L498.0,642.4 L522.0,645.7 L546.0,649.8" fill="none" stroke="#0969da" stroke-width="1.5"/>
+<path d="M394.8,692.9 L411.6,623.9 L428.4,670.4 L445.2,670.2 L462.0,603.0 L478.8,590.0 L495.6,590.0 L512.4,590.0 L529.2,590.0 L546.0,590.8" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
+<path d="M378.0,646.4 L394.8,629.7 L411.6,630.4 L428.4,628.8 L445.2,633.5 L462.0,642.4 L478.8,645.7 L495.6,649.8 L512.4,646.9 L529.2,647.5 L546.0,644.2" fill="none" stroke="#0969da" stroke-width="1.5"/>
 <text class="k22f" x="380" y="708" fill="#b02796" font-size="10.5" font-weight="600">g5_rgopd_gate</text>
-<text class="mute" x="380" y="719" fill="#656d76" font-size="9.5">final 0.425 @ 175</text>
+<text class="mute" x="380" y="719" fill="#656d76" font-size="9.5">final 0.479 @ 250</text>
 <rect x="560" y="590" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
 <path d="M576.8,693.2 L593.6,692.6 L610.4,688.0 L627.2,687.2 L644.0,688.9 L660.8,684.8 L677.6,685.6 L694.4,682.9 L711.2,679.1 L728.0,678.3" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
 <path d="M560.0,646.4 L576.8,632.9 L593.6,628.7 L610.4,628.8 L627.2,628.6 L644.0,630.1 L660.8,628.5 L677.6,629.8 L694.4,628.3 L711.2,628.9 L728.0,629.0" fill="none" stroke="#0969da" stroke-width="1.5"/>
 <text class="k23f" x="562" y="708" fill="#980b51" font-size="10.5" font-weight="600">h1_first_segment</text>
 <text class="mute" x="562" y="719" fill="#656d76" font-size="9.5">final 0.625 @ 250</text>
 <rect x="742" y="590" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
-<path d="M760.7,666.1 L779.3,591.6 L798.0,590.5 L816.7,590.3 L835.3,590.3 L854.0,590.3 L872.7,590.0 L891.3,590.3 L910.0,590.0" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
-<path d="M742.0,646.4 L760.7,644.6 L779.3,667.0 L798.0,684.0 L816.7,683.9 L835.3,676.9 L854.0,670.3 L872.7,654.0 L891.3,646.9 L910.0,648.4" fill="none" stroke="#0969da" stroke-width="1.5"/>
+<path d="M758.8,666.1 L775.6,591.6 L792.4,590.5 L809.2,590.3 L826.0,590.3 L842.8,590.3 L859.6,590.0 L876.4,590.3 L893.2,590.0 L910.0,590.3" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
+<path d="M742.0,646.4 L758.8,644.6 L775.6,667.0 L792.4,684.0 L809.2,683.9 L826.0,676.9 L842.8,670.3 L859.6,654.0 L876.4,646.9 L893.2,648.4 L910.0,649.8" fill="none" stroke="#0969da" stroke-width="1.5"/>
 <text class="k24f" x="744" y="708" fill="#a51844" font-size="10.5" font-weight="600">h2_last_segment</text>
-<text class="mute" x="744" y="719" fill="#656d76" font-size="9.5">final 0.438 @ 225</text>
+<text class="mute" x="744" y="719" fill="#656d76" font-size="9.5">final 0.425 @ 250</text>
 <rect x="14" y="724" width="168" height="104" fill="none" class="grid" stroke="#d8dee4" stroke-width="1"/>
 <path d="M30.8,827.2 L47.6,818.5 L64.4,772.2 L81.2,764.6 L98.0,781.7 L114.8,793.9 L131.6,799.0 L148.4,805.0 L165.2,808.8 L182.0,809.0" fill="none" stroke="#d1242f" stroke-width="1.5" stroke-dasharray="3 3"/>
 <path d="M14.0,780.4 L30.8,770.2 L47.6,760.5 L64.4,764.3 L81.2,764.4 L98.0,765.0 L114.8,765.9 L131.6,766.1 L148.4,765.7 L165.2,766.0 L182.0,767.4" fill="none" stroke="#0969da" stroke-width="1.5"/>

@@ -219,8 +219,8 @@ terminated sequence, spread over every token the batch trains on:
 EOS tokens per 1,000 training tokens. `vanilla` goes from 0.5336 to 0.000320 — a
 **1670× collapse**. `c2` falls 4.9× and stops.
 
-Across all 29 arms, r(log₁₀ terminal EOS density, final score) = **+0.653** and against the
-fall from peak **-0.574** — a tighter fit than raw truncation gives.
+Across all 29 arms, r(log₁₀ terminal EOS density, final score) = **+0.595** and against the
+fall from peak **-0.587** — a tighter fit than raw truncation gives.
 
 **This is a reframing, not an independent measurement**: the quantity is an algebraic transform of
 `clip_ratio` and `response_length/mean`, so it cannot confirm the account on its own. What it adds is
@@ -237,13 +237,13 @@ the trigger, and separating trigger from ratchet needs an intervention run, not 
 
 Terminal truncation rate is the single strongest cross-arm predictor of the fall:
 
-- Pearson r(terminal truncation, fall from peak) = **+0.588**, Spearman ρ = +0.667 (n=29 arms)
-- Pearson r(terminal truncation, final score) = **-0.617**, Spearman ρ = -0.750
+- Pearson r(terminal truncation, fall from peak) = **+0.577**, Spearman ρ = +0.623 (n=29 arms)
+- Pearson r(terminal truncation, final score) = **-0.601**, Spearman ρ = -0.708
 
 | cap binding at the last step | arms | mean fall from peak | mean final | mean length | mean entropy |
 |---|---|---|---|---|---|
 | no | 11 | **0.030** | 0.586 | 7159 | 1.157 |
-| yes | 18 | **0.169** | 0.439 | 16078 | 0.284 |
+| yes | 18 | **0.165** | 0.443 | 16072 | 0.286 |
 
 **The within-run test is the decisive one.** For every (arm, seed) trajectory that crossed from the
 slack regime (<50 % of rollouts truncated) into the capped regime, compare the in-loop score at the
@@ -253,23 +253,23 @@ last slack step against the score at the end. That makes each run its own contro
 |---|---|---|---|---|---|---|
 | `b3_eopd_gate` | 3 | 91 | 0.555 | 0.003 | **-0.553** | yes |
 | `f2_hard_clip` | 3 | 188 | 0.648 | 0.457 | **-0.191** | yes |
-| `g5_rgopd_gate` | 3 | 106 | 0.581 | 0.425 | **-0.157** | yes |
 | `vanilla_n8` | 3 | 98 | 0.614 | 0.466 | **-0.148** | yes |
 | `b5_k2` | 3 | 105 | 0.599 | 0.460 | **-0.139** | no |
 | `g4_failure_only` | 3 | 106 | 0.582 | 0.450 | **-0.132** | yes |
 | `d2_selectkd` | 3 | 179 | 0.610 | 0.480 | **-0.130** | yes |
 | `d3_teachability` | 3 | 116 | 0.542 | 0.415 | **-0.127** | yes |
-| `e2_set_coverage` | 3 | 119 | 0.581 | 0.460 | **-0.121** | no |
+| `e2_set_coverage` | 3 | 119 | 0.581 | 0.465 | **-0.117** | no |
 | `d1_tip` | 3 | 104 | 0.577 | 0.473 | **-0.104** | yes |
+| `g5_rgopd_gate` | 3 | 106 | 0.581 | 0.479 | **-0.103** | yes |
 | `vanilla` | 3 | 105 | 0.575 | 0.473 | **-0.102** | yes |
 | `g1_verified_only` | 3 | 147 | 0.597 | 0.529 | **-0.068** | yes |
 | `f1_soft_log` | 3 | 198 | 0.515 | 0.447 | **-0.068** | yes |
+| `h2_last_segment` | 3 | 31 | 0.475 | 0.425 | **-0.050** | yes |
 | `g2_fire_likelihood` | 3 | 136 | 0.554 | 0.511 | **-0.043** | yes |
-| `h2_last_segment` | 3 | 31 | 0.475 | 0.438 | **-0.037** | yes |
 | `b1_skew_kl` | 3 | 222 | 0.493 | 0.475 | **-0.017** | yes |
 | `b2_forward_kl` | 2 | 155 | 0.448 | 0.441 | **-0.007** | no |
 
-**17 of 17 arms fell after crossing. Zero rose.** Mean Δ -0.126, median -0.121.
+**17 of 17 arms fell after crossing. Zero rose.** Mean Δ -0.123, median -0.104.
 
 ## 6. Which knob predicts it
 
@@ -298,7 +298,7 @@ zero, which is exactly the pressure the pure distillation objective lacks.
 
 ## 7. What this is *not*
 
-**Not an entropy collapse.** Capped arms do end at lower policy entropy (mean 0.284 vs 1.157), but entropy is neither necessary nor
+**Not an entropy collapse.** Capped arms do end at lower policy entropy (mean 0.286 vs 1.157), but entropy is neither necessary nor
 sufficient: `h1_first_segment` (0.077, fall 0.007), `j1_kdrl` (0.156, fall 0.007), `e3_zvalue` (0.172, fall 0.049) all end at entropy *below* `vanilla`'s 0.240 while keeping their length distribution inside
 the cap — and they keep their score. Low entropy with a bounded length distribution is harmless.
 
@@ -346,19 +346,19 @@ and 4,505 there. `peak`/`final`/`fall` are the in-loop greedy MATH500 val, seed-
 | `b1_skew_kl` | B | yes | – | 0.645 | 175 | 0.475 | 0.169 | 250 | 247 | 0.911 | 15724 | 0.311 |
 | `g2_fire_likelihood` | G | yes | yes | 0.624 | 100 | 0.511 | 0.113 | 250 | 143 | 0.969 | 16037 | 0.230 |
 | `f1_soft_log` | F | yes | – | 0.632 | 150 | 0.447 | 0.185 | 250 | 208 | 0.971 | 16185 | 0.277 |
-| `e2_set_coverage` | E | no | – | 0.597 | 50 | 0.460 | 0.137 | 175 | 128 | 0.977 | 16218 | 0.191 |
+| `e2_set_coverage` | E | no | – | 0.597 | 50 | 0.476 | 0.121 | 250 | 128 | 0.977 | 16190 | 0.199 |
 | `f2_hard_clip` | F | yes | – | 0.648 | 175 | 0.457 | 0.191 | 250 | 198 | 0.977 | 16196 | 0.234 |
 | `d1_tip` | D | yes | yes | 0.620 | 50 | 0.473 | 0.147 | 250 | 127 | 0.990 | 16281 | 0.240 |
 | `vanilla_n8` | - | yes | – | 0.629 | 50 | 0.466 | 0.163 | 250 | 117 | 0.991 | 16276 | 0.256 |
+| `g5_rgopd_gate` | G | yes | – | 0.627 | 75 | 0.479 | 0.148 | 250 | 131 | 0.992 | 16312 | 0.242 |
 | `g4_failure_only` | G | yes | – | 0.629 | 75 | 0.450 | 0.179 | 250 | 121 | 0.992 | 16311 | 0.241 |
 | `b5_k2` | B | no | – | 0.625 | 50 | 0.460 | 0.165 | 250 | 125 | 0.995 | 16338 | 0.243 |
 | `vanilla` | - | yes | – | 0.627 | 50 | 0.473 | 0.153 | 250 | 122 | 0.995 | 16328 | 0.240 |
+| `h2_last_segment` | H | yes | – | 0.475 | 25 | 0.425 | 0.050 | 250 | 37 | 0.997 | 16343 | 0.197 |
 | `d2_selectkd` | D | yes | yes | 0.641 | 125 | 0.480 | 0.161 | 250 | 191 | 0.997 | 16364 | 0.194 |
-| `g5_rgopd_gate` | G | yes | – | 0.627 | 75 | 0.425 | 0.202 | 175 | 131 | 0.997 | 16358 | 0.234 |
-| `d3_teachability` | D | yes | yes | 0.622 | 50 | 0.415 | 0.207 | 250 | 123 | 1.000 | 16384 | 0.796 |
 | `b3_eopd_gate` | B | yes | yes | 0.612 | 50 | 0.003 | 0.609 | 250 | 101 | 1.000 | 16384 | 0.001 |
-| `a2_coldstart` | A | yes | – | 0.489 | 175 | 0.480 | 0.009 | 225 | 31 | 1.000 | 16384 | 0.228 |
-| `h2_last_segment` | H | yes | – | 0.475 | 25 | 0.438 | 0.037 | 225 | 37 | 1.000 | 16384 | 0.188 |
+| `a2_coldstart` | A | yes | – | 0.499 | 250 | 0.499 | 0.000 | 250 | 31 | 1.000 | 16384 | 0.240 |
+| `d3_teachability` | D | yes | yes | 0.622 | 50 | 0.415 | 0.207 | 250 | 123 | 1.000 | 16384 | 0.796 |
 
 ---
 
