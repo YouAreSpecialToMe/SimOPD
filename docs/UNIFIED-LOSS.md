@@ -58,7 +58,7 @@ L̂ = ( 1 / Σ_i w_i ) Σ_i  w_i · [ ( 1 / Σ_t m_it ) Σ_t  m_it · ℓ̃_it ]
 
 | stage | values in the roster | owning axis |
 |---|---|---|
-| `μ` | λ ∈ {0, 0.5, 1}; T_max ∈ {100, 16k}; n ∈ {1, 8} | A; h5; n8 cell |
+| `μ` | λ ∈ {0, 0.5, 1}; T_max ∈ {100, 16k}; n pinned at 1 (n=8 cell archived with the J axis, 2026-08-11) | A; h5 |
 | `w` | 1 / 1[pass] / 1[fail] / quota-K / directional / likelihood | G |
 | `m` | 1 / windows / scatter / criteria; ρ, placement P | D∪H |
 | `Q_Ω` | {y_t} / top-k / quantile-budget / intersection / π-tail | C |
@@ -159,7 +159,7 @@ stratified product, §1). The actual design discipline is:
 | axis | carrier (held fixed) | scientific coordinate |
 |---|---|---|
 | A | vanilla pipeline | μ.λ |
-| n8 / h5 | vanilla pipeline | μ.n / μ.T_max |
+| h5 | vanilla pipeline | μ.T_max |
 | G | vanilla local pipeline | w |
 | D∪H | vanilla local pipeline | m (ρ, placement) |
 | C | b=direct, D=renorm-RKL | Ω rule / ν / τ-scope |
@@ -194,9 +194,12 @@ The double conditional-mean estimator makes the G/H algebra automatic:
 
 ## 7. Outside the operator (pinned and disclosed)
 
-Initialization `θ₀` (a2). Objective mixing `L_total = L_task + c·L_OPD` (j1 —
-the J boundary asks whether the local distillation operator needs a global task
-objective to close the loop; archived ruling bounds the axis). Execution:
+Initialization `θ₀` (a2). Objective mixing `L_total = L_task + c·L_OPD` — the
+J boundary asks whether the local distillation operator needs a global task
+objective to close the loop. The J axis is archived **in full** (2026-08-11):
+`j1_kdrl` and its n=8 control — a reward-dominated cell is hard to claim as
+OPD. The boundary question stands; the completed cells are banked as appendix
+material, and `μ.n` is pinned at 1 roster-wide. Execution:
 synchronous, zero staleness. Temperature τ=1 (a global re-parameterization that
 composes with every stage — not a coordinate; ruling 2026-08-11). Temporal
 credit: immediate, no baseline (the return-to-go / GAE family is a disclosed

@@ -159,8 +159,10 @@ up in wave order as training winds down.
 | `f2_clip2.3` matched-M pair (clip moved to b1's intrinsic ln 10 ≈ 2.3) | the magnitude-unification **screening-off test as an intervention** — M1 is its measurement half; P-M vs P-impl in the ledger (`UNIFIED-LOSS.md` §3.3) | ~195 |
 | **total** | | **~1,475** |
 
-**Archived / conditional (not counted):** `j0_grpo_only` (archived 2026-08-11:
-a reward-dominated cell is hard to claim as OPD; J stays bounded), the α ladder
+**Archived / conditional (not counted):** the **entire J axis** (2026-08-11,
+upgraded from the j0-only ruling: `j0_grpo_only` never registered; `j1_kdrl` +
+`vanilla_n8` archived to appendix — a reward-dominated cell is hard to claim as
+OPD; completed rows banked, `μ.n` pinned at 1 roster-wide), the α ladder
 (trigger conditions in the ledger), the k2-dilution control.
 
 ### Totals and recommended order

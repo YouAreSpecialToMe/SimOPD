@@ -906,3 +906,18 @@ topk_losses.py:684;c3 官方 reduced form 权重 sg;b2 权重在教师侧);
 b5↔vanilla 的任何实测分歧测的是 **surrogate 机械**(步内 micro-batch ratio
 漂移 + clip),不是估计器本身。b5 的注册解读("差异 = 估计器效应")据此
 收紧为"差异 = 代理机械效应";对 16k 曲线核验后方可入判决措辞。
+
+## r6 裁定(2026-08-11):J 轴归档升级为全轴 —— j1 + vanilla_n8 入档,μ.n 出坐标名册
+
+用户裁定(operator 覆盖度审计后):08-11 的"j0 归档、j1+n8 维持有界"**升级
+为 J 轴全归档** —— j1_kdrl 连同其 n=8 控制格一并入档。理由沿用原裁定
+(β=2e-3 稀释 500×,reward-dominated 难称 OPD),归因 caveat 原样随行。后果:
+
+- **μ.n 退出覆盖名册**:算子的 n 全名册钉 1,以披露覆盖;n=8 组采样读数
+  (Demystifying prompt-diversity)与 j1 判决降为**附录素材**;
+- **机械一律不动**:两臂 6 个完成行、指纹、campaign.tsv、verdict.py/lint 行
+  全部保留(数据入库,永不删)—— 归档是论文口径,不是基础设施变更;
+- **J 边界陈述保留**(UNIFIED-LOSS §7:"local operator 是否需要 global task
+  objective 闭环")—— 问题保留,格归档;
+- 附带效应:n=1 对 group-relative 全族的排除从"n8 是唯一窗口"变为纯 scope
+  声明(窗口也入附录)。
