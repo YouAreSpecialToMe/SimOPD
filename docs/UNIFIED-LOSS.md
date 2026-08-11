@@ -1,29 +1,45 @@
 # UNIFIED-LOSS — the unified OPD training operator
 
-Registered 2026-08-11; revised twice the same day after the two-round formula
-review (ledger: "统一框架公式评审" and "ℰ 再拆"). Companion to `MECHANISMS.md`.
-The object of study is not a scalar loss but the **operator**
+Registered 2026-08-11; revised three times the same day after the formula
+review rounds (ledger: "统一框架公式评审", "ℰ 再拆", "定稿书写形式").
+Companion to `MECHANISMS.md`. The object of study is not a scalar loss but the
+**Unified OPD Training Operator** — the update field written as one composed
+expression:
 
 ```
-𝒰 = ( μ ;  w, m ;  Ω, ν, S ;  D ;  𝒬 ;  Φ, ℛ )   ↦   g_θ
-      states  selection  information  geometry  evaluation  update
+g(θ) = E_{x~𝒟, y~μ_θ̄} [  w(y) · (1/Σ_t m_t) · Σ_t  m_t ·
+           ℛ( Φ( 𝒬[ D( S(N_ν(Q_Ω[p_t^θ])),  S(N_ν(Q_Ω[p_t^T])) ) ] ) )  ]
+
+p_t^θ = π_θ(·|s_t),    p_t^T = π_T(·|s_t),    s_t = (x, y_<t)
 ```
 
-mapping a tuple of design coordinates to an **update field**. The paper's
-program in one line: coordinate change → gradient field → training dynamics.
-"OPD" is not a loss; it is this whole set of coupled design choices, and every
-arm in `configs/arms.yaml` is one controlled move inside it.
+Seven layers — outside-in over the data, inside-out at the token:
 
-The six layers answer six questions:
+```
+μ  →  w, m  →  Ω, ν, S  →  D  →  𝒬  →  Φ  →  ℛ
+states  what to teach  what information  comparison  measurement  signal  update
+```
 
-| layer | question |
-|---|---|
-| `μ` | where do the visited states come from? |
-| `w, m` | which trajectories / tokens are taught? |
-| `Ω, ν, S` | which candidates, in what representation, carrying what information? |
-| `D` | what counts as teacher–student disagreement? (geometry) |
-| `𝒬` | how is that discrepancy observed by finite computation? (evaluation) |
-| `Φ, ℛ` | is the observed signal reshaped, and how does it become a gradient? (update) |
+The paper's program in one line: coordinate change → gradient field → training
+dynamics. "OPD" is not a loss; it is this whole set of coupled design choices,
+and every arm in `configs/arms.yaml` is one controlled move inside it.
+
+| slot | role | values |
+|---|---|---|
+| `μ_θ̄` | trajectory/state source | on-policy / mixed λ / rollout horizon T_max |
+| `w(y)` | trajectory-level selection | 1 / pass-only / fail-only / quota-K / directional / likelihood |
+| `m_t = M_{ρ,P}(t, s_t, p^θ, p^T)` | token-level supervision allocation | ρ = how much; P = which tokens (position / entropy / disagreement); soft ∈ [0,1] |
+| `Q_Ω` | vocabulary support | {y_t} / top-k / quantile-budget / intersection / π-tail |
+| `N_ν` | support normalization / mass representation | raw / renorm / tail-bucket |
+| `S` | teacher information resolution | value / z-shape / rank / set |
+| `D` | teacher–student discrepancy geometry | RKL / FKL / skew / JSD (f3's power comparator: recorded out-of-family, §4) |
+| `𝒬` | finite evaluation | MC at the sampled token / exact support sum |
+| `Φ` | effective signal shaping | id / soft-log / clip / positive-only clip / smooth bound (tanh) |
+| `ℛ` | update realization | score-function (PG) / direct gradient / k2-direct surrogate |
+
+The J axis's RL coupling `L_task + β·L_OPD` sits **outside** this core operator
+(§7) — it wraps the operator in a second objective rather than setting one of
+its slots.
 
 ## 1. The operator, stage by stage
 
@@ -86,7 +102,7 @@ aggregate linearly):
 | `S_σ` | id (values) / z-score / rank / set-mass | E |
 | `D_δ` | RKL / FKL / skew_α / JSD_β / power comparator (f3) | B (+ f3, see §4) |
 | `𝒬` | MC at sampled token / exact support sum | roster-confounded with Ω (§3) |
-| `Φ_φ` | id / sign·log(1+·) / clip_±M | F (f1, f2) |
+| `Φ_φ` | id / soft-log / clip_±M / positive-only clip / tanh_M | F (f1, f2, f4, f5, f2@2.303) |
 | `ℛ` | PG / direct / k2-potential | crossover pairs (§3) |
 
 **m_t is token-level supervision allocation, one coordinate for D and H.**
@@ -128,8 +144,15 @@ ablation lives exactly on ν.
 
 ## 2. Vanilla as the alignment point
 
-At the origin `(Ω={y_t}, ν=raw, S=id, D=RKL, 𝒬=MC, Φ=id, ℛ=PG)`, the
-fixed-state identity holds:
+Vanilla OPD is the operator's origin, slot by slot:
+
+```
+μ = π_θ̄ (pure on-policy),  w ≡ 1,  m_t ≡ 1,  Ω_t = {y_t},  ν = raw,  S = id,
+D = KL(p^θ ‖ p^T),   𝒬: r_t = log p_t^θ(y_t) − log p_t^T(y_t),   Φ(r) = r,
+ℛ_PG(r) = r_t · ∇_θ log π_θ(y_t|s_t)
+```
+
+At this point the fixed-state identity holds:
 
 ```
 ∇_θ KL(p_t^θ ‖ p_t^T)
@@ -149,11 +172,13 @@ roster's kernels are all renorm/detach (`topk_losses.py:684` witness), so that
 failure class is structurally absent here (cf. Many Faces 2605.11182,
 failure-2).
 
-Walking vanilla through the six layers: `D = KL(p‖q)` with integrand
-`d(v) = log p(v)/q(v)`; `𝒬_MC` observes `r = d(y_t)` at the sampled token;
-`Φ = id`; `ℛ_PG` returns `sg(r)·∇log π(y_t)`; and `E[g] = ∇KL` at the visited
-state. Every other arm breaks exactly one link of this chain (relative to its
-carrier, §5).
+```
+E_{y_t ~ p_t^θ} [ r_t · ∇_θ log p_t^θ(y_t) ]  =  ∇_θ KL(p_t^θ ‖ p_t^T)
+```
+
+**This identity is the origin of the whole unified framework.** Every other
+arm breaks exactly one link of the chain (relative to its carrier, §5), and
+the paper reads what each break does to the update field and the dynamics.
 
 ## 3. The update field is the object, not the scalar
 

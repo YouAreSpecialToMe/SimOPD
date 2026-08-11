@@ -1035,3 +1035,17 @@ P = 选择规则。P 可只读位置(h1/h2/h3 首/尾/随机窗、h4 散点),也
 因为二者问的是不同科学问题 —— 位置局部性(监督落在哪)vs 信息局部性
 (按内容选哪些 token)—— DH1 桥格在等 ρ 下对读两者。已入
 UNIFIED-LOSS §1。
+
+## r6 修订四(2026-08-11):定稿书写形式 —— Unified OPD Training Operator 单式合成
+
+用户定稿:不硬叫 scalar loss,统一对象写成**单式合成的更新场**——
+
+g(θ) = E_{x,y~μ_θ̄}[ w(y) · (1/Σm_t) Σ_t m_t · ℛ(Φ(𝒬[D(S(N_ν(Q_Ω[p^θ])), S(N_ν(Q_Ω[p^T])))])) ]
+
+七层链定稿(Φ 独立成层):μ → (w,m) → (Ω,ν,S) → D → 𝒬 → Φ → ℛ,
+states → what to teach → what information → comparison → measurement →
+signal → update。vanilla 逐槽实例化写成显式清单,固定状态恒等式
+E[r·∇log p] = ∇KL 定名为**整个统一框架的原点**。J 轴 RL 耦合明确置于
+核心算子**外层**(包裹第二目标,不占槽位)。f3 在 Φ 值域列举中保留
+out-of-family 记录(§4 裁定不变:Δℓ 不能恢复 p_T−p_θ)。
+UNIFIED-LOSS.md 头部与 §2 已重写;artifact 框架页同步。
