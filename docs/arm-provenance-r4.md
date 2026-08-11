@@ -785,3 +785,28 @@ compute ledger 的第一个活案例。成本估计:g1_quota ~300 GPU·h(240 + �
 g4_quota ~357。**解锁** = 谓词落地(舰队侧)+ CPU 对拍 + 3 步彩排 + wave-12 tsv
 加行;旋钮停 `env2_pending`(SIMOPD_GQ_QUOTA=16 / SIMOPD_GQ_MAX_GEN_BATCHES=8),
 lint 拒绝忘改名的 stock 翻转。g2/g5 不动:其 recipe 即受审对象。
+
+## r6 登记(2026-08-11):H 族补全对(用户设计)—— h4 散选 + h5 生成截断,wave 12
+
+**h4_random_scatter**:h3 去掉连续性 —— 同 K=100、同 kernel 工厂、同分支,
+连续性是对 h3 的唯一变量。M-I 细化预测已登记:散选掩码**每条**轨迹都触及响应
+尾部(CPU 对拍 20/20 次),h3 的窗只偶尔落在尾部 —— 若尾部监督剂量驱动长度
+失控,h4 的截断曲线必须高于 h3。P-budget(h4≈h3 ⇒ 连续性无关)vs
+P-window(h4<h3 或更早 lock ⇒ 局部连贯/尾部剂量承重)。对拍:逐行恰 K、
+短行全保(族约定)、非连续、逐次新抽。
+
+**h5_gen100**:ESR 的**原式**(rollout 截断在 100,全部监督)—— 零新代码,
+MAX_RESPONSE_LENGTH 本就 env 可调且入指纹。h1 当年有意偏离的正是这个形式
+(截断改变采样分布,满预算下与 A 轴混淆);h1↔h5 把那条 recorded deformation
+变成**被测量的配对**:同 K,mask vs truncation,差 = 分布改变 + ~50× 生成成本。
+**大声记录**:in-loop val 同受 100 帽,h5 的 in-loop 列是 greedy@100 预算,
+与主表不可比 —— 裁判是离线 suite(32,768 预算)。P-skeleton(h5 在 suite 上
+≈ h1 ⇒ 效率头条 + ESR 原式获证)vs P-mask(h5 < h1 ⇒ 定分布的 loss-mask 形
+承重)。M-I 双向开放登记:训练 rollout 永不接近 16k 帽(吸引子不可达)但
+100-token 截断 rollout 几乎无 EOS(出生即停止监督饥饿)—— eval 时长度行为是
+本格的第二读数,ckpt textdump 便宜。协议注:响应帽是 §3.8 协议常数,本臂为
+逐臂登记偏离(ESR paper-form),指纹自动分格。
+
+**排期**:wave 12(m15/m16/m18,2 卡);G 配额格解锁改记 wave 13。成本:
+h4 ≈ h3 的 210 GPU·h;h5 估 ~15–30 GPU·h(生成 1/50)—— 若 P-skeleton 成立,
+h5 将同时是全场最便宜和 per-token 效率最高的臂。

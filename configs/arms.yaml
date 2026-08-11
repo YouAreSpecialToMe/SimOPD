@@ -937,6 +937,54 @@ arms:
       DISTILLATION_LOSS_MODE: k1_rgopd_gate
       SIMOPD_RGOPD_DELTA: "0.0"
 
+  - run_id: h4_random_scatter
+    axis: H
+    cohort: supplement
+    desc: "[OURS] FIRST_SEGMENT_K response tokens at uniform random positions, NON-contiguous -- window-vs-scatter split of h3"
+    status: stock
+    note: "ADDED 2026-08-11 (user design). Splits h3's reading ('any K tokens
+           suffice') into window vs scatter at the same budget, kernel factory and
+           branch -- contiguity is the only moving part against h3. M-I refinement
+           registered: a scattered mask touches the response TAIL on every
+           trajectory (CPU battery: 20/20 draws) while h3's window lands there only
+           occasionally, so if tail-supervision dose drives the length runaway,
+           h4's truncation curve must sit above h3's. Predictions: P-budget
+           (h4 ~= h3 -> contiguity irrelevant, the position line's middle step is
+           pure budget+position) vs P-window (h4 < h3 and/or earlier lock -> local
+           coherence or tail dose matters). Battery: exact K per row, short rows
+           collapse to full supervision like every bracket member, non-contiguous,
+           fresh draw per call"
+    env:
+      DISTILLATION_LOSS_MODE: k1_randscatter
+
+  - run_id: h5_gen100
+    axis: H
+    cohort: supplement
+    desc: "[OURS declared form-pair of h1] generate only K=100 tokens and supervise ALL of them -- ESR's own rollout-truncation form"
+    status: stock
+    note: "ADDED 2026-08-11 (user design; zero new code -- MAX_RESPONSE_LENGTH is
+           already env-driven in the launcher and sits in the resume fingerprint as
+           resp=). This is the form h1 deliberately deviated FROM: ESR truncates the
+           rollout, which changes the sampling distribution and (at full budget)
+           would confound with axis A -- h1 <-> h5 turns that recorded deformation
+           into a measured pair: same K, mask vs truncation, the difference IS the
+           distribution change plus a ~50x generation-cost cut. RECORDED LOUDLY:
+           the in-loop val generates under the same 100-token cap, so h5's in-loop
+           column is greedy@100-budget -- NOT comparable to the main table; its
+           judge is the offline suite (32,768 budget) on saved checkpoints.
+           Predictions: P-skeleton (h5 ~= h1's 0.625 on suite at a fraction of the
+           cost -> the efficiency headline, ESR's original form validated) vs
+           P-mask (h5 < h1 -> the fixed-distribution loss-mask form was
+           load-bearing). M-I wildcard registered open, both directions: training
+           rollouts never approach the 16k cap (no length attractor reachable in
+           training) but 100-token truncated rollouts carry almost no EOS either
+           (stop-supervision starvation from birth) -- eval-time length behavior is
+           the cell's second reading; textdump on its checkpoints is cheap.
+           PROTOCOL NOTE: response cap is protocol sec 3.8; this arm's cap is a
+           per-arm registered deviation, the ESR paper-form, fingerprint-split"
+    env:
+      MAX_RESPONSE_LENGTH: "100"
+
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
     axis: I

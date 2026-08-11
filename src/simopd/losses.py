@@ -306,11 +306,31 @@ def _randseg_window(mask):
     return (positions >= off) & (positions < off + FIRST_SEGMENT_K)
 
 
+def _randscatter_window(mask):
+    """h4: FIRST_SEGMENT_K response tokens at uniform random positions with NO
+    contiguity -- splits h3's reading ("any window suffices") into window-vs-
+    scatter, and refines the position dose line's middle step: a scattered mask
+    touches the response tail on every trajectory while h3's window only lands
+    there occasionally, so if tail-supervision dose drives the length runaway,
+    this member's truncation curve must sit above h3's. Same fresh-rollout
+    randomness argument as _randseg_window; layout-agnostic (uses only the mask).
+    Rows shorter than K collapse to full supervision like every bracket member:
+    the k-th largest of their rand scores is the -1 fill, so the threshold
+    admits every response token."""
+    r = torch.rand(mask.shape, device=mask.device).masked_fill(~mask, -1.0)
+    k = min(FIRST_SEGMENT_K, r.shape[1])
+    thresh = r.topk(k, dim=-1).values[..., -1:]
+    return r >= thresh
+
+
 register_distillation_loss(DistillationLossSettings(names=["k1_lastseg"], use_estimator=True))(
     _window_kernel(_lastseg_window, "lastseg_covered_frac")
 )  # type: ignore[arg-type]
 register_distillation_loss(DistillationLossSettings(names=["k1_randseg"], use_estimator=True))(
     _window_kernel(_randseg_window, "randseg_covered_frac")
+)  # type: ignore[arg-type]
+register_distillation_loss(DistillationLossSettings(names=["k1_randscatter"], use_estimator=True))(
+    _window_kernel(_randscatter_window, "randscatter_covered_frac")
 )  # type: ignore[arg-type]
 
 

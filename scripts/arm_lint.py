@@ -52,6 +52,7 @@ EXPECT_PG = {
     "g1_verified_only": True, "g1_quota": True, "g2_fire_likelihood": True,
     "g4_failure_only": True, "g4_quota": True, "g5_rgopd_gate": True,
     "h1_first_segment": True, "h2_last_segment": True, "h3_random_segment": True,
+    "h4_random_scatter": True, "h5_gen100": True,
     "i0_think_scorer": True, "i1_priv_cot": True,
     "vanilla_n8": True, "j1_kdrl": False,
 }

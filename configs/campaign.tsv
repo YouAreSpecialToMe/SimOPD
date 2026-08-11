@@ -322,3 +322,18 @@
 11	m15	e2_set_coverage_a0	0
 11	m16	e2_set_coverage_a0	1
 11	m18	e2_set_coverage_a0	2
+
+# ---- wave 12: the H-family completion pair (user design, registered 2026-08-11) ----
+# h4 = h3 with contiguity removed (scatter at the same K=100; tail touched every
+# trajectory -- its truncation curve vs h3's is the tail-dose test). h5 = ESR's own
+# rollout-truncation form (generate 100, supervise all): h1<->h5 measures the
+# recorded deformation itself, at ~50x less generation. CAUTION: h5's in-loop val
+# is greedy@100-budget, NOT main-table-comparable; its judge is the offline suite.
+# 2-card rows, pair boxes, behind wave 11. (The G quota cells' unlock, previously
+# noted as wave 12, renumbers to wave 13.)
+12	m15	h4_random_scatter	0
+12	m16	h4_random_scatter	1
+12	m18	h4_random_scatter	2
+12	m15	h5_gen100	0
+12	m16	h5_gen100	1
+12	m18	h5_gen100	2
