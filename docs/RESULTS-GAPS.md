@@ -50,6 +50,53 @@ is the harvest, not the instrumentation.
 | teacher payload width k (32 vs 64) | protocol constant | c2's bandwidth/memory cost note |
 | analytic FLOPs | constant × counters | the paper's reproducible compute axis |
 
+### 1.2b First harvest (2026-08-11): cost anatomy — `scripts/cost_anatomy.py`
+
+The fleet's full metrics CSV made the first ledger harvest possible at zero
+cost. Three findings, refining §1.1:
+
+**(a) The GPU-hour bill is a treatment outcome.** Generation is ~86% of step
+time and tracks the arm's *length regime*: per-row cost runs vanilla 139 >
+c2 105 > c4 66 > b4 62 > c3 49 > c1 13 GPU·h — the same ordering as the length
+dynamics. c2's premium over its C siblings is (i) the longest length band in
+the family (~8.9k held from early on) and (ii) long-sequence decode
+inefficiency (0.57 vs 0.37 gen-ms/tok as packing parallelism drops near the
+cap). **Not** the kernel: the quantile op and the top-64 payload are worth a
+few seconds per step. The compute bill is itself an M-I readout.
+
+**(b) Kernel FLOPs are confirmed noise; the method-intrinsic axis is memory.**
+Per-token update cost sits at 0.06–0.08 ms/tok roster-wide (§1.1's "<0.1%"
+claim measured: ≤3% of the update pass). What separates methods is the peak
+budget
+
+```
+peak ≈ 25.6 GB static (16 B/param × 1.72B)  +  1.9 GB ckpt activations
+     + n × 4.93 GB   (n = full-vocab [T,V] materializations at dense packing)
+```
+
+with implied n clustering cleanly by family:
+
+| family | full-vocab materialization | lane shape | update ms/tok | peak GB (implied n) |
+|---|---|---|---|---|
+| sampled k1 (f/b1/h/g) | none | 2-card | 0.06 | 37–45 (n≈2; 3.6 at 16k lengths) |
+| top-k distributional (c/e/b2/b4) | yes — unchunked fp32 log-softmax chain (1 bf16 + 3 fp32 ≈ 7 bf16-equiv) | 2-card | 0.07–0.08 | 55–71 (n≈5.6–8.8) |
+| + full-vocab criteria / sampled column (b3/d/g2) | yes + entropy/top-K extras | **4-card forced** (2-card OOMs at steps 35–45 as lengths grow — the arithmetic: n≈9 at 16k ⇒ ~72 GB torch peak + vLLM reserve > 80 GB) | — | up to 73 on DP-2 (n≈9) |
+
+For the paper's cost table: the "full-vocab" column is
+**implementation-contingent**, not method-intrinsic — every kernel's required
+output is O(T·k).
+
+**(c) INFRA proposal (registered, fleet-side, future waves only):** chunked
+log-softmax+gather — stream [T,V] in time-chunks, keep only [T,k] + per-token
+logsumexp, recompute the lm_head chunk in backward. Cost: +2·T·H·V ≈ 10.8
+TFLOPs ≈ 6% of the update pass ≈ **+0.7% of step time** (the same trade as
+activation checkpointing; fused-CE practice). Gain: −~25 GB peak, the OOM
+cliff eliminated, the wall family back on 2-card scheduling granularity, and
+length headroom above the 16k cap. Honest note: GPU·h is roughly
+topology-neutral vs the 4-card fix (which also halves wall-clock) — the gain
+is cliff + granularity + headroom, not raw GPU·h halving. Completed rows are
+never touched.
+
 ### 1.3 Deliverables built from the ledger
 
 1. **Compute-normalized twin of report §1** — same in-loop table/curves with

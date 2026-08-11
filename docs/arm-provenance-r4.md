@@ -1049,3 +1049,31 @@ E[r·∇log p] = ∇KL 定名为**整个统一框架的原点**。J 轴 RL 耦�
 核心算子**外层**(包裹第二目标,不占槽位)。f3 在 Φ 值域列举中保留
 out-of-family 记录(§4 裁定不变:Δℓ 不能恢复 p_T−p_θ)。
 UNIFIED-LOSS.md 头部与 §2 已重写;artifact 框架页同步。
+
+## compute ledger 首次收割(2026-08-11):成本解剖 —— 长度账 vs 方法内禀账
+
+脚本 `scripts/cost_anatomy.py`,数据 = 舰队全量指标 CSV;正文入
+RESULTS-GAPS §1.2b。三条判定:
+
+1. **GPU·h 账单是 treatment outcome**:生成占步时 ~86% 且随臂的长度带走
+   (每行成本 vanilla 139 > c2 105 > c4 66 > b4 62 > c3 49 > c1 13——与
+   长度动力学同序;算力账单本身是一条 M-I 读数)。c2 的溢价 = 全族最长
+   的长度带(早期即 ~8.9k)+ 近帽处解码效率退化(0.57 vs 0.37
+   gen-ms/tok);quantile 与 top-64 载荷只值每步几秒。
+2. **kernel FLOPs 坐实为噪音,方法内禀轴是显存**:每 token 更新成本全名册
+   0.06–0.08 ms/tok(§1.1 的 "<0.1%" 主张实测 ≤ 更新趟的 3%)。峰值预算
+   闭合:静态 25.6(16 B/param × 1.72B)+ ckpt 1.9 + n × 4.93 GB 全词表
+   物化;隐含 n 按族聚类 —— sampled ≈ 2(16k 长度 3.6)、top-k 分布值
+   ≈ 7(与未分块 fp32 log-softmax 链相容:1 bf16 + 3 fp32)、+全词表判据
+   ≈ 9(16k 处 ~72 GB torch 峰 + vLLM 预留 > 80 GB = 2 卡 wall 的算术,
+   与 35–45 步死亡窗吻合)。**论文成本表措辞:full-vocab 物化列标注
+   implementation-contingent;每个方法的内禀输出只有 O(T·k)。**
+   诚实注:n 为分配器层反解(密装假设 ±1);fp32 链待 verl 调用点
+   dtype 核对。
+3. **infra 提案(登记不执行,舰队侧,仅未来 wave)**:分块
+   log-softmax+gather(时间分块流过 [T,V],只留 [T,k] + 每 token
+   logsumexp,反向重算 lm_head 块)。代价 +2·T·H·V ≈ 更新趟 6% ≈
+   **全步 +0.7%**(与激活检查点同类交换;fused-CE 标准做法);收益
+   −~25 GB 峰值、消 OOM 悬崖、wall 族回 2 卡调度粒度、16k 之上长度
+   余量。诚实注:GPU·h 对 4 卡修复大致拓扑中性(4 卡同时砍半墙钟)——
+   收益是悬崖+粒度+余量,不是 GPU·h 减半。完成行永不适用。
