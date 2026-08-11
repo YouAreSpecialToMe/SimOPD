@@ -592,6 +592,54 @@ arms:
       DISTILLATION_TOPK: "32"
       SIMOPD_PL_ANCHOR_COEF: "0.1"
 
+  - run_id: e1_pl_rank_a0
+    axis: E
+    cohort: supplement
+    desc: "[OURS] pure order rung: e1 with the value anchor OFF (SIMOPD_PL_ANCHOR_COEF=0)"
+    status: stock
+    note: "ADDED 2026-08-11 (E-ladder purity ruling): e1/e2 as shipped are
+           'X + 0.1*values' mixtures, so no POSITIVE claim ('order suffices') is
+           legal from them -- only a-fortiori negatives. The coefficient was
+           registered as the arm's internal ablation axis from day one; this cell
+           executes it at zero. The anchor is STILL COMPUTED AND LOGGED as a panel
+           (pl_value_anchor) -- we stop training on the value mismatch but keep
+           measuring it, free. Opposing predictions in the ledger: P-order
+           (a0 ~= e1's 0.572 -> order carries the arm, the anchor was decoration,
+           'order-not-values' gets its direct evidence) vs P-anchor (a0 drops to
+           the vanilla band or caps -> the values subsidy was load-bearing, and
+           {a0, e1, c1-direct} re-reads as a values-strength dose line 0/0.1/1.0).
+           M-I side reading: whether e1's termination safety (trunc 0.008) belongs
+           to the rank loss itself or to the anchor"
+    env:
+      DISTILLATION_LOSS_MODE: pl_rank_anchor
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: 32
+      SIMOPD_PL_ANCHOR_COEF: "0"
+
+  - run_id: e2_set_coverage_a0
+    axis: E
+    cohort: supplement
+    desc: "[OURS] pure set rung / near-placebo: e2 with the value anchor OFF"
+    status: stock
+    note: "ADDED 2026-08-11 (E-ladder purity ruling, see e1_pl_rank_a0). With the
+           anchor off this is -log(student mass on teacher top-32) ALONE, and the
+           16k data says that term saturates by step ~50 (mass 0.998, loss ~0.002)
+           -- so past the first steps this cell is a NEAR-ZERO-SIGNAL control, the
+           closest thing the roster has to a placebo arm. That is the point:
+           the shipped e2 (with 0.1 anchor) capped and collapsed, and this cell
+           splits its death between 'the weak value-matching signal destabilized
+           it' and 'almost any on-policy drift reaches the M-I attractor'.
+           Opposing predictions in the ledger: P-frozen (policy barely moves,
+           stays near the base student's band, never caps -> e2's cap was CAUSED
+           by its training signal) vs P-drift (caps anyway -> the length attractor
+           is reachable with almost no training pressure, a strong M-I statement).
+           Either branch is informative; coverage + anchor panels still logged"
+    env:
+      DISTILLATION_LOSS_MODE: set_coverage_anchor
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_PL_ANCHOR_COEF: "0"
+
   - run_id: e3_zvalue
     axis: E
     cohort: supplement

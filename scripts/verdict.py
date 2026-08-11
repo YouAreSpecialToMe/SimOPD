@@ -54,7 +54,7 @@ ARMS = [  # ledger order: axis order from the plan
     "c1_lsm_topk32_renorm", "c3_intersection", "c4_pi_tail_budget",
     "c2_quantile_budget", "c2_qb_fixed8", "c2_qb_perseq",
     "d1_tip", "d2_selectkd", "d3_teachability",
-    "e1_pl_rank", "e2_set_coverage", "e3_zvalue",
+    "e1_pl_rank", "e1_pl_rank_a0", "e2_set_coverage", "e2_set_coverage_a0", "e3_zvalue",
     "f1_soft_log", "f2_hard_clip", "f3_power", "g1_verified_only",
     "g2_fire_likelihood", "g4_failure_only", "g5_rgopd_gate",
     "h1_first_segment", "h2_last_segment", "h3_random_segment",
