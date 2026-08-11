@@ -872,3 +872,37 @@ topk_losses.py:684;c3 官方 reduced form 权重 sg;b2 权重在教师侧);
 (2) vanilla 零截断照塌 = 该机理**非塌陷必要条件**的现成反例,压缩剂量线五臂
 全为 sampled-token,在截断偏差结构性缺席下隔离量级。补记:temporal credit
 (2606.22793 的轴)= b 槽子参数,全名册钉 immediate/无 baseline,披露即可。
+
+## r6 修订(2026-08-11):统一框架公式评审 —— loss → training operator,16 条全部采纳
+
+用户对 UNIFIED-LOSS 的公式级评审,重写落档(同文件)。要点:
+1. 对象升格为 **operator** 𝒰 = (μ; w,m; Ω,ν,S,D; ℰ,Φ,b) ↦ g_θ;研究链 =
+   坐标改变 → 梯度场 → 训练动力学;"unified loss" 名义废弃,文件名保留;
+2. **Q_Ω 与 N_ν 拆开**(singleton renorm 归零 bug;e2 的集合质量需 ν=raw 否则
+   恒为 1);ν ∈ {raw, renorm, tailbucket} 恰是 c1 SUPPORT_MODE 消融的坐标;
+3. **D(population)与 ℰ(realization)拆开**:k2 非无偏标量估计
+   (E[½r²] ≠ KL),是 pathwise surrogate,期望梯度在 on-policy 点对齐局部
+   RKL 梯度;b5 = D 不变、ℰ 变 —— estimator firewall 的精确表述;
+4. **𝒢_b 为 update-field constructor**:"同一 loss 两个梯度场"措辞废弃 ——
+   一般不重合;vanilla 是三者(on-policy 采样 / RKL 几何 / score-function)
+   精确对齐的特殊点,周边设计空间以受控方式破坏这些恒等式;
+5. **μ_θ̄ 半梯度纪律显式化**:行为策略本次更新内冻结,任何分支不对
+   state-visitation 求导(fixed-state local semi-gradient);
+6. **选择层 = 有限批双条件均值估计器**:T/T_keep 是条件均值的代数实现,
+   不是方法坐标;quota 不改 estimand E[L|R>0],改其 MC 方差(冻结 μ_θ̄
+   直至 B_pass=K)—— M4 = 条件均值估计器在 B_pass≈1–5 处的灾难方差;
+7. **carrier 概念**取代"每臂恰一坐标偏离 vanilla"(分层积下不可达):
+   逐轴载体配置 + 单科学坐标;跨轴读数必须过 carrier(C1 的第三重身份:
+   S 阶梯 values 档在 E carrier 上 = c1-direct);
+8. **f3 重分类**:非 Φ(Δℓ)(Δℓ 不能恢复 p_T−p_θ),是概率几何的有界比较器
+   = D-move;f1/f2 才是幅度变换;**b1 的 ln10 为 emergent 非 design 坐标**
+   —— design ≠ emergent mechanism coordinate,顺带裁定 B/F 不合并
+   (不同设计轴投影到同一机理坐标,投影本身是 finding);
+9. 勘误:rollout 截断臂是 **h5_gen100**(μ.T_max),h4_random_scatter 维持
+   m-move —— 评审 §13 的 "h4" 系命名误读,坐标表原已正确。
+
+**框架红利(登记待核,M-task 候选)**:ratio=1 处 k1-PG 与 k2-direct 的
+逐样本场**精确重合**(∇½r² = r·∇log π,数值上 = sg(r)·∇log π),故
+b5↔vanilla 的任何实测分歧测的是 **surrogate 机械**(步内 micro-batch ratio
+漂移 + clip),不是估计器本身。b5 的注册解读("差异 = 估计器效应")据此
+收紧为"差异 = 代理机械效应";对 16k 曲线核验后方可入判决措辞。

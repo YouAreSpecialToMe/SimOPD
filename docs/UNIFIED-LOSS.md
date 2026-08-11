@@ -1,162 +1,225 @@
-# UNIFIED-LOSS — one objective, nine coordinates
+# UNIFIED-LOSS — the unified OPD training operator
 
-Registered 2026-08-11. Companion to `MECHANISMS.md`: that doc taxonomizes the
-*effects* (mechanism classes M-I…M-IV); this one gives the *cause side* a
-coordinate system. Every arm in `configs/arms.yaml` is a point in the parameter
-space of ONE loss template, and every axis is a coordinate of it. This executes
-the framing ruling ("mechanism-first; methods are probes") literally: a probe
-*position* is now a tuple of slot values, not a metaphor.
-
-## 1. The template
-
-Three layers — a sampler, a per-token functional, a gradient estimator:
+Registered 2026-08-11; **revised the same day after the formula review** (16-point
+review adopted in full — ledger entry "统一框架公式评审"). Companion to
+`MECHANISMS.md`. The object of study is not a scalar loss but the **operator**
 
 ```
-          sampler        trajectory wt        per-token functional
-L(θ) = E_{y ~ π_gen} [  w(y) · (1/N) Σ_t  m_t · Φ_M( D_β( S(T_k[p_T(·|s_t)]), S(p_θ(·|s_t)) ) )  ]
-
-gradient delivered via  b ∈ { PG (advantage = −ℓ_t.detach()),  direct }
+𝒰 = ( μ ;  w, m ;  Ω, ν, S, D ;  ℰ, Φ, b )   ↦   g_θ
+     └where└which data └what is compared└how it updates
 ```
 
-| # | slot | meaning | parameters | axis | code seam |
-|---|---|---|---|---|---|
-| 1 | `π_gen` | who generates the trajectory | on-policy fraction λ; rollout budget T_max; group size n | A (λ), h5 (T_max), n8 cell | `gkd_mix` cache+λ; `MAX_RESPONSE_LENGTH`; `ROLLOUT_N` |
-| 2 | `w(y)` | trajectory-level weight | gate predicate; quota K; normalization | G | `k1_verified_only`/`k1_failure_only`; `filter_groups` (wave 13) |
-| 3 | `m_t` | token-support mask | coverage ρ; placement P ∈ {front, tail, window, scatter, criterion} | D∪H | `_window_kernel` family; d-kernels |
-| 4 | `S` | statistic read off each distribution | values / z-values / rank / set membership | E | e1/e2/e3 kernels |
-| 5 | `T_k` | teacher-support truncation | width k; rule (fixed / quantile / intersection / π-tail); renorm; τ scope | C | `TOPK_DISPATCH`; `SIMOPD_QB_*`; `SIMOPD_SUPPORT_MODE` |
-| 6 | `D_β` | discrepancy functional | family (RKL / FKL / skew / JSD / power); β, α_skew; estimator k1/k2 | B, F (f3) | loss-mode registry |
-| 7 | `Φ_M` | magnitude transform | bound M; shape (id / log / clip / power) | F | `k1_softlog`; `LOSS_MAX_CLAMP`; `k1_power` |
-| 8 | `b` | gradient channel | PG / direct | crossover cells | `USE_POLICY_GRADIENT` |
-| 9 | `p_T` | the reference distribution itself | scorer identity; scorer conditioning | I (shelved) | `TEACHER_MODEL`; `SIMOPD_PRIV_COT` |
+mapping a tuple of design coordinates to an **update field**. The paper's program
+in one line: coordinate change → gradient field → training dynamics. "OPD" is not
+a loss; it is this whole set of coupled design choices, and every arm in
+`configs/arms.yaml` is one controlled move inside it.
 
-Two knobs sit deliberately OFF the template, kept explicit:
+## 1. The operator, stage by stage
 
-- **θ₀ initialization** (a2 cold start) — where training *starts*, not what it
-  optimizes;
-- **objective mixing** (j1 adds J_GRPO) — the J boundary: once the added
-  objective dominates (KD coef 2e-3 ≈ 500× dilution), the run is hard to claim
-  as OPD at all. Archived ruling 2026-08-11; the template's *scope* is itself a
-  finding-shaped statement.
+**Layer 0 — behavior policy (semi-gradient discipline).** Rollouts come from the
+frozen behavior policy of the current update:
 
-The env-knob space **is** this parameterization already: the launcher
-fingerprint (`run_opd_baseline.sh:229`) hashes loss mode, branch, top-k, every
-`SIMOPD_*`, n, caps — a fingerprint is a coordinate tuple and always was. The
-template names an existing structure; it adds no machinery.
+```
+y ~ μ_θ̄( · | x ; λ, T_max, n ),      θ̄ = sg(θ)
+```
 
-### Stratified, not a full product
+Every downstream operator acts on the visited states `s_t = (x, y_<t)` with the
+visitation measure **held fixed**: no branch differentiates through state
+visitation (on-policy state sampling + fixed-state local semi-gradient). This is
+what licenses the identities in §2 and pre-answers "why doesn't the direct branch
+differentiate the sampling distribution".
 
-Two structural couplings keep this from being a free product space:
+**Per-token pipeline** (`p_t^a = π_a(·|s_t)`, `a ∈ {θ, T}`):
 
-- `T_k` (slot 5) is only *active* for distribution-valued `D`; vanilla's
-  sampled-k1 reads one column and no truncation ever fires.
-- `b` (slot 8) is constrained by `D`'s family under the branch rules
-  (sampled-signal → PG; divergence-valued → direct; literature arms follow
-  their official code). Moving `D` therefore usually drags `b` and `T_k` — a
-  structurally *forced* diagonal. The crossover cells exist to undo exactly
-  this: **b5** (sampled × direct) and **c1** (top-k × PG) are the off-diagonal
-  observations that let the Fisher p=0.017 PG-vs-capped signal be attributed.
+```
+u_t^a = N_ν( Q_Ω[ p_t^a ] )          support extraction, THEN representation
+z_t^a = S_σ( u_t^a )                 statistic
+d_t   = D_δ( z_t^θ , z_t^T )         population comparison
+c_t   = ℰ_η[ d_t ]                   realization / estimator
+a_t   = Φ_φ( c_t )                   signal shaping
+ℓ̃_t  = 𝒢_b[ a_t ]                   update-field constructor
+```
 
-## 2. Coordinate chart — all 43 arms
+with the two field constructors
 
-Move type legend: **∥** axis-parallel (single coordinate — a clean probe);
-**⤢** diagonal (>1 slot; forced, registered, or deliberate); **●** literature
-point (audited object, composite by design — never read as single-coordinate
-evidence); **◌** off-template.
+```
+𝒢_direct[a_t] = a_t                                  (pathwise at fixed s_t)
+𝒢_PG[a_t]     = −sg(a_t) · log π_θ(y_t | s_t)        (score-function on the sampled
+                                                      action; immediate credit, no
+                                                      baseline — pinned roster-wide)
+```
 
-| arm | slot(s) | move (from vanilla) | type |
-|---|---|---|---|
-| `vanilla` | — | origin: λ=0, w≡1, m≡1, S=values(sampled), D=RKL-k1, Φ=id (M=∞), b=PG, n=1, T_max=16k, teacher=4B-Instruct | — |
-| `a1_gkd_mix0.5` | 1 | λ: 0→0.5 (per-prompt coin) | ∥\* |
-| `a3_offpolicy` | 1 | λ: 0→1 | ∥\* |
-| `a2_coldstart` | init | θ₀: base → SFT cold start | ◌ |
-| `vanilla_n8` | 1 | n: 1→8 (32 prompts/step) | ∥ |
-| `h5_gen100` | 1 | T_max: 16k→100 — changes π_gen *and* supervision jointly; the registered h1↔h5 pair measures exactly that difference | ⤢ deliberate |
-| `g1_verified_only` | 2 | w = 1{pass} (conditional mean) | ∥ |
-| `g4_failure_only` | 2 | w = 1{fail} | ∥ |
-| `g1_quota` / `g4_quota` | 2 + sampler | same gates + sample size pinned at K=16 (dynamic sampling) | ∥ vs g1/g4 |
-| `g2_fire_likelihood` | 2 + 3 | Eq.4 trajectory filter + Eq.5–8 token reweight | ● |
-| `g5_rgopd_gate` | 2 | directional gate (outcome sign × likelihood direction), δ=0 | ● |
-| `h1` / `h2` / `h3` | 3 | window K=100 at front / tail / random offset; ρ≈K/len | ∥ ladder |
-| `h4_random_scatter` | 3 | same K, non-contiguous — contiguity is the only move vs h3 | ∥ |
-| `d1_tip` | 3 | placement=criterion (TIP soft-OR), ρ=0.5 | ● |
-| `d2_selectkd` | 3 | placement=criterion (propose-verify), soft weight β=0.01 | ● |
-| `d3_teachability` | 3 | placement=criterion (teachability), ρ=0.05 | ● |
-| `b3_eopd_gate` | 3 + 6 | k1-PG base on ALL tokens + entropy-gated additive top-k FKL term (thresh 0.8, coef 1.0) | ● |
-| `e1_pl_rank` | 4 | S: values→rank (PL) **+ 0.1 value anchor** | ⤢ anchor |
-| `e1_pl_rank_a0` | 4 | S: values→rank, anchor 0 | ∥ purified |
-| `e2_set_coverage` | 4 | S: values→set mass **+ 0.1 anchor** | ⤢ anchor |
-| `e2_set_coverage_a0` | 4 | S: values→set mass alone (near-placebo past step ~50) | ∥ |
-| `e3_zvalue` | 4 | S: values→z-scored values (no anchor by design) | ∥ |
-| `c1_lsm_topk32_renorm` | 5 (b held) | top-32 renorm RKL, distribution-valued, **PG kept** | crossover |
-| `c2_quantile_budget` | 5 | rule: fixed-k → quantile budget (batch τ, target 8, top-64 payload) | ∥ (C convention) |
-| `c2_qb_fixed8` / `_perseq` | 5 | τ scope: batch → fixed / per-sequence | ∥ ladder |
-| `c3_intersection` | 5 | support = student∩teacher top-32 | ● |
-| `c4_pi_tail_budget` | 5 | support = smallest teacher-rank prefix with student mass ≥ 1−ε (ε=0.05) | ∥ theorem-constructive |
-| `b1_skew_kl` | 6 (+7 implicit) | D: RKL→skew-KL α=0.1 ⇒ estimator bounded above at ln 10 ≈ 2.3 | ⤢ **D×M — the screening-off pair** |
-| `b2_forward_kl` | 6 + 5 + 8 | RKL→FKL on UNrenormalized top-32; direct | ⤢ forced |
-| `b4_jsd` | 6 + 5 + 8 | JSD β=0.5 on renorm top-32; direct | ⤢ forced |
-| `b4_jsd_b0.1` / `_b0.9` | 6 | β: 0.5→0.1 / 0.9 | ∥ ladder within b4 |
-| `b5_k2` | 6-est + 8 | estimator k1→k2, same RKL target; direct | crossover |
-| `f1_soft_log` | 7 | Φ: id → sign·log(1+\|·\|) | ∥ |
-| `f2_hard_clip` | 7 | Φ: id → clip ±10 | ∥ |
-| `f3_power` | 6 + 7 | signal: Δℓ → π_T^α−π_θ^α (α=1), bounded [−1,1]; α→0 recovers vanilla | ⤢ form+bound |
-| `i0_think_scorer` | 9 | scorer → 4B-Thinking | ∥ shelved |
-| `i1_priv_cot` | 9 | scorer + private CoT context (control = i0) | ∥ shelved |
-| `j1_kdrl` | mixing | + J_GRPO, KD coef 2e-3, n=8 cell | ◌ boundary |
+**Selection layer** — the finite-batch, sequence-balanced estimator (this is the
+shipped normalization convention, stated as the estimator it is):
 
-\* a1/a3 are axis-parallel in λ, but the r6 estimator caveat rides along: under
-the protocol's sampled-k1 PG, the off-policy half is log-ratio-weighted cloning
-of teacher text, not GKD's supervised-KD term — the ladder doses **the data
-source under our estimator**, and never reads as "supervised KD".
+```
+L̂ = ( 1 / Σ_i w_i ) Σ_i  w_i · [ ( 1 / Σ_t m_it ) Σ_t  m_it · ℓ̃_it ]
+```
 
-## 3. What the coordinates buy
-
-### 3.1 Controlled variables, formalized
-
-A qualified probe = one coordinate moved. The complaint that launched this
-("很多实验没固定变量") becomes an executable predicate, and the chart sorts
-every diagonal into exactly three kinds, each with its resolution:
-
-- **forced** (family change drags b/T_k) → resolved by the crossover cells;
-- **registered** (the E-axis anchor mixtures) → resolved by the a0 cells;
-- **by-design** (literature points ●) → audited as objects, quarantined from
-  single-coordinate claims.
-
-### 3.2 Dose lines = measured curves along single coordinates
-
-| coordinate | points | status |
+| stage | values in the roster | owning axis |
 |---|---|---|
-| λ (slot 1) | {0, 0.5, 1} | run; retro-claimed as the A-axis data-source line (caveat above) |
-| placement (slot 3) | front < window < scatter/criterion < tail | run; h4 + DH1 deconfound the middle |
-| τ scope (slot 5) | {fixed, sequence, batch} | wave 10 |
-| β (slot 6) | {0.1, 0.5, 0.9} | wave 9 |
-| M (slot 7) | {∞→122, ±10→198, log→208, 2.3→247, [−1,1]→never} | run; M1 formalizes |
+| `μ` | λ ∈ {0, 0.5, 1}; T_max ∈ {100, 16k}; n ∈ {1, 8} | A; h5; n8 cell |
+| `w` | 1 / 1[pass] / 1[fail] / quota-K / directional / likelihood | G |
+| `m` | 1 / windows / scatter / criteria; ρ, placement P | D∪H |
+| `Q_Ω` | {y_t} / top-k / quantile-budget / intersection / π-tail | C |
+| `N_ν` | raw / renorm / tailbucket | C-internal (`SUPPORT_MODE`) |
+| `S_σ` | id (values) / z-score / rank / set-mass | E |
+| `D_δ` | RKL / FKL / skew_α / JSD_β / power comparator (f3) | B (+ f3, see §4) |
+| `ℰ_η` | exact-sum / k1 / k2 | crossover cells |
+| `Φ_φ` | id / sign·log(1+·) / clip_±M | F (f1, f2) |
+| `𝒢_b` | direct / PG | branch |
 
-### 3.3 The M line spans two slots → screening-off is now testable
+**Why the Ω/ν split is load-bearing.** Renormalizing a singleton support
+collapses both sides to 1 (`log 1/1 = 0`) — vanilla *requires* `(Ω={y_t},
+ν=raw)`. e2's set statistic `Σ_Ω p^θ(v)` requires `ν=raw` on a top-k support —
+renormalized it is identically 1. Support choice and normalization are
+independent coordinates; c1's `SUPPORT_MODE=renorm|tailbucket` internal ablation
+lives exactly on ν.
 
-The compression line mixes implementations: the f-family bounds via Φ (slot 7),
-b1 via D's intrinsic bound (slot 6), f3 via the form itself (6+7). The
-magnitude-unification hypothesis is therefore precisely a **screening-off
-claim**: collapse dynamics = g(M), independent of the implementing slot.
-Registered intervention: **`f2_clip2.3`** (ledger r6 2026-08-11) — clip moved
-to b1's own ln 10 ≈ 2.3, the matched-M pair. M1 is the hypothesis's
-*measurement* half; f2@2.3 is its *intervention* half.
+**Why the D/ℰ split is load-bearing.** `D` is the population discrepancy; `ℰ`
+its sampled realization. k1 (`c_t = Δℓ_t`) is unbiased for RKL *in expectation*.
+k2 (`c_t = ½Δℓ²`) is **not** an unbiased scalar estimator of RKL
+(`E[½r²] ≠ KL`); it is a pathwise surrogate whose gradient
+`r·∇log π_θ(y_t)` matches the fixed-state RKL gradient in expectation. b5's
+meaning is now exact: **D fixed, ℰ moved** — the estimator firewall.
 
-### 3.4 The endpoint: working method = per-coordinate selection
+## 2. Vanilla as the alignment point
 
-The recipe cell (Tier-3, triggered when Tier-1 verdicts land) is not "another
-method in the arena": it is the point in this space whose every coordinate is
-set by an adjudicated dose line, with the pre-registered prediction that it
-avoids every mechanism-class failure (M-I…M-IV). Success validates the map;
-failure localizes an interaction the per-coordinate analysis missed. Either
-way, the mechanism paper's last chapter writes itself from this table.
+At the origin `(Ω={y_t}, ν=raw, S=id, D=RKL, ℰ=k1, Φ=id, b=PG)`, the
+fixed-state identity holds:
 
-## 4. Relation to prior unifications
+```
+∇_θ KL(p_t^θ ‖ p_t^T)
+  = Σ_v ∇p^θ(v) · ( Δℓ(v) + 1 )          Σ_V ∇p^θ = 0 kills the +1
+  = E_{y_t ~ p_t^θ} [ Δℓ_t · ∇_θ log π_θ(y_t|s_t) ]
+```
 
-f-divergence KD unifications (DistiLLM's skew family, GKD's generalized JSD)
-parameterize slot 6 alone; GKD's λ is slot 1. The template's increment is not
-the algebra — it is (i) the other seven slots, which is where this campaign's
-failure modes actually live (termination is slot 1/3/7 territory, famine is
-slot 2, granularity slot 5), and (ii) measured dose-response along each
-coordinate instead of single-point method comparisons.
+> **Vanilla OPD is a special point where on-policy sampling, reverse-KL
+> geometry, and the score-function estimator align exactly at each visited
+> state; the surrounding design space breaks these identities in controlled
+> ways.**
+
+The `+1` dies because the score sums to zero over the FULL support. On a
+truncated support the sum no longer closes and the +1 bias revives — unless
+`ν=renorm` restores closure within Ω, or the weights are detached. The roster's
+kernels are all renorm/detach (`topk_losses.py:684` witness), so that failure
+class is structurally absent here (cf. Many Faces 2605.11182, its failure-2).
+
+## 3. The update field is the object, not the scalar
+
+`𝒢_PG[a_t]` is in general **not** the gradient of any scalar built from `a_t`:
+for a distribution-valued comparison (c1's renorm-RKL), `−sg(d_t)∇log π_θ(y_t)`
+is a different vector field from `∇d_t`. They coincide only at special points —
+§2's origin is one, and that is vanilla's derivational status. The crossover
+cells are the off-diagonal observations of 𝒢: b5 (sampled × direct), c1
+(top-k × PG), and the pending **C1 = c1-direct**, the fourth corner of the
+(support × field) 2×2.
+
+**Framework-derived implication (registered analytic note, M-task candidate).**
+At PPO ratio = 1 the per-sample fields of k1-PG and k2-direct coincide
+*exactly*: `∇(½r²) = r·∇log π_θ(y_t)` vs surrogate gradient
+`sg(r)·∇log π_θ(y_t)` — numerically identical. The framework therefore predicts
+**b5 ≈ vanilla wherever the ratio stays at 1**, and any observed b5↔vanilla
+divergence measures the *surrogate machinery* (within-step micro-batch ratio
+drift + clipping), not the estimator per se. This sharpens b5's registered
+reading ("any difference is an estimator effect") into "any difference is a
+surrogate-machinery effect" — to be checked against the 16k curves before the
+verdict wording.
+
+## 4. Design coordinates ≠ emergent mechanism coordinates
+
+- **b1** (skew α=0.1) is a **D-move**; its positive-side bound
+  `c_t ≤ −log α = ln 10` is an *emergent* property of the mixture, not a Φ
+  setting.
+- **f3** (`p_T^α − p_θ^α`) is **not** `Φ(Δℓ)` — Δℓ does not determine
+  `p_T − p_θ`. It swaps log-ratio geometry for probability geometry: an
+  out-of-family **bounded comparator** (a D-move with Φ=id). f1/f2 are the true
+  amplitude transforms.
+
+The compression curve therefore lives on an **emergent coordinate**
+`M(𝒰) = effective signal bound`, onto which arms from *different design
+coordinates* project: {vanilla ∞, f2 ±10, f1 log, b1 ln10, f3 [−1,1]} →
+locks {122, 198, 208, 247, never}. The magnitude-unification hypothesis is
+precisely: training dynamics factor through `M(𝒰)`, screening off the design
+coordinate that produced it. `f2_clip2.3` vs b1 is the matched-M intervention;
+M1 the measurement. This also settles "merge B and F?": **no** — distinct
+design axes that project onto one mechanism coordinate, and the projection
+itself is the finding.
+
+## 5. Global origin and axis-local carriers
+
+"Each arm moves exactly one coordinate from vanilla" is not achievable: moving
+S or D off the sampled point mechanically drags Ω, ν, b along (the space is a
+stratified product, §1). The actual design discipline is:
+
+> **Each axis varies one scientific coordinate relative to an axis-specific
+> carrier configuration; mechanically required carrier coordinates are held
+> fixed within the axis.**
+
+| axis | carrier (held fixed) | scientific coordinate |
+|---|---|---|
+| A | vanilla pipeline | μ.λ |
+| n8 / h5 | vanilla pipeline | μ.n / μ.T_max |
+| G | vanilla local pipeline | w |
+| D∪H | vanilla local pipeline | m (ρ, placement) |
+| C | b=direct, D=renorm-RKL | Ω rule / ν / τ-scope |
+| B | Ω=top-32 renorm, b=direct (b1 rides the sampled carrier) | D (family, β) |
+| E | Ω=top-32, b=direct; ν as S requires (rank/z shift-invariant; set needs raw) | S |
+| F | vanilla sampled carrier (PG) | Φ (f1, f2); f3 = D-move (§4) |
+
+Cross-axis reads must route through carriers. Example: the S-ladder's "values"
+rung *on the E carrier* is c1-**direct** — gap cell C1 — because shipped c1 is
+PG (official code). That is the third of C1's three identities (fourth 2×2
+corner; S-ladder branch repair; cheapest verdict on the roster).
+
+Placement notes: `h5_gen100` is a **μ-move** (T_max 16k→100, m≡1);
+`h1` is the m-move (T_max=16k, m=1[t≤100]) — the registered bridge pair
+between supervision locality and rollout locality. `h4_random_scatter` stays an
+m-move (scatter placement). `j1` sits outside the operator (§7).
+
+## 6. Selection layer: conditioning, not reweighting
+
+The double conditional-mean estimator makes the G/H algebra automatic:
+
+- `w_i = 1[R_i > 0]` yields `(1/B_pass) Σ_{pass} L_i` — the shipped
+  mask + `T/T_keep` rescale + token-mean is this conditional mean's *algebraic
+  implementation*, not a method coordinate.
+- `m_it = 1[t ≤ 100]` yields `(1/100) Σ_{t≤100} ℓ_it` — same algebra at token
+  level.
+- **g1_quota changes no objective.** The estimand stays `E[L | R > 0]`; the
+  quota freezes `μ_θ̄` until `B_pass = K`, pinning the estimator's sample size —
+  a **variance intervention on the same estimand**. M4's famine-amplifier
+  account is exactly "the conditional-mean estimator at B_pass ≈ 1–5 has
+  catastrophic variance"; the quota cell is its control.
+
+## 7. Outside the operator (pinned and disclosed)
+
+Initialization `θ₀` (a2). Objective mixing `L_total = L_task + c·L_OPD` (j1 —
+the J boundary asks whether the local distillation operator needs a global task
+objective to close the loop; archived ruling bounds the axis). Execution:
+synchronous, zero staleness. Temperature τ=1 (a global re-parameterization that
+composes with every stage — not a coordinate; ruling 2026-08-11). Temporal
+credit: immediate, no baseline (the return-to-go / GAE family is a disclosed
+pinned coordinate, cf. survey 2606.22793).
+
+## 8. Insight machinery
+
+- **Dose lines** = sections along one design coordinate at a fixed carrier
+  (λ line, β ladder, τ-scope ladder, position line).
+- **Screening-off tests** live on emergent coordinates (M; §4).
+- **Effect decomposition** via off-diagonal cells (the field 2×2; Δlock:
+  estimator/field swap ~3 steps vs bound swap +125).
+- **Attractor universality** via the near-placebo (e2_a0: is the length
+  attractor reachable with almost no training pressure — a statement about the
+  objective landscape, not any method).
+- **Composability** (the recipe cell): whether per-coordinate optima compose —
+  the framework's final falsifiable prediction.
+
+## 9. Relation to prior unifications
+
+f-divergence unifications (DistiLLM, GKD's JSD) parameterize `D` alone; GKD's λ
+is `μ`. The formula-driven survey (2606.22793) taxonomizes similar axes with no
+experiments; this framework differs in being an *operator* account (𝒰 ↦ update
+field, with the semi-gradient discipline explicit) instantiated by controlled
+single-coordinate probes with measured dose-response. Related-work list:
+`ARM-SOURCES.md` final section.
