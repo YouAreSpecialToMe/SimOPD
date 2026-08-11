@@ -107,3 +107,15 @@ protocol-defining, not compared against.
 | RSKD — [2503.16870](https://arxiv.org/abs/2503.16870) | spirit of c1's `tailbucket` internal ablation |
 | SEAD [2606.28562](https://arxiv.org/abs/2606.28562) · Evidence [2606.22830](https://arxiv.org/abs/2606.22830) · Rock [2605.09253](https://arxiv.org/abs/2605.09253) · Blockwise [2606.24084](https://arxiv.org/abs/2606.24084) · Position-Bias [2606.22600](https://arxiv.org/abs/2606.22600) | selector family → shadow-panel measurement only (task #7), no training runs |
 | KAT (sampling-distribution change) | discussion-only, not raced |
+
+## Related-work mentions (coverage sweep 2026-08-11 — cite briefly; ruling: different genre, no defensive positioning needed)
+
+| paper | one-line relation |
+|---|---|
+| OPD survey — [2604.00626](https://arxiv.org/abs/2604.00626) | field survey (feedback signal / teacher access / loss scope) |
+| Formula-driven survey — [2606.22793](https://arxiv.org/abs/2606.22793) | taxonomy-only unification (two routes, eight axes); no experiments |
+| Many Faces — [2605.11182](https://arxiv.org/abs/2605.11182) | single-part probes (teacher prefix distortion; un-renormalized top-k "+1 bias"; OPSD PI). Our renorm/detached kernels sit structurally outside its failure-2 class (`topk_losses.py:684`); it has no termination/length line |
+| Geometry of OPD — [2606.07082](https://arxiv.org/abs/2606.07082) | weight-space diagnostics (subspace locking) — complementary readout |
+| Temperature — [2606.00306](https://arxiv.org/abs/2606.00306) | τ ruled a global re-parameterization, not a slot coordinate (2026-08-11); protocol pins τ=1, the field-canonical value |
+| AsyncOPD — [2606.24143](https://arxiv.org/abs/2606.24143) | staleness = sampler engineering, outside the loss template's object |
+| [awesome-on-policy-distillation](https://github.com/chrisliu298/awesome-on-policy-distillation) | community roster used for the 2026-08-11 coverage sweep |

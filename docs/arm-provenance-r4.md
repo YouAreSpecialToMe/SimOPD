@@ -853,3 +853,22 @@ lock 排序),本格是同一假说的**干预试验** —— 名册此前没有�
 EXPECT_PG=True(承 f2,k1 族)。提案通过后一并补 arms.yaml / campaign.tsv(wave
 排期)/ verdict.py ARMS / lint 表 —— 登记时刻意不动这四处,保持提案与 enlistment
 的分离。优先级:比 N1/DH1 便宜,且是 M1 唯一的构造性介入;Tier-3 内排 DH1 之前。
+
+## r6 裁定(2026-08-11):覆盖度对表收官 —— 类型区隔确认,related work 轻提即可
+
+对社区全集(awesome-on-policy-distillation,300+ 篇)做覆盖对表 + 两篇近邻精读
+(2606.22793 公式化综述、2605.11182 Many Faces)后的用户裁定:**类型不同** ——
+综述无 findings,Many Faces 属单部件探究(thunlp 型);本文是全坐标受控分析。
+不做防御性划界段,related work 提及即可(引用清单入 `ARM-SOURCES.md` 末节)。
+
+附带裁定:**温度 τ 是全局再参数化而非槽坐标**(在 D 之前同时作用于两个分布,
+与九槽全部复合 ⇒ 发现不可归因 ⇒ 按 UNIFIED-LOSS 的探针判据不合格;协议钉 τ=1
+即领域正典,B 轴判决措辞标注 τ=1 条件即可)。staleness / token 级源混合 /
+PG 基线 / 软位置权判**工程侧**,出论文对象,scope 声明处置。
+
+对表红利两条,留作判决措辞素材,不扩写:(1) 名册的 renorm/detach kernel 使
+Many Faces 的 "+1 偏差" 失败类**结构性缺席**(c2 双侧支撑内重归一化,
+topk_losses.py:684;c3 官方 reduced form 权重 sg;b2 权重在教师侧);
+(2) vanilla 零截断照塌 = 该机理**非塌陷必要条件**的现成反例,压缩剂量线五臂
+全为 sampled-token,在截断偏差结构性缺席下隔离量级。补记:temporal credit
+(2606.22793 的轴)= b 槽子参数,全名册钉 immediate/无 baseline,披露即可。
