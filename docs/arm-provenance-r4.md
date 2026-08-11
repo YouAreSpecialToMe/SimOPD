@@ -759,3 +759,29 @@ random-scatter 追平判据臂,d 族的全部 4 卡溢价买到零。
 任何在册判决依赖它。**触发条件**(照 f2 的 D5/Mode-B 先例):M1 实测量级排序
 解释不了 lock 排序,或跨形式批评实际出现;启用时必须自带 lr 混淆处理方案。
 在此之前,量级假说的裁决走 M1 实测 + wave 9(H3)+ wave 11。
+
+## r6 登记(2026-08-11):G 轴配额格(用户设计)—— g1_quota / g4_quota,status: needs
+
+**代数前置**:出货的 mask + T/T_keep 缩放 + token-mean **恒等于**保留 token 上的
+条件均值 —— 改归一化约定是空操作。crater 的病根是 T_keep 随通过率坍缩(饥荒窗
+通过率 0.5–2.1%,放大器 50–200×,样本 ~5 条轨迹)。本设计钉的是**样本量**:
+DAPO 式动态采样,采到 K 条 verifier pass 才更新。vendored verl v1 已带机械
+(`algorithm.filter_groups` + `max_num_gen_batches`,trainer_base.py:210),缺一个
+自定义谓词("按通过数配额"),小接缝非手术。
+
+**五个钉死的决定**:K=16(健康后期一步 ~23 条 pass 的量级);max_num_gen_batches=8,
+配额不满照常更新并记录 K_actual(优雅降级,无静默截断);**pass 禁止跨步缓存**
+(缓存即 off-policy,泄漏进 A 轴;步内补采仍 on-policy);补批抽新 prompt(DAPO
+惯例;pass 条件化的易题偏置是固有的,照实记录);g4 对称同改(fail 全程 ~90%,
+配额几乎不咬合,近乎免费 —— 存在意义是让符号括号保持单旋钮)。
+
+**对立预测(g1 ↔ g1_quota = M4 的因果对照,地位对齐 N1 之于 M-I)**:
+- **P-famine**:无 crater、早期曲线平滑、suite@25 不再是全场地板 ⇒ 饥荒-放大器
+  机理坐实,且"g1 的 crater 可免费修掉"成为 recipe 级结论;
+- **P-not**:crater 照现 ⇒ M4 的放大器账错,深 U 另有机理。
+
+**账本**:饥荒期生成成本 ∝ 1/通过率 —— 生成 token 与监督 token 在此剧烈分叉,
+compute ledger 的第一个活案例。成本估计:g1_quota ~300 GPU·h(240 + 饥荒溢价),
+g4_quota ~357。**解锁** = 谓词落地(舰队侧)+ CPU 对拍 + 3 步彩排 + wave-12 tsv
+加行;旋钮停 `env2_pending`(SIMOPD_GQ_QUOTA=16 / SIMOPD_GQ_MAX_GEN_BATCHES=8),
+lint 拒绝忘改名的 stock 翻转。g2/g5 不动:其 recipe 即受审对象。

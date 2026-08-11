@@ -861,6 +861,59 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_failure_only
 
+  - run_id: g1_quota
+    axis: G
+    cohort: supplement
+    desc: "[OURS] g1 with a fixed pass QUOTA: resample until K=16 verifier passes, then the same conditional mean"
+    status: needs
+    note: "REGISTERED 2026-08-11 (user design; the M4 intervention cell). Algebra
+           first: the shipped mask + T/T_keep rescale + token-mean IS the
+           conditional mean over kept tokens, so changing the normalization alone
+           is a no-op -- the crater's root is T_keep itself collapsing with the
+           pass rate (0.5-2.1% in the famine window, a 50-200x effective-lr
+           amplifier on a 5-trajectory sample). This cell pins the SAMPLE SIZE
+           instead: DAPO-style dynamic sampling (vendored verl v1 already ships
+           the machinery -- algorithm.filter_groups + max_num_gen_batches,
+           trainer_base.py:210) with a custom predicate 'collect until K=16
+           verifier passes'. Five pinned decisions: K=16 (a healthy late step
+           sees ~23 passes at 9%x256); max_num_gen_batches=8, quota shortfall
+           trains anyway with K_actual logged (graceful famine degradation, no
+           silent cap); NO cross-step pass buffering -- that would go off-policy
+           and leak into axis A, within-step resampling stays on-policy; refill
+           batches draw NEW prompts (DAPO convention; the easy-prompt bias of
+           pass-conditioning is inherent and logged, not created here); g4 moves
+           symmetrically so the sign bracket stays one-knob. PREDICTIONS
+           (g1 <-> g1_quota is M4's causal contrast, the M-II analogue of N1):
+           P-famine -- no crater, smooth early curve, suite@25 no longer the
+           roster's floor; P-not -- crater reproduces and M4's amplifier account
+           is wrong. Ledger accounting: generation cost scales as 1/pass-rate
+           early; generated-vs-supervised tokens diverge sharply -- the compute
+           ledger's first live case. Unlock = the filter predicate lands on the
+           fleet (small seam, not surgery) + CPU battery + 3-step rehearsal +
+           wave-12 tsv rows; knobs parked under env2_pending until then
+           (arm_lint refuses a stock flip that forgets the rename)"
+    env2_pending:
+      SIMOPD_GQ_QUOTA: "16"
+      SIMOPD_GQ_MAX_GEN_BATCHES: "8"
+    env:
+      DISTILLATION_LOSS_MODE: k1_verified_only
+
+  - run_id: g4_quota
+    axis: G
+    cohort: supplement
+    desc: "[OURS] g4 with the same K=16 quota on FAILS -- the sign bracket's symmetric member"
+    status: needs
+    note: "REGISTERED 2026-08-11 with g1_quota (see it for the full design). Fails
+           run ~90% of rollouts all campaign, so the quota almost never binds and
+           this cell is nearly free -- it exists so that g1_quota vs g4_quota
+           reads the predicate SIGN alone, same estimator, same sample-size
+           discipline. Same unlock, same parked knobs"
+    env2_pending:
+      SIMOPD_GQ_QUOTA: "16"
+      SIMOPD_GQ_MAX_GEN_BATCHES: "8"
+    env:
+      DISTILLATION_LOSS_MODE: k1_failure_only
+
   - run_id: g5_rgopd_gate
     axis: G
     cohort: supplement
