@@ -80,7 +80,7 @@ aggregate linearly):
 |---|---|---|
 | `μ` | λ ∈ {0, 0.5, 1}; T_max ∈ {100, 16k}; n pinned at 1 (n=8 cell archived with the J axis, 2026-08-11) | A; h5 |
 | `w` | 1 / 1[pass] / 1[fail] / quota-K / directional / likelihood | G |
-| `m` | 1 / windows / scatter / criteria; ρ, placement P | D∪H |
+| `m` | m_t = M_{ρ,P}(t, s_t, p_t^θ, p_t^T) ∈ [0,1]; budget ρ, selection rule P | D∪H |
 | `Q_Ω` | {y_t} / top-k / quantile-budget / intersection / π-tail | C |
 | `N_ν` | raw / renorm / tailbucket | C-internal (`SUPPORT_MODE`) |
 | `S_σ` | id (values) / z-score / rank / set-mass | E |
@@ -88,6 +88,22 @@ aggregate linearly):
 | `𝒬` | MC at sampled token / exact support sum | roster-confounded with Ω (§3) |
 | `Φ_φ` | id / sign·log(1+·) / clip_±M | F (f1, f2) |
 | `ℛ` | PG / direct / k2-potential | crossover pairs (§3) |
+
+**m_t is token-level supervision allocation, one coordinate for D and H.**
+
+```
+m_t = M_{ρ,P}( t, s_t, p_t^θ, p_t^T ) ∈ [0, 1]
+```
+
+with ρ the supervision budget (coverage) and P the selection rule. P may read
+**position only** — h1/h2/h3 first/last/random window, h4 scatter — or the
+**distributions themselves** — d1 TIP high-entropy, d2 propose-verify, d3
+teachability (disagreement/compatibility); soft weights (d2's rejected-token
+β=0.01) are the continuous case. D and H therefore share one design
+coordinate. They stay separate *experimental* axes because they ask different
+scientific questions — **position locality** (does WHERE supervision lands
+matter) vs **information locality** (does WHICH tokens, by content, matter) —
+and the DH1 bridge cells read the two against each other at matched ρ.
 
 **Why the Ω/ν split is load-bearing.** Renormalizing a singleton support
 collapses both sides to 1 (`log 1/1 = 0`) — vanilla *requires* `(Ω={y_t},
@@ -202,7 +218,7 @@ a stratified product). The actual design discipline is:
 | A | vanilla pipeline | μ.λ |
 | h5 | vanilla pipeline | μ.T_max |
 | G | vanilla local pipeline | w |
-| D∪H | vanilla local pipeline | m (ρ, placement) |
+| D∪H | vanilla local pipeline | m (ρ; P positional ↔ informational) |
 | C | 𝒬=exact, ℛ=direct, D=renorm-RKL | Ω rule / ν / τ-scope |
 | B | Ω=top-32 renorm, 𝒬=exact, ℛ=direct (b1 rides the sampled carrier) | D (family, β) |
 | E | Ω=top-32, 𝒬=exact, ℛ=direct; ν as S requires (rank/z shift-invariant; set needs raw) | S |

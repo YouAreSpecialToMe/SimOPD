@@ -1025,3 +1025,13 @@ posclip_hit_rate / tanh_shrink_ratio。
 **seam 记录**:f2 族的 clamp 在 verl 下游(loss_max_clamp),f4/f5 在
 kernel 内 —— 两处都作用于 advantage detach 之前的逐 token loss,等价;
 差异如实入注。成本:3 臂 × 3 seeds ≈ 585 GPU·h + 90 suite 格,2 卡行。
+
+## r6 修订三(2026-08-11):m_t 统一定义 —— token 级监督分配
+
+用户定稿:m_t = M_{ρ,P}(t, s_t, p_t^θ, p_t^T) ∈ [0,1],ρ = 监督预算/覆盖率,
+P = 选择规则。P 可只读位置(h1/h2/h3 首/尾/随机窗、h4 散点),也可读分布
+本身(d1 高熵、d2 propose-verify、d3 teachability/disagreement);软权
+(d2 的 β=0.01)即连续情形。**D 与 H 共享同一设计坐标;实验上仍分轴**,
+因为二者问的是不同科学问题 —— 位置局部性(监督落在哪)vs 信息局部性
+(按内容选哪些 token)—— DH1 桥格在等 ρ 下对读两者。已入
+UNIFIED-LOSS §1。
