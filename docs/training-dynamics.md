@@ -632,21 +632,21 @@ installed in the campaign venv and installing into it while rows are flying is n
 <!-- AUTO:EXPANSION-DYNAMICS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 — dynamics at a glance
 
-_Auto-published 2026-08-12T05:18:42Z; latest logged step per arm, seed-averaged. Compare against §2's table for the 16k-campaign arms._
+_Auto-published 2026-08-12T06:19:15Z; latest logged step per arm, seed-averaged. Compare against §2's table for the 16k-campaign arms._
 
 | arm | step | len | trunc | entropy | s/it |
 |---|---|---|---|---|---|
-| b4_jsd_b0.1 | 41 | 3789 | 0.06 | 6.20 | 223.07 |
-| b4_jsd_b0.9 | 42 | 4180 | 0.10 | 2.35 | 257.06 |
-| c1_direct | 35 | 7154 | 0.21 | 0.21 | 448.81 |
-| c1_tailbucket | 43 | 1562 | 0.02 | 2.37 | 113.60 |
-| c2_qb_fixed8 | 36 | 2976 | 0.05 | 1.50 | 252.13 |
-| c2_qb_perseq | 32 | 3832 | 0.09 | 0.35 | 315.94 |
-| e1_pl_rank_a0 | 48 | 1055 | 0.01 | 6.13 | 83.05 |
-| e2_set_coverage_a0 | 37 | 5726 | 0.11 | 0.17 | 324.45 |
-| f2_clip2.3 | 40 | 6049 | 0.19 | 0.34 | 329.42 |
-| f4_posclip | 37 | 6566 | 0.22 | 0.14 | 360.95 |
-| f5_tanh | 23 | 1633 | 0.01 | 0.63 | 79.58 |
-| h4_random_scatter | 43 | 4204 | 0.08 | 0.16 | 203.68 |
+| b4_jsd_b0.1 | 50 | 5997 | 0.11 | 7.20 | 348.58 |
+| b4_jsd_b0.9 | 49 | 7853 | 0.24 | 2.21 | 471.20 |
+| c1_direct | 41 | 11429 | 0.50 | 0.19 | 729.44 |
+| c1_tailbucket | 75 | 1429 | 0.02 | 2.17 | 112.67 |
+| c2_qb_fixed8 | 45 | 6158 | 0.18 | 1.89 | 511.01 |
+| c2_qb_perseq | 36 | 10206 | 0.40 | 0.18 | 953.68 |
+| e1_pl_rank_a0 | 74 | 3818 | 0.06 | 7.52 | 219.32 |
+| e2_set_coverage_a0 | 44 | 10074 | 0.35 | 0.06 | 617.34 |
+| f2_clip2.3 | 46 | 10735 | 0.49 | 0.21 | 629.54 |
+| f4_posclip | 43 | 10959 | 0.51 | 0.12 | 648.11 |
+| f5_tanh | 38 | 8668 | 0.35 | 0.13 | 485.56 |
+| h4_random_scatter | 53 | 7159 | 0.24 | 0.14 | 393.85 |
 | h5_gen100 | 250 | 100 | 1.00 | 0.13 | 43.17 |
 <!-- AUTO:EXPANSION-DYNAMICS END -->

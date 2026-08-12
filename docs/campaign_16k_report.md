@@ -379,25 +379,25 @@ their curves complete up to their stopping points. Full per-row history lives in
 <!-- AUTO:EXPANSION-RESULTS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 (m25–m37) — live results
 
-_Auto-published 2026-08-12T05:18:42Z by `exp_publish.py` from lane logs and suite artifacts; pin `b001d02`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
+_Auto-published 2026-08-12T06:19:15Z by `exp_publish.py` from lane logs and suite artifacts; pin `41c2244`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
 
 ### In-loop val (greedy MATH500, mean±std over seeds)
 
 | arm | wave | s25 | s50 | s75 | s100 | s125 | s150 | s175 | s200 | s225 | s250 | now |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| c1_direct | 15 | 0.638±0.002 | – | – | – | – | – | – | – | – | – | 34/35/35 |
-| c2_qb_perseq | 10 | 0.630±0.009 | – | – | – | – | – | – | – | – | – | 32/32/30 |
-| c2_qb_fixed8 | 10 | 0.607±0.002 | – | – | – | – | – | – | – | – | – | 35/35/36 |
-| f4_posclip | 14 | 0.605±0.015 | – | – | – | – | – | – | – | – | – | 37/36/31 |
-| b4_jsd_b0.9 | 9 | 0.596±0.017 | – | – | – | – | – | – | – | – | – | 41/42/33 |
-| f2_clip2.3 | 14 | 0.595±0.010 | – | – | – | – | – | – | – | – | – | 39/40/33 |
-| h4_random_scatter | 12 | 0.561±0.006 | – | – | – | – | – | – | – | – | – | 43/43/43 |
-| b4_jsd_b0.1 | 9 | 0.549±0.003 | – | – | – | – | – | – | – | – | – | 41/41/31 |
-| e2_set_coverage_a0 | 11 | 0.540±0.006 | – | – | – | – | – | – | – | – | – | 37/37/31 |
-| c1_tailbucket | 15 | 0.498±0.065 | – | – | – | – | – | – | – | – | – | 43/36/42 |
-| e1_pl_rank_a0 | 11 | 0.494±0.022 | – | – | – | – | – | – | – | – | – | 48/45/29 |
+| h4_random_scatter | 12 | 0.561±0.006 | 0.639±0.004 | – | – | – | – | – | – | – | – | 53/52/53 |
+| c1_direct | 15 | 0.638±0.002 | – | – | – | – | – | – | – | – | – | 40/40/41 |
+| c2_qb_perseq | 10 | 0.630±0.009 | – | – | – | – | – | – | – | – | – | 36/36/35 |
+| c2_qb_fixed8 | 10 | 0.607±0.002 | – | – | – | – | – | – | – | – | – | 43/43/45 |
+| f4_posclip | 14 | 0.605±0.015 | – | – | – | – | – | – | – | – | – | 43/42/39 |
+| f5_tanh | 14 | 0.601±0.011 | – | – | – | – | – | – | – | – | – | 38/38/37 |
+| b4_jsd_b0.9 | 9 | 0.596±0.017 | – | – | – | – | – | – | – | – | – | 48/49/49 |
+| f2_clip2.3 | 14 | 0.595±0.010 | – | – | – | – | – | – | – | – | – | 45/46/44 |
+| c1_tailbucket | 15 | 0.498±0.065 | 0.549±0.019 | 0.540·1 | – | – | – | – | – | – | – | 75/65/74 |
+| e2_set_coverage_a0 | 11 | 0.540±0.006 | – | – | – | – | – | – | – | – | – | 44/43/40 |
+| b4_jsd_b0.1 | 9 | 0.549±0.003 | 0.506·1 | – | – | – | – | – | – | – | – | 50/49/47 |
+| e1_pl_rank_a0 | 11 | 0.494±0.022 | 0.475±0.004 | – | – | – | – | – | – | – | – | 74/71/66 |
 | h5_gen100 ⚠ | 12 | 0.004±0.000 | 0.001±0.001 | 0.000±0.000 | 0.000±0.000 | 0.000±0.000 | 0.000±0.000 | 0.000±0.000 | 0.000±0.000 | 0.000±0.000 | 0.000±0.000 | 250/250/250 |
-| f5_tanh | 14 | – | – | – | – | – | – | – | – | – | – | 23/20/19 |
 
 ### Post-hoc suite composites (complete checkpoints only)
 
