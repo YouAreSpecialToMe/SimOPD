@@ -99,7 +99,12 @@ def to_verl(question, tests, idx, split, orig_source=""):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="agentica-org/DeepCoder-Preview-Dataset")
-    ap.add_argument("--config", default=None, help="HF config name, if the source has several")
+    ap.add_argument("--configs", default="taco,primeintellect",
+                    help="comma-separated HF config names to pool. DeepCoder-Preview ships "
+                         "four (codeforces/lcbv5/primeintellect/taco); the default pools the "
+                         "two verified competitive-programming lineages and leaves lcbv5 out "
+                         "deliberately -- LiveCodeBench is contamination surface for anyone "
+                         "comparing against LCB numbers later")
     ap.add_argument("--splits", default="train", help="comma-separated split names to pool")
     ap.add_argument("--local_save_dir", default="~/data/simopd_code")
     ap.add_argument("--sample", type=int, default=MATH_SET_SIZE)
@@ -111,10 +116,11 @@ def main():
     args = ap.parse_args()
 
     pool = []
-    for split in args.splits.split(","):
-        ds = (datasets.load_dataset(args.source, args.config, split=split)
-              if args.config else datasets.load_dataset(args.source, split=split))
-        print(f"{args.source}[{split}]: {len(ds)} rows, columns={ds.column_names}")
+    pairs = [(c.strip(), sp.strip()) for c in args.configs.split(",") if c.strip()
+             for sp in args.splits.split(",") if sp.strip()]
+    for config, split in pairs:
+        ds = datasets.load_dataset(args.source, config, split=split)
+        print(f"{args.source}[{config}/{split}]: {len(ds)} rows, columns={ds.column_names}")
         if args.inspect:
             for r in list(ds.select(range(2))):
                 print({k: (str(v)[:160] + "…" if len(str(v)) > 160 else v) for k, v in r.items()})
@@ -125,7 +131,7 @@ def main():
             if not q or not t:
                 dropped += 1
                 continue
-            pool.append((q, t, f"{args.source}:{split}"))
+            pool.append((q, t, f"{args.source}:{config}/{split}"))
             kept += 1
         print(f"  kept {kept}, dropped {dropped} (no question or unusable tests)")
     if args.inspect:
