@@ -183,31 +183,38 @@ up in wave order as training winds down.
 | 10 | `c2_qb_fixed8` / `_perseq` | c2's pinning granularity + the matched-budget fixed control | ~600 | 60 |
 | 11 | `e1_pl_rank_a0` / `e2_set_coverage_a0` | E-ladder purity ("does order suffice" made legal) + near-placebo | ~420 | 60 |
 | 12 | `h4_random_scatter` / `h5_gen100` | window-vs-scatter (tail-dose test) + ESR's own truncation form | ~235 | 60 |
-| 14 | `f2_clip2.3` / `f4_posclip` / `f5_tanh` | F expansion after the M1 harvest: the calibrated screening-off test (predicted lock ≈ 247) + which-tail + hard-vs-smooth; M∈{5,20} sweep dropped by ruling | ~585 | 90 |
-| **total** | **11 arms / 33 rows** | | **~2,195** | **330** |
+| 14 | `f2_clip2.3` / `f4_posclip` | F expansion after the M1 harvest: the calibrated screening-off test (predicted lock ≈ 247) + which-tail; f5_tanh deferred, M∈{5,20} sweep dropped | ~390 | 60 |
+| 15 | `c1_direct` / `c1_tailbucket` | **C1, priority #1 of the whole expansion** ((𝒬×ℛ) fourth corner + S-ladder branch repair) + the ν probe (candidate identities vs discarded support mass) | ~100 | 60 |
+| **total** | **12 arms / 36 rows** | | **~2,105** | **360** |
 
 ### Tier 2 — registered, blocked on a prerequisite
 
 | cell | prerequisite | GPU·h |
 |---|---|---|
-| `g1_quota` / `g4_quota` (wave 13) | pass-quota predicate on verl v1's `filter_groups` seam + rehearsal | ~657 |
-| C1 `c1-direct` | none — **just needs a lane; the roster's best decision-per-GPU·h** | ~50 |
-| A1 a2 validity recipe cell | stage-1 rebuild (validity filter + pinned SFT hyperparameters) | ~400 |
-| A3 a1/a3 unlock | cornell `gen_offpolicy` precompute + rehearsal | ~600 |
-| **total** | | **~1,700** |
+| `g1_quota` (wave 13) | pass-quota predicate on verl v1's `filter_groups` seam + rehearsal (`g4_quota` deferred: fails keep ~95–99%, no starvation to fix) | ~300 |
+| A1 a2 validity recipe cell | stage-1 rebuild (validity filter + pinned SFT hyperparameters); **required if the A axis is to enter the paper at all** | ~400 |
+| **total** | | **~700** |
 
-### Tier 3 — proposals awaiting a go/no-go
+(C1 `c1-direct` was enlisted out of this tier into wave 15 on 2026-08-11.)
 
-| cell | adjudicates | GPU·h |
+### Deferred pool — parked by the identification-hole ruling (2026-08-11 late)
+
+The ruling that reshaped this section: **rank by whether a cell plugs an
+identification hole in the paper, not by filling the unified framework's
+coordinate grid** ("不要为了让 framework 每个坐标都有实验而填满棋盘;只补那些
+能改变结论归因的格子"). Each parked cell keeps its registration and a revival
+condition:
+
+| cell | why parked | revives when |
 |---|---|---|
-| N1 causal keystone (`vanilla` + truncation-zeroing reward only) | closes the EOS-starvation loop causally — the heaviest-weight proposal | ~350 |
-| DH1 random-scatter @50% / @5% | criterion-vs-random at matched budget (the selector literature's actual claim) | ~500 |
-| C2 tailbucket / C3 full-vocab upper bound | headline-theorem second test / the width axis's endpoint | ~150 |
-| bounded set-coverage repair (must be born anchor-free) | a clean reading for the E ladder's bottom rung | ~280 |
-| **total** | | **~1,280** |
-
-(`f2_clip2.3` was enlisted out of this tier into wave 14 on 2026-08-11, after
-the M1 first harvest calibrated its prediction.)
+| `g4_quota` (~357) | fails keep 95–99% — no starvation for a quota to fix; mirror is pretty, information content low | the sign bracket must close at quota discipline |
+| `f5_tanh` (~195) | hard-vs-smooth is a refinement; shapes already span softlog/clip/skew/power (kernel + battery stay landed) | f2_clip2.3 lands P-impl and the boundary-gradient question becomes load-bearing |
+| A3 λ dose line (~600) | expensive; completeness, not a current hole | the A axis becomes a paper mainline |
+| N1 causal keystone (~350) | beautiful M-I capstone, not the most pressing hole | the termination chapter needs its causal cell |
+| DH1 @50%/@5% (~500) | wait for h4 + h5 + the existing TIP reads | those readings leave criterion-vs-random genuinely open |
+| C3 full-vocab (~75) | cost/interpretation ratio poor; the tailbucket bridge answers the ν question at ~1/10 cost | c1_tailbucket separates and the width endpoint becomes decisive |
+| bounded set-coverage repair (~280) | must first know how pure set dies | e2_set_coverage_a0 reports (P-frozen vs P-drift) |
+| front@5% (ρ,P corner) (~210) | avoid framework-driven expansion | the position dose line's budget confound survives DH1 |
 
 **Archived / conditional (not counted):** the **entire J axis** (2026-08-11,
 upgraded from the j0-only ruling: `j0_grpo_only` never registered; `j1_kdrl` +
@@ -217,14 +224,11 @@ OPD; completed rows banked, `μ.n` pinned at 1 roster-wide), the α ladder
 
 ### Totals and recommended order
 
-- Tier 1 + Tier 2 ≈ **3,900 GPU·h** (~42% of the original campaign); all three
-  tiers ≈ **5,200 GPU·h** (~56%) plus ~510 new suite cells.
-- Running in parallel at zero GPU: the M1–M6 harvests and S (the ~555 remaining
-  suite cells — the arbiter).
-- Recommended order: **C1 immediately** (50 GPU·h buys the biggest pending
-  verdict) → Tier 1 self-runs (wave 14 carries M1's intervention half) →
-  **A1** (unblocks the whole A axis) → **N1** (the mechanism paper's causal
-  piece) → DH1 → revisit the rest once Tier 1 reports. If Tier 3 must shrink,
-  cut C2/C3 first (the theorem already has c4's vote; the upper bound is a
-  completeness piece, not a verdict piece — but note C2 is now the ν
-  coordinate's only mover, see `UNIFIED-LOSS.md`).
+- Committed plan (Tier 1 + Tier 2) ≈ **2,800 GPU·h** (~30% of the original
+  campaign) plus ~420 new suite cells. The deferred pool (~2,570) re-enters
+  only cell-by-cell as its trigger fires — it is not a backlog.
+- Running in parallel at zero GPU: the M2–M6 harvests (M1 done: monotone 5/5)
+  and S (the remaining suite cells — the arbiter).
+- Recommended order: **`c1_direct` on the first free lane** (wave 15 rows exist;
+  it jumps the queue) → waves 9–12, 14, 15 self-run → `g1_quota` predicate →
+  **A1** → read everything, then revisit the deferred pool trigger by trigger.

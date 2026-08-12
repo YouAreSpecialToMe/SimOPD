@@ -316,6 +316,53 @@ arms:
       DISTILLATION_TOPK: "32"
       SIMOPD_SUPPORT_MODE: renorm
 
+  - run_id: c1_direct
+    axis: C
+    cohort: supplement
+    desc: "[gap cell C1] c1's loss on the DIRECT branch -- the fourth corner of the (evaluation x realization) 2x2"
+    status: stock
+    note: "ENLISTED 2026-08-11 (identification-hole ruling: priority #1 of the
+           whole expansion). Zero new code: c1's own note has always carried
+           'the direct form remains available as the paper-form ablation via
+           USE_POLICY_GRADIENT'. Four identities: (1) fourth corner of the
+           (Q x R) 2x2 -- vanilla=MC/PG, b5=MC/k2-direct, c1=exact/PG, THIS
+           =exact/direct -- completing the realization deconfound of the Fisher
+           p=0.017 signal; (2) the S-ladder's 'values' rung on the E carrier
+           (e1/e2/e3 are all direct; shipped c1 is PG per official code, so the
+           ladder's top rung sat on the wrong branch); (3) the existence proof
+           that evaluation != realization becomes a measured pair; (4) at
+           c1-like lengths (~1.3k) the cheapest verdict on the roster.
+           Judged against c1 (same everything, branch the only knob)"
+    env:
+      DISTILLATION_LOSS_MODE: lsm_topk_renorm
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_SUPPORT_MODE: renorm
+
+  - run_id: c1_tailbucket
+    axis: C
+    cohort: supplement
+    desc: "[OURS] the nu probe: c1 with SUPPORT_MODE=tailbucket -- keep the tail's mass as one bucket instead of renormalizing it away"
+    status: stock
+    note: "ENLISTED 2026-08-11 (identification-hole ruling #9: the one Tier-3
+           promotion). SUPPORT_MODE=renorm|tailbucket was pre-registered as c1's
+           internal ablation on day one; this executes the second value. The
+           unified framework's nu coordinate (support normalization / mass
+           representation) had no single-knob intervention anywhere on the
+           roster -- this is it, one knob against completed c1, PG branch and
+           everything else identical. The scientific question (user wording):
+           is top-k's limitation that the CANDIDATE IDENTITIES are too few, or
+           that renorm DISCARDS the support mass? P-identity: tailbucket ~= c1
+           => the discarded mass never mattered, the k identities carry the
+           signal, and renorm-KL's truncation is innocent. P-mass: they
+           separate => mass representation is load-bearing, connecting to c4's
+           pi-tail theorem line from the loss side. full-vocab (C3) stays
+           deferred -- this bridge answers the question at ~1/10 the cost"
+    env:
+      DISTILLATION_LOSS_MODE: lsm_topk_renorm
+      DISTILLATION_TOPK: "32"
+      SIMOPD_SUPPORT_MODE: tailbucket
+
   - run_id: c2_quantile_budget
     axis: C
     desc: "quantile budget allocation, margin=max(q,pi) [OURS]"
@@ -764,8 +811,12 @@ arms:
     axis: F
     cohort: supplement
     desc: "[OURS] smooth bounded 10*tanh(r/10): boundedness vs the hard clip's kink"
-    status: stock
-    note: "REGISTERED 2026-08-11 (user design, F expansion #3, refinement rung).
+    status: shelved
+    note: "DEFERRED 2026-08-11 (identification-hole ruling): hard-vs-smooth is a
+           refinement -- the magnitude mechanism does not depend on it, and the
+           roster already spans softlog/hardclip/skew/power shapes. Kernel and
+           battery stay landed; revival = status flip + tsv rows.
+           Original registration (F expansion #3, refinement rung):
            Same bound as f2's clip, no discontinuity, no dead gradient beyond
            the threshold (tanh saturates smoothly -- battery: live gradient
            everywhere, tiny in the far tail). P-bound: f5 ~= f2 => tail
@@ -964,8 +1015,14 @@ arms:
     axis: G
     cohort: supplement
     desc: "[OURS] g4 with the same K=16 quota on FAILS -- the sign bracket's symmetric member"
-    status: needs
-    note: "REGISTERED 2026-08-11 with g1_quota (see it for the full design). Fails
+    status: shelved
+    note: "DEFERRED 2026-08-11 (identification-hole ruling): fails keep ~95-99%
+           of rollouts all campaign, so there is no starvation for a quota to
+           fix -- the mirror is pretty but its information content is far below
+           g1_quota's, and M4's causal contrast (g1 <-> g1_quota) does not need
+           it. Revival = status flip when the sign bracket must be closed at
+           quota discipline. Original registration:
+           REGISTERED 2026-08-11 with g1_quota (see it for the full design). Fails
            run ~90% of rollouts all campaign, so the quota almost never binds and
            this cell is nearly free -- it exists so that g1_quota vs g4_quota
            reads the predicate SIGN alone, same estimator, same sample-size

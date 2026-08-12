@@ -1077,3 +1077,41 @@ RESULTS-GAPS §1.2b。三条判定:
    −~25 GB 峰值、消 OOM 悬崖、wall 族回 2 卡调度粒度、16k 之上长度
    余量。诚实注:GPU·h 对 4 卡修复大致拓扑中性(4 卡同时砍半墙钟)——
    收益是悬崖+粒度+余量,不是 GPU·h 减半。完成行永不适用。
+
+## r6 裁定(2026-08-11 深夜):识别洞排序 —— 扩张名单按"是否堵论文的
+identification hole"重排,不按轴均匀补齐
+
+**持久原则(用户原话)**:"不要为了让 unified framework 每个坐标都有实验而
+填满棋盘;只补那些能改变结论归因的格子。" 框架的角色就此定型:它**发现**
+洞、给洞命名,但**不自动生成**实验——每个格子必须自证能改变某条结论的归因。
+
+**入列(核心执行清单)**:
+1. **c1_direct**(新臂,wave 15,全扩张第一优先,插队首条空泳道):一格修
+   四处 —— (𝒬×ℛ) 2×2 第四角、E 阶梯值档的分支修复、c1 的 PG confound、
+   评估≠实现的实测对;~50 GPU·h(c1 长度带),零代码;
+2. E 纯化 wave 11 保留("rank 够不够 / set 够不够"的合法性前提);
+3. **f2_clip2.3 + f4_posclip** 保留(前瞻因果检验 + 正尾归因);
+   **f5_tanh 降级 shelved**(hard-vs-smooth 是 refinement,形状族已有
+   softlog/clip/skew/power;kernel 与对拍留仓,复活 = status 翻转);
+4. **g1_quota** 保留(G1 最大的识别洞:E[L|pass] 本身有病,还是
+   rare-positive 方差爆);**g4_quota 降级 shelved**(fail 保留率 95–99%,
+   无 starvation 可修,镜像美但信息量低);
+5. h4 + h5 保留(supervision vs rollout locality;连接 H 与 D 的分配问题);
+6. QB 粒度 wave 10 保留(把 c2 从"好方法"变成机制结果);
+7. β 梯 wave 9 保留(第二优先:干净但不修致命 confound);
+8. **A1 必做**(A 轴入论文的合法性前提);**A3 缓议**(贵,完整化性质);
+9. **c1_tailbucket**(新臂,wave 15,唯一的第三档提前):ν 坐标的单旋钮
+   干预 —— top-k 的问题是候选身份不够,还是 renorm 丢掉支撑质量?
+   P-identity(≈c1 ⇒ 丢掉的质量从不承重)vs P-mass(分开 ⇒ 质量表示
+   承重,与 c4 的定理线从损失侧汇合)。kernel 里 tailbucket 分支
+   本就实现(topk_losses.py:96,RSKD 精神),纯 env 换挡。
+
+**缓议池(全部保注册、带复活条件,见 RESULTS-GAPS §5)**:g4_quota、
+f5_tanh、A3、N1(等终止章需要因果格)、DH1(等 h4+h5+TIP 读数)、
+C3 全词表(tailbucket 桥 1/10 成本先答 ν 问题)、有界集修复(等 e2@0
+的 P-frozen/P-drift)、front@5%(防框架驱动膨胀)。
+
+**账目变化**:承诺计划(一二档)从 ~3,900 收敛到 **~2,800 GPU·h(原战役
+30%)**;缓议池 ~2,570 只按触发逐格回流,不是 backlog。wave 15 tsv 已加
+(c1_direct 注明插队),f5_tanh 的 wave 14 行已撤,g4_quota 撤出 wave 13
+计划。lint/verdict/EXPECT_PG 同步。

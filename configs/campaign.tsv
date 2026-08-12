@@ -338,7 +338,6 @@
 12	m16	h5_gen100	1
 12	m18	h5_gen100	2
 # ---- wave 14: the F expansion (user design after the M1 first harvest, 2026-08-11) ----
-# Priority f2_clip2.3 > f4_posclip > f5_tanh (user ruling): the calibrated
 # prospective test first (u_max pinned at b1's measured 2.303 => predicted lock
 # ~247), then the which-tail question, then the shape refinement. The M in
 # {5,20} sweep was considered and DROPPED -- the existing dose points
@@ -350,6 +349,16 @@
 14	m15	f4_posclip	0
 14	m16	f4_posclip	1
 14	m18	f4_posclip	2
-14	m15	f5_tanh	0
-14	m16	f5_tanh	1
-14	m18	f5_tanh	2
+# ---- wave 15: the identification-hole enlistments (user ruling, 2026-08-11 late) ----
+# c1_direct = gap cell C1, priority #1 of the WHOLE expansion -- lanes should pick
+# it before anything else in the queue (four identities: (QxR) 2x2 fourth corner,
+# S-ladder values-rung branch repair, evaluation-vs-realization measured pair,
+# cheapest verdict at c1-like lengths). c1_tailbucket = the nu probe (candidate
+# identities vs discarded support mass), the one Tier-3 promotion; full-vocab C3
+# stays deferred. Both zero-code, 2-card, judged against completed c1.
+15	m15	c1_direct	0
+15	m16	c1_direct	1
+15	m18	c1_direct	2
+15	m15	c1_tailbucket	0
+15	m16	c1_tailbucket	1
+15	m18	c1_tailbucket	2
