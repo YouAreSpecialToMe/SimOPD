@@ -1203,3 +1203,32 @@ C3 全词表(tailbucket 桥 1/10 成本先答 ν 问题)、有界集修复(等 e
 30%)**;缓议池 ~2,570 只按触发逐格回流,不是 backlog。wave 15 tsv 已加
 (c1_direct 注明插队),f5_tanh 的 wave 14 行已撤,g4_quota 撤出 wave 13
 计划。lint/verdict/EXPECT_PG 同步。
+
+## r6 记录(2026-08-12):f5_tanh 复活 —— 按其搁置条款的原路,零代码
+
+**性质**:不是新臂,是 2026-08-11 识别洞裁定所搁置那格的**执行**。搁置条款原话
+写的就是复活路径:「Kernel and battery stay landed; **revival = status flip + tsv
+rows**」。故本次动作 = `status: shelved → stock` + 三行 manifest,`k1_tanh` 内核
+(`losses.py:454`)与其电池自始未离,`EXPECT_PG`(True)与 verdict 台账在搁置期间
+亦一直保留 —— 五步手续里有三步本来就是满的。
+
+**为何抢跑自己的触发器约一天**:该格的复活条件是「f2_clip2.3 lands P-impl」,而
+f2_clip2.3 三个 seed **此刻正在训练**;继续等,等到的只是空卡。2026-08-12 的 36 行
+发车后有 26 张卡闲置,而 deferred pool 八格里**只有这一格什么都不用建** —— 其余
+各自卡在谓词(g1/g4_quota)、预计算(A3)、内核(C3 / N1 / bounded set-coverage)
+或另一格的读数(DH1 等 h4+h5)。用户裁定:补这一格。
+
+**科学位置(补全 Φ 的形状族)**:`{softlog, hardclip, clip2.3, posclip, tanh}`
+五个成员里,**tanh 是唯一「有界而无拐点、且阈值之外梯度不死」的那个**。所以
+f2↔f5 这一对把「有界性本身」与「硬 clip 的不连续」分开 —— 这正是 f2_clip2.3↔b1
+那一读在**跨 slot** 上测的东西,在 Φ **之内**定位一次。预测(搁置前即登记,数据
+存在之前):**P-bound** f5 ≈ f2 ⇒ 尾部衰减本身就是稳定器,拐点无关;**P-shape**
+出现差距 ⇒ 边界处的梯度处理是承重的。
+
+**排产纪律(本次的一处主动收紧)**:三个 seed **点名钉在三台不同机器**
+(m35/m36/m37 各一),不走 `any` 池。理由是同日发车的教训:池子按 wave 排序发行,
+而一个臂的三个 seed 在 manifest 里是相邻三行,一台机器一次抓四行就整窝端走 ——
+36 行里有 **6 个臂三 seed 同机**,违反 manifest 自己 wave 2 注释定下的规矩
+(「An arm's two seeds are deliberately on DIFFERENT machines, so losing a box
+cannot take both replicas of one arm」)。那 6 个臂已各挪一个 seed 到空盒子修复;
+f5 则从一开始就是**一机一 seed**,是该规矩的最严形式。

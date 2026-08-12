@@ -818,8 +818,24 @@ arms:
     axis: F
     cohort: supplement
     desc: "[OURS] smooth bounded 10*tanh(r/10): boundedness vs the hard clip's kink"
-    status: shelved
-    note: "DEFERRED 2026-08-11 (identification-hole ruling): hard-vs-smooth is a
+    status: stock
+    note: "REVIVED 2026-08-12 (user decision), by the exact route its deferral
+           specified -- status flip + tsv rows, no code, since the kernel
+           (losses.py k1_tanh) and its battery never left. Two reasons it is worth
+           front-running its own trigger by a day: (a) that trigger is
+           'f2_clip2.3 lands P-impl' and f2_clip2.3's three seeds are training right
+           now, so the wait buys nothing but idle cards; (b) 26 cards were free
+           after the 36-row launch, and this is the only deferred cell that needs
+           nothing built -- every other one is blocked on a predicate, a
+           precompute, or a kernel. Scientifically it completes the Phi shape
+           family {softlog, hardclip, clip2.3, posclip, tanh}: tanh is the only
+           member that is bounded WITHOUT a kink and without dead gradient past the
+           threshold, which is what lets f2-vs-f5 separate 'boundedness' from 'the
+           hard clip's discontinuity'. Its three seeds are pinned to three
+           DIFFERENT boxes (m35/m36/m37) rather than pooled -- the 2026-08-12 pool
+           launch put six arms' three seeds on one box each, and the manifest's own
+           rule is that replicas of one arm must not share a machine.
+           DEFERRED 2026-08-11 (identification-hole ruling): hard-vs-smooth is a
            refinement -- the magnitude mechanism does not depend on it, and the
            roster already spans softlog/hardclip/skew/power shapes. Kernel and
            battery stay landed; revival = status flip + tsv rows.
