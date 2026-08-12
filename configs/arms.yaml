@@ -316,6 +316,44 @@ arms:
       DISTILLATION_TOPK: "32"
       SIMOPD_SUPPORT_MODE: renorm
 
+  - run_id: c1_direct
+    axis: C
+    desc: "c1's paper-form ablation: the same renorm-KL evaluated exactly, realized by
+           DIRECT backprop instead of the PG surrogate (gap cell C1)"
+    status: stock
+    cohort: supplement
+    note: "Zero new code: same kernel, same top-32 renorm support, same exact support
+           sum. USE_POLICY_GRADIENT is the only moving part, and c1's own note has
+           reserved this cell since r5 ('the direct form remains available as the
+           paper-form ablation via USE_POLICY_GRADIENT'). Enlisted 2026-08-12 on the
+           new boxes.
+           WHY IT IS THE ROSTER'S CHEAPEST VERDICT -- it settles three separate
+           things for one 45 GPU-h bill:
+           (1) c1 is the only top-k arm on the PG branch, so its last-place 0.524
+               conflates 'fixed-k is bad' with 'PG drags divergence-valued losses'.
+               Splitting that decides whether 'the literature default is the worst C
+               cell' is writable at all.
+           (2) It is the fourth corner of the (evaluation x realization) 2x2 --
+               vanilla<->b5 swaps R at Q=MC, c1<->c1_direct swaps R at Q=exact --
+               which is what makes R IDENTIFIABLE rather than merely varied
+               (UNIFIED-LOSS section 3).
+           (3) It repairs the S-ladder's branch: the E axis's carrier is
+               (Q=exact, R=direct), so the ladder's 'values' rung is THIS arm, not
+               shipped c1. Without it the E ladder compares a PG rung against three
+               direct rungs (UNIFIED-LOSS section 5).
+           Registered opposing predictions (ledger 2026-08-11, before data):
+             P-PG  -- the PG realization is what drags c1: direct should show stable
+                      entropy and no late drift, and land ABOVE 0.524.
+             P-K   -- fixed-k truncation is what costs c1: direct reproduces the same
+                      late drift and lands within noise of 0.524.
+           The two differ on the entropy panel as well as the score, so the cell is
+           decidable even if the scores land close."
+    env:
+      DISTILLATION_LOSS_MODE: lsm_topk_renorm
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_SUPPORT_MODE: renorm
+
   - run_id: c2_quantile_budget
     axis: C
     desc: "quantile budget allocation, margin=max(q,pi) [OURS]"

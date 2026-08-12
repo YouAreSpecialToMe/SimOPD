@@ -290,12 +290,23 @@
 # ladder on one box family would be tidier but is NOT required -- the fleet is one
 # silicon type (7x 8xH100), so cross-box inside it is not a registered deviation the
 # way A100-vs-H100 is. Reassign freely as lanes open; note the move in the row.
-9	m15	b4_jsd_b0.1	0
-9	m16	b4_jsd_b0.1	1
-9	m18	b4_jsd_b0.1	2
-9	m15	b4_jsd_b0.9	0
-9	m16	b4_jsd_b0.9	1
-9	m18	b4_jsd_b0.9	2
+9	any	b4_jsd_b0.1	0
+9	any	b4_jsd_b0.1	1
+9	any	b4_jsd_b0.1	2
+9	any	b4_jsd_b0.9	0
+9	any	b4_jsd_b0.9	1
+9	any	b4_jsd_b0.9	2
+
+# ---- wave 9 also carries C1, the roster's cheapest verdict (enlisted 2026-08-12) ----
+# c1_direct is RESULTS-GAPS' top priority ("C1 first -- cheapest decision-per-GPU-h")
+# and at c1's own measured pace it is ~45 GPU-h for all three seeds. It rides wave 9
+# rather than a wave of its own for one reason: waves are a QUEUE, and a queue only
+# matters when lanes are scarce. 36 rows x 2 cards = 72 of the 104 new cards, so every
+# row launches at once and a wave-15 row would have been "first priority, last in line".
+# Put it where the first group is.
+9	any	c1_direct	0
+9	any	c1_direct	1
+9	any	c1_direct	2
 
 # ---- wave 10: c2's pinning-granularity ladder (SIMOPD_QB_SCOPE, registered 2026-08-11) ----
 # Same kernel/payload/branch as c2; the keep rule is the only moving part. fixed8 is
@@ -303,12 +314,12 @@
 # missing; perseq resolves c2's recorded saturation drift (micro-batch tau collapses
 # to per-sequence once 16k lengths fill the 17408 packing cap). 2-card rows -- keep
 # off the quad boxes. Queues behind wave 9 by the wave column's own semantics.
-10	m15	c2_qb_fixed8	0
-10	m16	c2_qb_fixed8	1
-10	m18	c2_qb_fixed8	2
-10	m15	c2_qb_perseq	0
-10	m16	c2_qb_perseq	1
-10	m18	c2_qb_perseq	2
+10	any	c2_qb_fixed8	0
+10	any	c2_qb_fixed8	1
+10	any	c2_qb_fixed8	2
+10	any	c2_qb_perseq	0
+10	any	c2_qb_perseq	1
+10	any	c2_qb_perseq	2
 
 # ---- wave 11: E-ladder purity cells (anchor off, registered 2026-08-11) ----
 # e1/e2 as shipped are 'X + 0.1*values' mixtures -- no positive information-ladder
@@ -316,12 +327,12 @@
 # ablation axis from day one; these six rows run it at zero. e2@0 doubles as the
 # roster's near-placebo control (its structural term saturates by ~step 50).
 # 2-card rows, pair boxes, queue behind waves 9/10 by the wave column's semantics.
-11	m15	e1_pl_rank_a0	0
-11	m16	e1_pl_rank_a0	1
-11	m18	e1_pl_rank_a0	2
-11	m15	e2_set_coverage_a0	0
-11	m16	e2_set_coverage_a0	1
-11	m18	e2_set_coverage_a0	2
+11	any	e1_pl_rank_a0	0
+11	any	e1_pl_rank_a0	1
+11	any	e1_pl_rank_a0	2
+11	any	e2_set_coverage_a0	0
+11	any	e2_set_coverage_a0	1
+11	any	e2_set_coverage_a0	2
 
 # ---- wave 12: the H-family completion pair (user design, registered 2026-08-11) ----
 # h4 = h3 with contiguity removed (scatter at the same K=100; tail touched every
@@ -331,12 +342,12 @@
 # is greedy@100-budget, NOT main-table-comparable; its judge is the offline suite.
 # 2-card rows, pair boxes, behind wave 11. (The G quota cells' unlock, previously
 # noted as wave 12, renumbers to wave 13.)
-12	m15	h4_random_scatter	0
-12	m16	h4_random_scatter	1
-12	m18	h4_random_scatter	2
-12	m15	h5_gen100	0
-12	m16	h5_gen100	1
-12	m18	h5_gen100	2
+12	any	h4_random_scatter	0
+12	any	h4_random_scatter	1
+12	any	h4_random_scatter	2
+12	any	h5_gen100	0
+12	any	h5_gen100	1
+12	any	h5_gen100	2
 # ---- wave 14: the F expansion (user design after the M1 first harvest, 2026-08-11) ----
 # Priority f2_clip2.3 > f4_posclip > f5_tanh (user ruling): the calibrated
 # prospective test first (u_max pinned at b1's measured 2.303 => predicted lock
@@ -344,12 +355,12 @@
 # {5,20} sweep was considered and DROPPED -- the existing dose points
 # {inf, 10, 2.303, ~1} already span the curve, with b1 as the cross-method
 # calibration point. All 2-card, behind wave 13.
-14	m15	f2_clip2.3	0
-14	m16	f2_clip2.3	1
-14	m18	f2_clip2.3	2
-14	m15	f4_posclip	0
-14	m16	f4_posclip	1
-14	m18	f4_posclip	2
-14	m15	f5_tanh	0
-14	m16	f5_tanh	1
-14	m18	f5_tanh	2
+14	any	f2_clip2.3	0
+14	any	f2_clip2.3	1
+14	any	f2_clip2.3	2
+14	any	f4_posclip	0
+14	any	f4_posclip	1
+14	any	f4_posclip	2
+14	any	f5_tanh	0
+14	any	f5_tanh	1
+14	any	f5_tanh	2
