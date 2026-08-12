@@ -42,8 +42,8 @@ EXPECT_PG = {
     "vanilla": True, "a1_gkd_mix0.5": True, "a3_offpolicy": True, "a2_coldstart": True,
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,
     "b4_jsd": False, "b4_jsd_b0.1": False, "b4_jsd_b0.9": False, "b5_k2": False,
-    "c1_direct": False,   # the paper-form ablation; direct IS the point of the cell
-    "c1_lsm_topk32_renorm": True, "c2_quantile_budget": False,
+    "c1_lsm_topk32_renorm": True, "c1_direct": False, "c1_tailbucket": True,
+    "c2_quantile_budget": False,
     "c2_qb_fixed8": False, "c2_qb_perseq": False,
     "c3_intersection": False, "c4_pi_tail_budget": False,
     "d1_tip": True, "d2_selectkd": True, "d3_teachability": True,

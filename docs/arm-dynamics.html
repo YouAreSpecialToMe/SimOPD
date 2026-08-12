@@ -60,13 +60,15 @@ main{padding:16px 18px 50px;min-width:0}
 .empty{color:var(--ink3);font-size:12px;font-family:ui-monospace,Consolas,monospace}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:11px;margin-top:8px}
 .pan{background:var(--panel);border:1px solid var(--rule2);border-radius:7px;padding:9px 11px 4px}
-.pan .ph{display:flex;align-items:baseline;gap:7px}
-.pan .pt{font-size:12.5px;font-weight:620}
-.pan .phint{font-size:10px;color:var(--ink3);font-family:ui-monospace,Consolas,monospace}
+.pan .ph{display:flex;align-items:baseline;gap:7px;flex-wrap:nowrap;overflow:hidden}
+.pan .pt{font-size:12.5px;font-weight:620;white-space:nowrap;flex:none}
+/* the hint yields first: title and the value readout must never be squeezed */
+.pan .phint{font-size:10px;color:var(--ink3);font-family:ui-monospace,Consolas,monospace;
+ flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pan .tagl{font-size:9.5px;color:var(--ink3);border:1px solid var(--rule);border-radius:3px;padding:0 4px;
- font-family:ui-monospace,Consolas,monospace}
+ font-family:ui-monospace,Consolas,monospace;flex:none}
 .pan .pv{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--ink2);
- font-variant-numeric:tabular-nums;white-space:nowrap}
+ font-variant-numeric:tabular-nums;white-space:nowrap;flex:none}
 .pan svg{display:block;width:100%;height:170px;touch-action:none;cursor:crosshair}
 .seqleg{display:flex;gap:8px;flex-wrap:wrap;font-size:10px;color:var(--ink3);font-family:ui-monospace,Consolas,monospace}
 .seqleg i{width:11px;height:3px;border-radius:2px;display:inline-block;margin-right:3px;vertical-align:middle}
@@ -229,9 +231,15 @@ function domain(o,arms){
     (m.sparse?s.map(p=>p[1]):s).forEach(v=>{if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}})});
   if(!isFinite(lo)){lo=0;hi=1}
   const log=!m.frac&&lo>0&&hi/Math.max(lo,1e-9)>30;
+  const nonneg=lo>=0, dmax=hi;
   if(m.ref!=null&&!log&&m.ref<=hi*1.25&&m.ref>=lo*0.5){lo=Math.min(lo,m.ref);hi=Math.max(hi,m.ref)}
   if(hi===lo)hi=lo+1e-6;
-  if(!log){const p=(hi-lo)*.07;lo-=p;hi+=p;if(lo>0&&lo<(hi-lo)*.6)lo=0}
+  if(!log){
+    const p=(hi-lo)*.07;lo-=p;hi+=p;
+    if(nonneg)lo=Math.max(0,lo);              // these quantities cannot go below zero
+    if(lo>0&&lo<(hi-lo)*.6)lo=0;
+    if(m.frac&&dmax<=1)hi=Math.min(hi,1);     // a fraction's axis stops at 1
+  }
   return {lo,hi,log};
 }
 function scales(o,arms){
@@ -265,7 +273,7 @@ function drawBase(){
       l.setAttribute("x1",S.G.L);l.setAttribute("x2",S.G.W-S.G.R);l.setAttribute("y1",y);l.setAttribute("y2",y);
       l.setAttribute("stroke",ink3);l.setAttribute("stroke-width",1.1);l.setAttribute("stroke-dasharray","4 4");
       l.setAttribute("opacity",.75);o.base.appendChild(l);}
-    o.vis.forEach(a=>path(o.base,ptsOf(o,a,S),faint,1,.5));
+    o.vis.forEach(a=>path(o.base,ptsOf(o,a,S),faint,1.1,.62));
   });
   drawHi();
 }
@@ -282,29 +290,40 @@ function drawHi(){
       const L=D.arms[a].lock;
       if(L)vline(o.hi,S.xs(L),S.G.T,S.G.T+S.G.ih,c,1.1,"3 3",.55);
     });
+    const labels=[];
     show.forEach(([a,c,w,op])=>{
       const pts=ptsOf(o,a,S);path(o.hi,pts,c,w,op);
       const last=pts[pts.length-1];
-      if(last)text(o.hi,Math.min(last[0]+5,S.G.W-4),last[1]+3.5,a.split("_")[0],c,10,"start",600);
+      if(last)labels.push({x:Math.min(last[0]+5,S.G.W-4),y:last[1]+3.5,s:a.split("_")[0],c});
     });
+    // de-collide the end labels: two arms can finish at the same value (vanilla and
+    // h2 both sit on the cap), and overlapping text is unreadable.
+    labels.sort((p,q)=>p.y-q.y);
+    for(let i=1;i<labels.length;i++)
+      if(labels[i].y-labels[i-1].y<11)labels[i].y=labels[i-1].y+11;
+    const over=labels.length?labels[labels.length-1].y-(S.G.T+S.G.ih+6):0;
+    if(over>0)labels.forEach(l=>l.y-=over);
+    labels.forEach(l=>text(o.hi,l.x,l.y,l.s,l.c,10,"start",600));
     if(cross!=null){
       vline(o.hi,S.xs(cross),S.G.T,S.G.T+S.G.ih,ink,1,null,.4);
       const vals=show.map(([a,c])=>{const v=valAt(o,a,cross);return v==null?null:[a,c,v]}).filter(Boolean);
-      o.el.querySelector(".pv").textContent=vals.length
-        ? `step ${cross} · `+vals.map(([a,c,v])=>fmt(v)).join(" / ")
-        : `step ${cross}`;
+      o.el.querySelector(".pv").innerHTML=vals.length
+        ? `<span style="color:var(--ink3)">step ${cross}</span> `+vals.map(([a,c,v])=>swatch(c)+fmt(v)).join(" ")
+        : `<span style="color:var(--ink3)">step ${cross}</span>`;
       vals.forEach(([a,c,v])=>{const e=document.createElementNS(NS,"circle");
         e.setAttribute("cx",S.xs(cross));e.setAttribute("cy",S.yv(v));e.setAttribute("r",2.8);
         e.setAttribute("fill",c);o.hi.appendChild(e)});
     }else{
-      o.el.querySelector(".pv").textContent=show.length
-        ? show.map(([a])=>{const s=MEAN[o.mi][a];if(!s)return"–";
-            if(o.m.sparse)return fmt(s[s.length-1][1]);
-            for(let i=s.length-1;i>=0;i--)if(s[i]!=null)return fmt(s[i]);return"–"}).join(" / ")
-        : `${o.vis.length} 臂`;
+      o.el.querySelector(".pv").innerHTML=show.length
+        ? show.map(([a,c])=>{const s=MEAN[o.mi][a];let v="–";
+            if(s){if(o.m.sparse)v=fmt(s[s.length-1][1]);
+              else for(let i=s.length-1;i>=0;i--)if(s[i]!=null){v=fmt(s[i]);break}}
+            return swatch(c)+v}).join(" ")
+        : `<span style="color:var(--ink3)">${o.vis.length} 臂</span>`;
     }
   });
 }
+const swatch=c=>`<i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};margin:0 3px 0 7px"></i>`;
 function valAt(o,arm,step){
   const s=MEAN[o.mi][arm];if(!s)return null;
   if(o.m.sparse){let best=null,bd=1e9;s.forEach(([x,v])=>{const d=Math.abs(x-step);if(d<bd){bd=d;best=v}});
@@ -330,7 +349,8 @@ function renderOwn(){
     const ser=p.seq?p.s:p.s.filter(Boolean);
     let lo=Infinity,hi=-Infinity;ser.forEach(s=>s.forEach(v=>{if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}}));
     if(!isFinite(lo)){lo=0;hi=1} if(hi===lo)hi=lo+1e-6;
-    const pad=(hi-lo)*.07;lo-=pad;hi+=pad;if(lo>0&&lo<(hi-lo)*.6)lo=0;
+    const nonneg=lo>=0, pad=(hi-lo)*.07;
+    lo-=pad;hi+=pad;if(nonneg)lo=Math.max(0,lo);if(lo>0&&lo<(hi-lo)*.6)lo=0;
     const yv=v=>T+ih-((v-lo)/(hi-lo))*ih, xs=s=>L+((s-1)/(D.nmax-1))*iw;
     const ink3=cv("--ink3"),rule=cv("--rule");
     [lo,(lo+hi)/2,hi].forEach(v=>{const y=yv(v);const l=document.createElementNS(NS,"line");
