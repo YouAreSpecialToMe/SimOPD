@@ -11,6 +11,7 @@ verl's original function untouched.
 
 import math
 import os
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -150,7 +151,9 @@ def compute_reverse_kl_topk(
     out["entropy_gap_abs"] = (s_ent - t_ent_topk).abs()
     if SHADOW_ENABLED:
         out.update(_shadow_panel(student_log_probs, teacher_topk_log_probs, teacher_topk_ids,
-                                 student_topk_log_probs, student_topk_ids))
+                                 student_topk_log_probs, student_topk_ids,
+                                 _stat_mask(teacher_topk_log_probs, data,
+                                            student_topk_log_probs.shape[1])))
     return out
 
 
@@ -341,22 +344,25 @@ def _stat_mask(teacher_topk_log_probs, data, total):
               f"{len(full_lens)} seqs vs response {len(resp_lens)} seqs, packed {total}); "
               f"falling back to full population", file=_sys.stderr, flush=True)
         return None
-    # ON THE KERNEL'S DEVICE. Without device= this mask was born on CPU while
-    # every tensor it gates lives on cuda, and the first `keep & mask` killed
-    # every stat-mask consumer (d1/d2/d3 directly, every kernel via the shadow
-    # panel) on its first training step -- 2026-08-08, three runs down in the
-    # opening minutes of wave 5. The CPU suite structurally cannot catch this:
-    # with data=None (its documented harness path) the mask is never built.
-    m = torch.zeros(total, dtype=torch.bool, device=teacher_topk_log_probs.device)
+    # Built on CPU (the loop is over a handful of sequences and the lengths came
+    # back as python ints anyway), then moved ONCE by the return below: every
+    # consumer indexes or ANDs it against packed CUDA tensors, and a CPU mask
+    # there is a hard RuntimeError deep inside the actor. This bit twice: three
+    # stat-mask consumers died in the opening minutes of wave 5 (2026-08-08) and
+    # c4 died at step 0 on every seed via the shadow panel's TIP selector
+    # (2026-08-09). CPU harnesses structurally cannot catch this class -- with
+    # data=None (their documented path) the mask is never built at all, and where
+    # it is, everything already agrees.
+    m = torch.zeros(total, dtype=torch.bool)
     pos = 0
     for fl, rl in zip(full_lens, resp_lens):
         rl = min(int(rl), int(fl))
         m[pos + fl - rl: pos + fl] = True
         pos += fl
-    return m.unsqueeze(0)
+    return m.unsqueeze(0).to(teacher_topk_log_probs.device)
 
 
-def _student_entropy(student_log_probs, chunk=256):
+def _student_entropy(student_log_probs, chunk=int(os.environ.get("SIMOPD_ENTROPY_CHUNK", "256"))):
     """Full-vocabulary token entropy, computed here rather than taken from
     model_output['entropy'] -- that key only exists when calculate_entropy is on,
     and the usual way to switch it on (entropy_coeff != 0) adds an entropy bonus
@@ -367,15 +373,19 @@ def _student_entropy(student_log_probs, chunk=256):
     and that growth of the caching allocator's reserved pool is what killed d1_tip:
     verl's sleep/wake weight sync OOM'd at step 2's wake_up, the first sync after
     the optimizer moments (12.7GB) materialise. Per-token entropy is independent
-    across tokens, so slicing changes the peak and not one bit of the result;
-    verified elementwise against the naive form.
+    across tokens, so slicing changes the peak (~2.5GB at 4096) and not one bit of
+    the result; verified elementwise against the naive form at 4096, 1024, 256 and 7.
 
-    chunk=256 (2026-08-08, twice in one day: 4096 -> 1024 -> 256): the 4096-chunk
-    transient (~2.5GB) OOM'd d1_tip_s0 at 17,408-token microbatches; 1024 (~0.6GB)
-    then OOM'd d1_tip_s1 against 458MiB free, because the D family at 16k runs the
-    whole step with under 2GB of headroom -- the chunk was never the disease, the
-    margin is. 256 puts the transient near 150MB. The companion measure is
-    SIMOPD_SHADOW=0 in the lane launcher: the shadow panel triples the selector
+    Default walked 4096 -> 1024 -> 256 over 2026-08-08/09, and both branches were
+    chasing the same starvation from different arms: 4096's ~2.5GB transient OOM'd
+    d1_tip_s0 at 17,408-token microbatches, 1024 (~0.6GB) still OOM'd d1_tip_s1
+    against 458MiB free and still let c4 -- the heaviest arm, three shadow selectors
+    on top of its own kernel -- die at step 1 while its sibling seed ran on. The
+    chunk was never the disease; the margin is: the D family at 16k runs the whole
+    step under 2GB of headroom. 256 puts the transient near 150MB. Elementwise
+    identical, in no fingerprint field, so it splits no batch and costs only
+    kernel-launch overhead; SIMOPD_ENTROPY_CHUNK overrides. The companion measure
+    is SIMOPD_SHADOW=0 in the lane launcher -- the shadow panel triples the selector
     transients for pure diagnostics, and it is fingerprint-excluded precisely
     because it never changes what the loss computes."""
     out = torch.empty(student_log_probs.shape[:-1],
@@ -405,11 +415,43 @@ def _student_topk_ids(student_log_probs, k, chunk=256):
     return torch.cat(outs, dim=-2)
 
 
+_POP_WARNED = set()
+
+
+def _pop(x, mask, who):
+    """The population a batch statistic is defined over, never empty.
+
+    Every batch-relative normaliser here reduces over the response tokens the stat
+    mask selects, and torch refuses to reduce an empty tensor: quantile() raises
+    outright, min() raises, and the run dies mid-training with a traceback that
+    names a normaliser rather than the rollout that emptied it. A micro-batch WITH
+    NO RESPONSE TOKENS is a real draw -- a rollout that emits EOS immediately, or a
+    dynamic micro-batch that packs only such sequences -- and being seed-determined
+    it recurs on exactly the same step at every relaunch: c4 seeds 1 and 2 died at
+    step 1 on every retry while seed 0 ran on (2026-08-09).
+
+    An empty selection is not a reason to stop; it is a reason to fall back to the
+    same population the arm uses when no stat mask exists at all (see _stat_mask),
+    which is the fallback this file already sanctions. Logged once per site so the
+    ledger can say how often it happened."""
+    flat = x[mask] if mask is not None else x
+    if flat.numel() == 0:
+        if who not in _POP_WARNED:
+            _POP_WARNED.add(who)
+            print(f"[simopd] {who}: stat mask selected no tokens in a micro-batch; "
+                  f"batch statistics fall back to the full packed population "
+                  f"(logged once per process)", file=sys.stderr, flush=True)
+        flat = x
+    return flat
+
+
 def _minmax(x, mask=None):
     """Batch-relative min-max normalisation, as TIP specifies. A micro-batch is a
     smaller population than TIP's, so the normaliser is noisier; realised
     selection rates are logged so that noise stays visible."""
-    flat = x[mask] if mask is not None else x
+    flat = _pop(x, mask, "_minmax")
+    if flat.numel() == 0:
+        return torch.zeros_like(x)
     lo, hi = flat.min(), flat.max()
     return (x - lo) / (hi - lo).clamp_min(1e-8)
 
@@ -503,6 +545,14 @@ def _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids, stu_at_tea
 
 
 def _shadow_panel(student_log_probs, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat=None):
+    # PASS THE STAT MASK. The panel runs the D-axis selectors, and those are
+    # batch-relative: without the mask their normalisers see prompt and dummy rows,
+    # which the 2026-08-07 audit measured dragging TIP's divergence normaliser ~30x.
+    # Five kernels (c1, c2, e1, e2, e3) consumed the panel without it until r6
+    # 2026-08-09 -- they did not crash, they just computed their shadow masks over a
+    # different population than d1/d2/d3 and c4 did, which is worse: the V-wave
+    # redundancy verdict is a CROSS-ARM Jaccard, and half the roster was measuring
+    # with another ruler.
     """What the OTHER D-axis selectors would have picked, inside this run.
 
     Redundancy prediction #4 (plan §4) says TIP, Teachability and SelecTKD select
@@ -590,7 +640,14 @@ def _topk_by_score(score, retention, mask=None):
     response tokens; positions outside it are never selected (their loss is
     discarded downstream anyway, but keeping them out preserves the realized
     retention the ledger reports)."""
-    pop = (score[mask] if mask is not None else score).float().flatten()
+    # Note the asymmetry when the stat mask selects nothing: the THRESHOLD
+    # population falls back to the full set (a quantile needs a non-empty input),
+    # while the SELECTABLE set stays the mask -- so nothing is selected, which is
+    # the right answer for a micro-batch with no response tokens: those positions
+    # are prompt or dummy rows whose loss is discarded downstream anyway.
+    pop = _pop(score, mask, "_topk_by_score").float().flatten()
+    if pop.numel() == 0:
+        return torch.zeros_like(score, dtype=torch.bool)
     thresh = torch.quantile(pop, 1.0 - retention)
     keep = score >= thresh
     if mask is not None:
@@ -620,7 +677,10 @@ def _qb_tau_per_sequence(margin, stat, teacher_topk_log_probs, frac):
     except Exception as e:
         print(f"[simopd] qb per-sequence tau unavailable ({e!r}); falling back to one "
               f"batch-level tau", file=_sys.stderr, flush=True)
-        return torch.quantile((flat[stat] if stat is not None else flat).flatten(), frac)
+        # _pop for the same reason as the batch branch below (merge battery,
+        # 2026-08-12): this fallback is the one QB path a dense harness always
+        # takes, so an empty stat selection reaches quantile() here first.
+        return torch.quantile(_pop(flat, stat, "qb_tau_seq_fallback").flatten(), frac)
     # ON THE KERNEL'S DEVICE (r6 discipline: tensors are born where they are used).
     tau = torch.empty(flat.shape[:-1], dtype=flat.dtype, device=flat.device)
     pos = 0
@@ -674,7 +734,14 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
         keep = margin >= tau
     else:  # batch -- the shipped 16k behaviour, bit-for-bit
         frac = 1.0 - min(QB_TARGET_BUDGET / k, 1.0)
-        tau = torch.quantile((margin[stat] if stat is not None else margin).float().flatten(), frac)
+        # _pop, not a bare margin[stat]: an all-prompt micro-batch empties the
+        # selection and torch.quantile refuses an empty input. Found by the merge
+        # battery 2026-08-12 -- the empty-population hardening (main, 2026-08-09)
+        # covered the normalisers that existed then, and c2's tau quantiles landed
+        # on this branch afterwards, so they never inherited it. Non-empty
+        # populations are bit-identical to the old expression, which is what keeps
+        # c2's three banked 16k rows comparable across the pin.
+        tau = torch.quantile(_pop(margin, stat, "qb_tau_batch").float().flatten(), frac)
         keep = margin >= tau
     keep[..., 0] = True  # the teacher's own top-1 is never dropped, so no support is empty
 
@@ -691,7 +758,8 @@ def compute_quantile_budget_topk(student_logits, teacher_topk_log_probs, teacher
     stu_topk_ids = _student_topk_ids(student_log_probs, k=k)
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
-                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
+                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(out_shadow)
@@ -736,7 +804,8 @@ def compute_pl_rank_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
         out_shadow = _shadow_panel(student_log_probs, t_lp, t_id,
-                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids)
+                                   torch.gather(student_log_probs, dim=-1, index=t_id), stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(student_log_probs, t_lp, t_id, stu_topk_ids)
     if SHADOW_ENABLED:
         out.update(out_shadow)
@@ -779,8 +848,15 @@ def compute_set_coverage_topk(student_logits, teacher_topk_log_probs, teacher_to
 
     stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
+        # The shadow panel is the one consumer that still needs the full [T,V] view,
+        # so the streaming port materializes it HERE and only when the panel is on
+        # (SIMOPD_SHADOW=0 keeps the kernel allocation-free). The stat mask is not
+        # optional: the panel runs the D-axis selectors and every one of them is
+        # batch-relative, so without it this arm answers a different question than
+        # the d-family it is Jaccard-compared against (2026-08-09 audit).
         slp = F.log_softmax(student_logits, dim=-1)
-        out_shadow = _shadow_panel(slp, t_lp, t_id, s, stu_topk_ids)
+        out_shadow = _shadow_panel(slp, t_lp, t_id, s, stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=s,
                                s_ent=_entropy_from_logits(student_logits, lse))
     if SHADOW_ENABLED:
@@ -824,8 +900,10 @@ def compute_zvalue_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids
 
     stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
     if SHADOW_ENABLED:
+        # Same streaming/stat-mask contract as e2 above.
         slp = F.log_softmax(student_logits, dim=-1)
-        out_shadow = _shadow_panel(slp, t_lp, t_id, s, stu_topk_ids)
+        out_shadow = _shadow_panel(slp, t_lp, t_id, s, stu_topk_ids,
+                                   _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1]))
     out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=s,
                                s_ent=_entropy_from_logits(student_logits, lse))
     if SHADOW_ENABLED:
@@ -926,7 +1004,9 @@ def _robust_norm(x, mask=None):
     Their tip_compat.py default ('batch_quantile'); plain min-max is the fallback
     they ship but not the shipped default. Same micro-batch-population caveat as
     _minmax."""
-    flat = (x[mask] if mask is not None else x).float().flatten()
+    flat = _pop(x, mask, "_robust_norm").float().flatten()
+    if flat.numel() == 0:
+        return torch.zeros_like(x)
     lo = torch.quantile(flat, 0.05)
     hi = torch.quantile(flat, 0.95)
     return ((x - lo) / (hi - lo).clamp_min(1e-8)).clamp(0.0, 1.0)

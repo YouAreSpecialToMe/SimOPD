@@ -26,23 +26,26 @@ banner(){ printf '\n=== [%s] %s ===\n' "$MACHINE" "$*"; }
 
 banner "phase 0: code + guards"
 git pull --ff-only
-# A pilot-era daemon must not feed the new manifest: on m2/m3 it would launch the
-# n8 rows with 2-card lanes. Its heartbeat tells us whether one is alive.
-if [ -f "$CLAIM_DIR/daemon.alive.$MACHINE" ]; then
-    _hb=$(date -d "$(cat "$CLAIM_DIR/daemon.alive.$MACHINE")" +%s 2>/dev/null || echo 0)
-    if [ $(( $(date +%s) - _hb )) -lt 1800 ]; then
-        touch "$CLAIM_DIR/daemon.stop.$MACHINE"
-        echo "old daemon for $MACHINE is alive -- stop file written; it exits within its"
-        echo "15-min loop. Rerun this script afterwards."
-        exit 0
-    fi
+# Is a daemon already feeding this box? A live one is FINE -- it re-reads the
+# manifest and the lane-shape file on every invocation, so it cannot serve a
+# stale plan. (It once could, which is why this used to stop it and ask for a
+# rerun -- and that made the script a toggle: launch, kill, launch, kill. An
+# even number of launches left no daemon at all, which is exactly how m1 and m3
+# ended up daemonless on 08-08 while m2, launched once, kept running.)
+DAEMON_ALIVE=0
+if pgrep -f campaign_daemon.sh >/dev/null 2>&1; then
+    DAEMON_ALIVE=1
+    echo "daemon already running on this box -- leaving it (it re-reads the manifest)"
 fi
 _busy=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | wc -l)
-if [ "$_busy" -gt 0 ] && [ "${FORCE:-0}" != 1 ]; then
-    echo "FATAL: $_busy compute process(es) on the GPUs -- 8k drain not done, or something" >&2
-    echo "       else is training. Wait it out, or FORCE=1 after verifying:" >&2
-    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv >&2
-    exit 1
+if [ "$_busy" -gt 0 ]; then
+    # Report, do not exit. This guard once refused mid-script and the operator
+    # was left with no daemon and no obvious reason (08-08) -- and busy cards
+    # are usually THIS campaign's own lanes, which campaign.sh already accounts
+    # for run by run. A genuinely unknown user still stops the launch, there.
+    echo "note: $_busy compute process(es) already on the GPUs -- campaign.sh will"
+    echo "      account for them (it refuses if it cannot name them):"
+    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv | sed 's/^/      /'
 fi
 source "${SIMOPD_VENV:-simopd}/bin/activate" 2>/dev/null || true
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
@@ -92,9 +95,32 @@ echo "$LANE_SHAPE" > "$CLAIM_DIR/GPUS_PER_RUN.$MACHINE"
 # cap, no spare pair, no anchor phase. A stale cap file would strand 3 lanes.
 rm -f "$CLAIM_DIR/MAX_LANES.$MACHINE"
 echo "recorded: GPUS_PER_RUN.$MACHINE = $LANE_SHAPE; MAX_LANES cleared (full parallel)"
-nohup bash deploy/campaign_daemon.sh > "logs/$(hostname)_daemon.log" 2>&1 &
-sleep 3
-tail -n 5 "logs/$(hostname)_daemon.log" || true
+_dlog="logs/$(hostname)_daemon.log"
+if [ "$DAEMON_ALIVE" = 1 ] && pgrep -f campaign_daemon.sh >/dev/null 2>&1; then
+    echo "daemon: already running, not starting a second one"
+else
+    # A stop file left by an older stop_pilot would kill the fresh daemon at its
+    # first tick; the daemon clears it too, but not before this script claims
+    # success.
+    rm -f "$CLAIM_DIR/daemon.stop.$MACHINE"
+    nohup bash deploy/campaign_daemon.sh > "$_dlog" 2>&1 &
+    # Verify, do not assume: the daemon refuses (and exits) over an unregistered
+    # hostname or a second daemon holding its lock, and a launch script that
+    # printed a log tail and left was how a dead daemon looked like a live one.
+    _ok=0
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 1
+        pgrep -f campaign_daemon.sh >/dev/null 2>&1 && [ -f "$CLAIM_DIR/daemon.alive.$MACHINE" ] && { _ok=1; break; }
+    done
+    if [ "$_ok" = 1 ]; then
+        echo "daemon: alive (pid $(pgrep -f campaign_daemon.sh | head -1)), heartbeat written"
+    else
+        echo >&2
+        echo "FATAL: the daemon did not come up. Its log says why:" >&2
+        tail -n 15 "$_dlog" >&2 || true
+        exit 1
+    fi
+fi
 echo
 echo "done. watch:   python scripts/progress.py"
 echo "      daemon:  logs/$(hostname)_daemon.log   stop: touch $CLAIM_DIR/daemon.stop.$MACHINE"

@@ -102,9 +102,9 @@ arms:
     desc: "off-policy SFT cold start then OPD (Rethinking recipe)"
     # Status is FLEET-LOCAL. Upstream gated this 2026-08-07 because cornell lacks
     # the SFT checkpoint (EXPANSION 8.1 #6); THIS fleet built and verified its own
-    # 2026-08-07 (env paths below, hf/ export) and two seeds are mid-flight as this
-    # line is written -- so stock here, needs there. If a future merge flips this
-    # again, the running fingerprints keep the record straight.
+    # 2026-08-07 (env paths below, hf/ export) and its three seeds have since
+    # reached step 250 -- so stock here, needs there. The 2026-08-12 merge kept
+    # `stock` for that reason; the running fingerprints keep the record straight.
     status: stock
     note: "two-stage: run slurm/coldstart.sbatch first (teacher generations, filtered,
            then verl SFT), which also writes the remainder split.
@@ -434,6 +434,13 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: pi_tail_budget
       USE_POLICY_GRADIENT: "False"
+      # 2026-08-09: the heaviest arm on the roster -- its own kernel plus three
+      # shadow selectors plus full-vocab entropy -- kept dying at step 1 where the
+      # optimizer moments materialise and vLLM's wake_up needs contiguous pages.
+      # SIMOPD_SHADOW is fingerprint-exempt by construction, so dropping the panel
+      # costs c4 its column in the V-wave redundancy Jaccard and NOTHING else: same
+      # batch, same verdict, same comparability.
+      SIMOPD_SHADOW: "0"
       DISTILLATION_TOPK: "32"
       SIMOPD_PI_TAIL_EPS: "0.05"
 

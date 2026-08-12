@@ -170,10 +170,73 @@ max_ckpt_keep=${MAX_CKPT_KEEP:--1}   # -1 = keep ALL (PROTOCOL 3.7: the suite
 # anchor-round default, where the whole batch starts together.
 rollout_gpu_mem_util=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 
+# --- memory placement and the hub, both fixed at the innermost layer (2026-08-08) ---
+#
+# 1. FSDP offload during rollout. free_cache_engine sleeps the vLLM engine for the
+#    actor update, but the reverse handoff is what broke: at 16k the actor's static
+#    state plus activations leave the address space too fragmented for vLLM's
+#    wake_up to re-map its cache, and the run dies mid-training with "CUDA Error:
+#    out of memory at cumem_allocator.cpp" (e2/e3, steps 36-51, 08-08). Offloading
+#    params and optimizer to host memory between updates gives the mapping room.
+#    Purely WHERE tensors live -- the arithmetic, the RNG stream and the fingerprint
+#    are untouched, so this does not fork the batch. Costs some step time.
+# 2. expandable_segments fights the fragmentation itself rather than its symptom;
+#    same neutrality argument.
+# 3. HF_HUB_OFFLINE. Twelve lanes starting at once each ask hf-mirror.com to list the
+#    teacher repo, and the mirror answers 429 -- three c4 seeds died at step 0 for a
+#    rate limit that had nothing to do with the arm (08-08). The weights are already
+#    on disk; going offline makes the run depend on local files instead of somebody
+#    else's uptime, which is what a pre-registered protocol wants anyway. If a model
+#    is genuinely missing, the failure is immediate and legible instead of a race.
+# Offload trades GPU memory for HOST memory, and the host is the scarcer pool here:
+# the optimizer side alone is ~19GB per lane (6.3 fp32 master + 12.7 AdamW moments)
+# and four lanes on a 94GB box then compete with Ray's object store and vLLM's host
+# buffers. On 2026-08-09 that is exactly what happened -- raylet's OOM monitor killed
+# workers and the rollout hung at "running: 13, finished: 115" for half an hour, with
+# c4 (the heaviest arm) hit first. Params are cheap to offload (~3.2GB) and stay on;
+# the optimizer stays resident by default and the GPU side is bought back by
+# expandable_segments plus the smaller entropy chunk instead. Flip
+# FSDP_OPTIMIZER_OFFLOAD=True on a box with room, or when running fewer lanes.
+# BOTH OFF -- back to verl's default, which is the only memory configuration this
+# stack has ever trained under (e2/e3 reached steps 36-51 on it before the wake_up
+# OOM). Turning both on to cure that OOM cost ~26GB of HOST memory per lane and
+# raylet started killing workers; turning only the optimizer back off left
+# param_offload=True, a combination nobody had ever run -- params live on the host
+# and are re-gathered every forward while verl also syncs weights into vLLM each
+# step -- and all four lanes on m1 then hung at step 0 (2026-08-09). Two levers
+# remain against the wake_up OOM and neither touches the host: expandable_segments
+# (fragmentation is what makes cuMemMap fail while torch reports free memory) and
+# the 1024-token entropy chunk (~2.5GB transient down to ~0.6GB, the transient this
+# file already documents as having starved wake_up once). Either flag can be turned
+# on deliberately on a box with host memory to spare.
+fsdp_param_offload=${FSDP_PARAM_OFFLOAD:-False}
+fsdp_optimizer_offload=${FSDP_OPTIMIZER_OFFLOAD:-False}
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+
 use_remove_padding=${USE_REMOVE_PADDING:-True}     # needs flash-attn; set False before FA build lands
 
 project_name=${PROJECT_NAME:-simopd}
 experiment_name=${EXPERIMENT_NAME:-vanilla_$(basename $STUDENT_MODEL)_from_$(basename $TEACHER_MODEL)}
+# A SHORT run under a protocol name is the worst outcome this project has: it ends,
+# writes "-> OK", and campaign.sh records the row DONE forever -- a false green that
+# nothing retries. It has happened once already (a stale STEPS=3 from a rehearsal
+# leaked out of an operator shell; daemon_campaign.sh now unsets it, which protects
+# the daemon path only) and again on 2026-08-09, when e2_set_coverage_s1 launched as
+# "step 3/3" from a manual invocation. Probes, controls and rehearsals all carry a
+# TAG or REHEARSAL, and that is exactly the discriminator: an UNTAGGED run is a
+# protocol run and must use the protocol horizon. Deliberate exceptions say so.
+if [ "$total_training_steps" -ge 0 ] && [ "$total_training_steps" -lt 250 ]    && [ -z "${LANE_TAG:-}${TAG:-}" ] && [ "${REHEARSAL:-0}" != 1 ]    && [ "${SIMOPD_SHORT_RUN_OK:-0}" != 1 ]; then
+    echo "FATAL: total_training_steps=$total_training_steps under an untagged protocol" >&2
+    echo "       name ($experiment_name). A short run here finishes, reports OK, and is" >&2
+    echo "       recorded DONE -- the false green nothing ever retries." >&2
+    echo "       unset STEPS TOTAL_TRAINING_STEPS      # if this leaked from your shell" >&2
+    echo "       TAG=probe ...                         # if it really is a probe" >&2
+    echo "       SIMOPD_SHORT_RUN_OK=1 ...             # if you mean it, on the record" >&2
+    exit 1
+fi
+
 logger=${LOGGER:-'["console","wandb"]'}
 
 data_dir=${DATA_DIR:-$HOME/data/simopd_math}
@@ -232,7 +295,7 @@ fingerprint=$(printf '%s\n' \
     "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
     "ngpus=${NGPUS_PER_NODE}" "tws=${TEACHER_WORLD_SIZE}" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
-    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG)=' | LC_ALL=C sort | tr '\n' ' ')" \
+    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG|ENTROPY_CHUNK)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
     "prompt=$max_prompt_length" "resp=$max_response_length" \
     "data=$train_files" "pad=$use_remove_padding" \
@@ -309,6 +372,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_epochs=1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
+    actor_rollout_ref.actor.fsdp_config.param_offload=${fsdp_param_offload} \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=${fsdp_optimizer_offload} \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \

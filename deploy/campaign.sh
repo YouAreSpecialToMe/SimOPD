@@ -377,8 +377,19 @@ if [ -d "$LOG_DIR" ]; then
         esac
         while read -r n; do done_ok="$done_ok$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> OK' "$f" 2>/dev/null | awk '{print $2}')
+        # Strikes count only against the CURRENT pin. A repin is a fix put on the
+        # record with a reason, and after one the old failures describe code that no
+        # longer runs -- counting them quarantines the very runs the fix was for, so
+        # the operator's next move is an override that also disables the breaker for
+        # genuinely sick runs (08-08: nine rows, one hub rate limit, one OOM, all
+        # fixed, all still refused). Logs older than the pin file still count as
+        # `failed` -- the row shows FAILED and its evidence stays readable -- they
+        # just do not accumulate strikes.
+        _pin_epoch=$(stat -c %Y "$CLAIM_DIR/CAMPAIGN_REF" 2>/dev/null || echo 0)
+        _log_epoch=$(stat -c %Y "$f" 2>/dev/null || echo 0)
         while read -r n; do failed="$failed$n "; _ended[$n]=$(( ${_ended[$n]:-0} + 1 ))
-            _failn[$n]=$(( ${_failn[$n]:-0} + 1 )); done < <(
+            [ "$_log_epoch" -ge "$_pin_epoch" ] && _failn[$n]=$(( ${_failn[$n]:-0} + 1 ))
+            done < <(
             grep -oE '^#+ [A-Za-z0-9_.]+ -> FAIL' "$f" 2>/dev/null | awk '{print $2}')
         while read -r n; do _started[$n]=$(( ${_started[$n]:-0} + 1 )); done < <(
             grep -oE '^#+ RUN: [A-Za-z0-9_.]+' "$f" 2>/dev/null | awk '{print $3}')
@@ -466,7 +477,10 @@ echo "  manifest      $(rows | awk -v m="$MACHINE" '$2==m' | wc -l) rows named f
     echo "  QUARANTINED $quarantined"
     echo "              failed ${MAX_RUN_RETRIES:-3}+ times; not retried automatically. Read the"
     echo "              traceback first:  python scripts/triage.py logs/*/lane*.log"
-    echo "              After a fix:      MAX_RUN_RETRIES=99 bash deploy/campaign.sh   # or clear its logs"
+    echo "              After a fix:      REASON=\"...\" bash deploy/campaign.sh --repin"
+    echo "                                (a repin clears the strikes: they counted"
+    echo "                                 code that no longer runs). One-off override:"
+    echo "                                MAX_RUN_RETRIES=99 bash deploy/campaign.sh"
 }
 [ -n "$retry" ]   && {
     echo "  RETRYING    $retry"
