@@ -41,6 +41,13 @@ WORKER_MEMORY=${WORKER_MEMORY:-800Gi}
 PRIORITY=${PRIORITY:-5}
 JOB_NAME=${JOB_NAME:-simopd-fleet-$(date +%m%d%H%M)}
 DLC=${DLC:-/mgfs/shared/Group_GY/changhao/tools/pai/bin/dlc}
+# The whole design assumes /mgfs is visible inside the job. On this cluster the
+# existing DLC jobs get it via their dataset attachment -- if your quota needs an
+# explicit --data_sources id for the mgfs dataset, set DATA_SOURCES; if the
+# workspace mounts it implicitly, leave unset. VERIFY ON THE SMOKE JOB: worker
+# logs print the tree path at boot, and a job without /mgfs dies in seconds.
+EXTRA_ARGS=()
+[ -n "${DATA_SOURCES:-}" ] && EXTRA_ARGS+=(--data_sources="$DATA_SOURCES")
 
 # The worker script is read from /mgfs at boot, so iterating on it needs no
 # resubmission for RESTARTED pods -- but live pods only re-read it on their next
@@ -59,4 +66,5 @@ set -x
     --resource_id="$RESOURCE_ID" \
     --priority="$PRIORITY" \
     --job_max_running_time_minutes=0 \
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
     --command="$CMD"

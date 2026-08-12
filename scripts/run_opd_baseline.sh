@@ -84,7 +84,11 @@ ARM_ARGS=()
 # everything else to stock verl). Absent = stock dispatch, math/code untouched.
 # Rides the fingerprint as a hydra extra arg, so domain runs split batches by
 # construction rather than by accident.
-[ -n "${CUSTOM_REWARD_PATH:-}" ] && ARM_ARGS+=(custom_reward_function.path="${CUSTOM_REWARD_PATH}" custom_reward_function.name="${CUSTOM_REWARD_NAME:-compute_score}")
+[ -n "${CUSTOM_REWARD_PATH:-}" ] && ARM_ARGS+=(reward.custom_reward_function.path="${CUSTOM_REWARD_PATH}" reward.custom_reward_function.name="${CUSTOM_REWARD_NAME:-compute_score}")
+# ^ the NESTED reward group: get_custom_reward_fn reads config.reward.custom_reward_function
+#   (verl/trainer/ppo/reward.py:70); the top-level custom_reward_function: in the
+#   generated yaml is legacy and nothing reads it in this checkout -- passing the
+#   top-level key silently loads no function and every IF val dies NotImplementedError.
 [ -n "${LOSS_MAX_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.loss_max_clamp="${LOSS_MAX_CLAMP}")
 [ -n "${LOG_PROB_MIN_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.log_prob_min_clamp="${LOG_PROB_MIN_CLAMP}")
 

@@ -94,6 +94,10 @@ cd "$EXP_ROOT"
 upsert_map() {  # $1 = claim dir
     local MAP="$EXP_ROOT/$1/MACHINE_MAP"
     for i in $(seq 1 60); do
+        # a pod killed mid-upsert leaves the lock forever; steal after 180s
+        if [ -d "$MAP.lock" ] && [ "$(( $(date +%s) - $(stat -c %Y "$MAP.lock") ))" -gt 180 ]; then
+            rmdir "$MAP.lock" 2>/dev/null || true
+        fi
         if mkdir "$MAP.lock" 2>/dev/null; then
             grep -vP "\t${MACHINE}\t" "$MAP" 2>/dev/null > "$MAP.tmp" || true
             printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$MAP.tmp"
@@ -108,8 +112,18 @@ for DOM in $DOMAINS; do
     CD="$EXP_ROOT/$(domain_claim_dir "$DOM")"
     mkdir -p "$CD"
     case "$DOM" in
-        if)   [ -s "$CD/BATCH_TAG" ] || printf 'if4k' > "$CD/BATCH_TAG" ;;
-        code) [ -s "$CD/BATCH_TAG" ] || printf 'code4k' > "$CD/BATCH_TAG" ;;
+        if|code)
+              case "$DOM" in if) t=if4k;; *) t=code4k;; esac
+              [ -s "$CD/BATCH_TAG" ] || printf '%s' "$t" > "$CD/BATCH_TAG"
+              # d2/d3/d4 are the 4-GPU boxes for the topology-carrying family
+              # (b3/d1/d2/d3/g2/n8/j1 pin their own NGPUS=2+TWS=2 = 4 GPUs);
+              # the manifests pin those rows there. Cost: pool rows those boxes
+              # claim also run at width 4, idling 2 GPUs per such lane -- three
+              # boxes of bounded waste against seven arms that otherwise fail
+              # at boot on every 2-GPU lane.
+              for m in d2 d3 d4; do
+                  [ -s "$CD/GPUS_PER_RUN.$m" ] || printf '4' > "$CD/GPUS_PER_RUN.$m"
+              done ;;
         w8b)  [ -s "$CD/BATCH_TAG" ] || printf 'w' > "$CD/BATCH_TAG" ;;
         p4b)  [ -s "$CD/BATCH_TAG" ] || printf 'p4b' > "$CD/BATCH_TAG" ;;
     esac
@@ -123,12 +137,29 @@ export MACHINE
 # claims whose owner never wrote a complete artifact set and has been silent
 # for 2h -- evalq_exp has no refill reaper, so the fleet reaps for itself.
 bash "$DATA/reap_orphan_vllm.sh" 2>/dev/null || true
+EVAL_OUT="$DATA/evals"
+claim_complete() {  # RUN STEP -> 0 when all five benchmark artifacts exist
+    local n=0 b
+    for b in aime24 aime25 amc23 minerva math500; do
+        compgen -G "$EVAL_OUT/${1}__${b}__step${2}__seed*" > /dev/null && n=$((n + 1))
+    done
+    [ "$n" -ge 5 ]
+}
+# Reap a claim only when it is FINISHED (artifacts complete -- leftover claim,
+# safe to clear any time) or ANCIENT (>36h; a healthy checkpoint-eval is ~13h,
+# so 36h means a wrecked owner). The first draft reaped anything >2h old, which
+# would have released claims under LIVE long evals on other boxes on every pod
+# restart -- constant duplicated work. Caught in review.
 now=$(date +%s)
 for c in "$EVALQ"/claims/*__*; do
     [ -d "$c" ] || continue
+    name=$(basename "$c"); RUN=${name%__*}; STEP=${name##*__}
     age=$(( now - $(stat -c %Y "$c") ))
-    [ "$age" -gt 7200 ] && rmdir --ignore-fail-on-non-empty "$c" 2>/dev/null \
-        && rm -rf "$c" 2>/dev/null && echo "reaped stale eval claim $(basename "$c")"
+    if claim_complete "$RUN" "$STEP"; then
+        rm -rf "$c" && echo "reaped finished-claim leftover $name"
+    elif [ "$age" -gt 129600 ]; then
+        rm -rf "$c" && echo "reaped ancient claim $name (${age}s)"
+    fi
 done
 
 free_gpus() {  # indices with <500MiB used
@@ -145,8 +176,14 @@ startable_rows() {  # "count maxwidth" aggregated across every served namespace 
     local n=0 w=2 d
     for DOM in $DOMAINS; do
         [ -f "$(domain_data_dir "$DOM")/train.parquet" ] || continue
+        # count entries on the `assigned` / `pool free` lines, excluding the
+        # literal "none" -- the first version grepped 'assigned\s+\S', which
+        # matches "assigned      none" and would have evicted eval workers on
+        # every pass forever (caught in review, never shipped)
         d=$( (eval "$(domain_env "$DOM")"; MACHINE=$MACHINE bash deploy/campaign.sh --dry 2>/dev/null) \
-            | grep -cE '^\s+any\s+\S+\s+POOL|assigned\s+\S' ) || d=0
+            | awk '$1=="assigned"{for(i=2;i<=NF;i++)if($i!="none")n++}
+                   $1=="pool"&&$2=="free"{for(i=3;i<=NF;i++)if($i!="none")n++}
+                   END{print n+0}' ) || d=0
         if [ "${d:-0}" -gt 0 ]; then
             n=$((n + d))
             [ "$(domain_width "$DOM")" -gt "$w" ] && w=$(domain_width "$DOM")
@@ -169,19 +206,30 @@ while :; do
 
     # -- 1. training first, domains in priority order; a domain missing its
     #       dataset is skipped loudly (the IF set waits on a license token)
+    launched_gpus=" "
     for DOM in $DOMAINS; do
         if [ ! -f "$(domain_data_dir "$DOM")/train.parquet" ]; then
             echo "domain $DOM: no train.parquet yet, skipped"
             continue
         fi
-        ( eval "$(domain_env "$DOM")"
-          MACHINE=$MACHINE bash deploy/campaign.sh 2>&1 | tail -3 ) || true
+        out=$( (eval "$(domain_env "$DOM")"
+                MACHINE=$MACHINE bash deploy/campaign.sh 2>&1) ) || true
+        echo "$out" | tail -3
+        # GPUs this pass just handed to lanes: a lane spends minutes loading
+        # weights before it holds memory, so the <500MiB check alone would let
+        # backfill land an eval engine on a lane's card and OOM its boot
+        launched_gpus+="$(echo "$out" | grep -oE 'GPU_LIST\s+[0-9, ]+' \
+                          | sed 's/GPU_LIST//; s/,/ /g') "
     done
 
     # -- 2. eval backfill on whatever is still idle
-    sleep 20   # let freshly-launched lanes grab their memory before we measure
+    sleep 60   # settle; the launched_gpus exclusion is the real guard
     for g in $(free_gpus); do
-        pgrep -f "eval_worker_exp.sh $g\b" >/dev/null 2>&1 && continue
+        case "$launched_gpus" in *" $g "*) continue ;; esac
+        # trailing space, not \b: pgrep -f is POSIX ERE and \b silently matches a
+        # literal b, so "gpu 1" would collide with "gpu 10" AND every duplicate
+        # check would fail -- one extra eval worker per GPU per pass
+        pgrep -f "eval_worker_exp.sh $g " >/dev/null 2>&1 && continue
         nohup bash "$DATA/eval_worker_exp.sh" "$g" "$EVALQ" \
             > "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log" 2>&1 &
         echo "eval backfill: worker on gpu $g"

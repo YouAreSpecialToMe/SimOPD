@@ -20,6 +20,14 @@ import sys
 import yaml
 
 DOMAIN = sys.argv[1] if len(sys.argv) > 1 else "if"
+# The topology-carrying family pins NGPUS_PER_NODE=2 + TEACHER_WORLD_SIZE=2 in
+# its arm env (4 GPUs total), and arm env lands AFTER namespace env -- on a
+# 2-GPU domain lane these arms fail at boot, every attempt, three strikes each.
+# They go to dedicated 4-GPU boxes (the worker seeds GPUS_PER_RUN.d{2,3,4}=4).
+WIDE = ["b3_eopd_gate", "d1_tip", "d2_selectkd", "d3_teachability",
+        "vanilla_n8", "j1_kdrl", "g2_fire_likelihood"]
+WIDE_BOXES = ["d2", "d3", "d4"]
+
 FENCED = {
     "a2_coldstart": "needs=/nonexistent/per-domain-sft-stage1 -- math SFT init on a "
                     "domain stream answers no registered question; unlock = build the "
@@ -48,4 +56,8 @@ for rid in stock:
     fence = FENCED.get(rid)
     for s in range(3):
         note = f"\t{fence}" if fence else ""
-        print(f"1\tany\t{rid}\t{s}{note}")
+        if rid in WIDE:
+            box = WIDE_BOXES[(WIDE.index(rid) * 3 + s) % len(WIDE_BOXES)]
+            print(f"1\t{box}\t{rid}\t{s}\t4-GPU family; box width seeded by the worker{note and ' ' + fence}")
+        else:
+            print(f"1\tany\t{rid}\t{s}{note}")

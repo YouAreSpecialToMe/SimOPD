@@ -20,9 +20,9 @@
 1	any	b2_forward_kl	0
 1	any	b2_forward_kl	1
 1	any	b2_forward_kl	2
-1	any	b3_eopd_gate	0
-1	any	b3_eopd_gate	1
-1	any	b3_eopd_gate	2
+1	d2	b3_eopd_gate	0	4-GPU family; box width seeded by the worker
+1	d3	b3_eopd_gate	1	4-GPU family; box width seeded by the worker
+1	d4	b3_eopd_gate	2	4-GPU family; box width seeded by the worker
 1	any	b4_jsd	0
 1	any	b4_jsd	1
 1	any	b4_jsd	2
@@ -59,15 +59,15 @@
 1	any	c4_pi_tail_budget	0
 1	any	c4_pi_tail_budget	1
 1	any	c4_pi_tail_budget	2
-1	any	d1_tip	0
-1	any	d1_tip	1
-1	any	d1_tip	2
-1	any	d2_selectkd	0
-1	any	d2_selectkd	1
-1	any	d2_selectkd	2
-1	any	d3_teachability	0
-1	any	d3_teachability	1
-1	any	d3_teachability	2
+1	d2	d1_tip	0	4-GPU family; box width seeded by the worker
+1	d3	d1_tip	1	4-GPU family; box width seeded by the worker
+1	d4	d1_tip	2	4-GPU family; box width seeded by the worker
+1	d2	d2_selectkd	0	4-GPU family; box width seeded by the worker
+1	d3	d2_selectkd	1	4-GPU family; box width seeded by the worker
+1	d4	d2_selectkd	2	4-GPU family; box width seeded by the worker
+1	d2	d3_teachability	0	4-GPU family; box width seeded by the worker
+1	d3	d3_teachability	1	4-GPU family; box width seeded by the worker
+1	d4	d3_teachability	2	4-GPU family; box width seeded by the worker
 1	any	e1_pl_rank	0
 1	any	e1_pl_rank	1
 1	any	e1_pl_rank	2
@@ -104,15 +104,15 @@
 1	any	g1_verified_only	0
 1	any	g1_verified_only	1
 1	any	g1_verified_only	2
-1	any	vanilla_n8	0
-1	any	vanilla_n8	1
-1	any	vanilla_n8	2
-1	any	j1_kdrl	0
-1	any	j1_kdrl	1
-1	any	j1_kdrl	2
-1	any	g2_fire_likelihood	0
-1	any	g2_fire_likelihood	1
-1	any	g2_fire_likelihood	2
+1	d2	vanilla_n8	0	4-GPU family; box width seeded by the worker
+1	d3	vanilla_n8	1	4-GPU family; box width seeded by the worker
+1	d4	vanilla_n8	2	4-GPU family; box width seeded by the worker
+1	d2	j1_kdrl	0	4-GPU family; box width seeded by the worker
+1	d3	j1_kdrl	1	4-GPU family; box width seeded by the worker
+1	d4	j1_kdrl	2	4-GPU family; box width seeded by the worker
+1	d2	g2_fire_likelihood	0	4-GPU family; box width seeded by the worker
+1	d3	g2_fire_likelihood	1	4-GPU family; box width seeded by the worker
+1	d4	g2_fire_likelihood	2	4-GPU family; box width seeded by the worker
 1	any	g4_failure_only	0
 1	any	g4_failure_only	1
 1	any	g4_failure_only	2
