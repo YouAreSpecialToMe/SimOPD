@@ -36,6 +36,27 @@ EXP_ROOT=${EXP_ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 DATA=${DATA:-/mgfs/shared/Group_GY/changhao/simopd_data}
 EVALQ=${EVALQ:-$DATA/evalq_exp}
 LOOP_SEC=${LOOP_SEC:-900}
+# Domains this fleet serves, in priority order. Each is a (manifest, claim
+# namespace, env triple); math is the default namespace and needs no overrides.
+# A domain whose train.parquet is missing is skipped loudly, not fatally -- the
+# IF set is gated on a license token and may land later than code.
+DOMAINS=${DOMAINS:-"math if code"}
+
+domain_env() {  # print export statements for one domain; empty for math
+    case "$1" in
+        if)   echo "export MANIFEST=configs/campaign_if.tsv CLAIM_DIR=.campaign_if"
+              echo "export DATA_DIR=$DATA/simopd_if VAL_FILE_BASENAME=ifeval.parquet"
+              echo "export MAX_RESPONSE_LENGTH=4096"
+              echo "export CUSTOM_REWARD_PATH=$EXP_ROOT/src/simopd/domain_reward.py" ;;
+        code) echo "export MANIFEST=configs/campaign_code.tsv CLAIM_DIR=.campaign_code"
+              echo "export DATA_DIR=$DATA/simopd_code VAL_FILE_BASENAME=val_holdout.parquet"
+              echo "export MAX_RESPONSE_LENGTH=4096" ;;
+        math) : ;;
+    esac
+}
+
+domain_data_dir() { case "$1" in if) echo "$DATA/simopd_if";; code) echo "$DATA/simopd_code";; math) echo "$DATA/simopd_math";; esac; }
+domain_claim_dir() { case "$1" in if) echo ".campaign_if";; code) echo ".campaign_code";; math) echo ".campaign";; esac; }
 
 RANK=${MLP_ROLE_INDEX:-${MLP_WORKER_RACK_RANK_INDEX:-${RANK:-0}}}
 MACHINE="d${RANK}"
@@ -47,17 +68,32 @@ echo "== dlc worker $MACHINE on $(hostname) $(date -u +%FT%TZ) =="
 cd "$EXP_ROOT"
 . ./simopd_env.sh
 
-# ---- rank-keyed identity upsert (locked: 64 workers boot at once) -----------
-MAP="$EXP_ROOT/.campaign/MACHINE_MAP"
-for i in $(seq 1 60); do
-    if mkdir "$MAP.lock" 2>/dev/null; then
-        grep -vP "\t${MACHINE}\t" "$MAP" 2>/dev/null > "$MAP.tmp" || true
-        printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$MAP.tmp"
-        mv "$MAP.tmp" "$MAP"
-        rmdir "$MAP.lock"
-        break
-    fi
-    sleep 2
+# ---- per-domain namespaces + rank-keyed identity upsert ----------------------
+# Each domain has its own claim dir (own BATCH_TAG -> run names <arm>_s<s>_<tag>,
+# so checkpoints/fingerprints never collide across domains) and its own
+# MACHINE_MAP. Seeding is idempotent; the upsert is locked because 64 workers
+# boot at once.
+upsert_map() {  # $1 = claim dir
+    local MAP="$EXP_ROOT/$1/MACHINE_MAP"
+    for i in $(seq 1 60); do
+        if mkdir "$MAP.lock" 2>/dev/null; then
+            grep -vP "\t${MACHINE}\t" "$MAP" 2>/dev/null > "$MAP.tmp" || true
+            printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$MAP.tmp"
+            mv "$MAP.tmp" "$MAP"
+            rmdir "$MAP.lock"
+            return 0
+        fi
+        sleep 2
+    done
+}
+for DOM in $DOMAINS; do
+    CD="$EXP_ROOT/$(domain_claim_dir "$DOM")"
+    mkdir -p "$CD"
+    case "$DOM" in
+        if)   [ -s "$CD/BATCH_TAG" ] || printf 'if4k' > "$CD/BATCH_TAG" ;;
+        code) [ -s "$CD/BATCH_TAG" ] || printf 'code4k' > "$CD/BATCH_TAG" ;;
+    esac
+    upsert_map "$(domain_claim_dir "$DOM")"
 done
 export MACHINE
 
@@ -82,9 +118,15 @@ free_gpus() {  # indices with <500MiB used
 
 eval_workers_here() { pgrep -f "eval_worker_exp.sh" 2>/dev/null | wc -l; }
 
-startable_rows() {
-    MACHINE=$MACHINE bash deploy/campaign.sh --dry 2>/dev/null \
-        | grep -cE '^\s+any\s+\S+\s+POOL|assigned\s+\S' || true
+startable_rows() {  # aggregated across every served domain
+    local n=0 d
+    for DOM in $DOMAINS; do
+        [ -f "$(domain_data_dir "$DOM")/train.parquet" ] || continue
+        d=$( (eval "$(domain_env "$DOM")"; MACHINE=$MACHINE bash deploy/campaign.sh --dry 2>/dev/null) \
+            | grep -cE '^\s+any\s+\S+\s+POOL|assigned\s+\S' ) || d=0
+        n=$((n + d))
+    done
+    echo "$n"
 }
 
 while :; do
@@ -99,8 +141,16 @@ while :; do
         bash "$DATA/reap_orphan_vllm.sh" 2>/dev/null || true
     fi
 
-    # -- 1. training first
-    MACHINE=$MACHINE bash deploy/campaign.sh 2>&1 | tail -4 || true
+    # -- 1. training first, domains in priority order; a domain missing its
+    #       dataset is skipped loudly (the IF set waits on a license token)
+    for DOM in $DOMAINS; do
+        if [ ! -f "$(domain_data_dir "$DOM")/train.parquet" ]; then
+            echo "domain $DOM: no train.parquet yet, skipped"
+            continue
+        fi
+        ( eval "$(domain_env "$DOM")"
+          MACHINE=$MACHINE bash deploy/campaign.sh 2>&1 | tail -3 ) || true
+    done
 
     # -- 2. eval backfill on whatever is still idle
     sleep 20   # let freshly-launched lanes grab their memory before we measure

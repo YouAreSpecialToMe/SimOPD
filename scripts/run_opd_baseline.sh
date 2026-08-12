@@ -79,6 +79,12 @@ distillation_topk=${DISTILLATION_TOPK:-32}
 # Arm knobs that are absent from the vanilla protocol: only pass them when set,
 # so a run's config hash records exactly the one deviation that defines its arm.
 ARM_ARGS=()
+# IF-domain runs need the dispatcher (verl's registry has no simopd/ifeval entry;
+# src/simopd/domain_reward.py routes that data_source to the vendored checker and
+# everything else to stock verl). Absent = stock dispatch, math/code untouched.
+# Rides the fingerprint as a hydra extra arg, so domain runs split batches by
+# construction rather than by accident.
+[ -n "${CUSTOM_REWARD_PATH:-}" ] && ARM_ARGS+=(custom_reward_function.path="${CUSTOM_REWARD_PATH}" custom_reward_function.name="${CUSTOM_REWARD_NAME:-compute_score}")
 [ -n "${LOSS_MAX_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.loss_max_clamp="${LOSS_MAX_CLAMP}")
 [ -n "${LOG_PROB_MIN_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.log_prob_min_clamp="${LOG_PROB_MIN_CLAMP}")
 
@@ -241,7 +247,10 @@ logger=${LOGGER:-'["console","wandb"]'}
 
 data_dir=${DATA_DIR:-$HOME/data/simopd_math}
 train_files="['$data_dir/${TRAIN_FILE_BASENAME:-train.parquet}']"
-val_files="['$data_dir/math500.parquet']"
+# Domain campaigns swap the in-loop val set (IF: ifeval.parquet, code:
+# val_holdout.parquet); the default stays math500 so every existing math run is
+# byte-identical. The basename rides the fingerprint via the data= line below.
+val_files="['$data_dir/${VAL_FILE_BASENAME:-math500.parquet}']"
 
 max_num_tokens=$(( max_prompt_length + max_response_length + 1 ))
 
@@ -340,7 +349,7 @@ mkdir -p "$ckpt_dir" && printf '%s\n' "$fingerprint" > "$fp_file"
 python3 "$(dirname "$0")/preflight.py" \
     --student "$STUDENT_MODEL" --teacher "$TEACHER_MODEL" \
     --data "$data_dir/${TRAIN_FILE_BASENAME:-train.parquet}" \
-    --val "$data_dir/math500.parquet" \
+    --val "$data_dir/${VAL_FILE_BASENAME:-math500.parquet}" \
     --loss "$distillation_loss_mode" \
     --max-prompt-length "$max_prompt_length"
 

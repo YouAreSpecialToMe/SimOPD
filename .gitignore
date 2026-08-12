@@ -30,3 +30,6 @@ wandb/
 
 # OMC session state (tooling artifact, not project content)
 .omc/
+
+# per-domain claim namespaces (runtime state, one per campaign)
+/.campaign_*/
