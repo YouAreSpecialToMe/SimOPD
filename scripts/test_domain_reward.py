@@ -58,7 +58,10 @@ check("AND one fails", domain_reward.compute_score("simopd/ifeval", two_bullets_
 # 3. the prompt-rebuild family: description is built FROM the prompt; skipping the
 #    rebuild makes every response pass. Guard the guard.
 prompt = "Summarize the meeting notes."
-g = gt(["combination:repeat_prompt"], [{}], prompt=prompt)
+# Real IFEval rows carry prompt_to_repeat in kwargs; the instruction RAISES on a
+# bare build (the battery's first run proved it) -- so the realistic-kwargs case
+# checks the verdict, and the missing-kwargs case checks the crash-isolation.
+g = gt(["combination:repeat_prompt"], [{"prompt_to_repeat": prompt}], prompt=prompt)
 check("repeat_prompt followed",
       domain_reward.compute_score("simopd/ifeval", prompt + " The meeting covered budgets.", g), 1.0)
 check("repeat_prompt violated",
@@ -66,6 +69,12 @@ check("repeat_prompt violated",
 
 # 4. degenerate rollout: empty text is a fail, not a crash
 check("empty response", domain_reward.compute_score("simopd/ifeval", "   ", g), 0.0)
+
+# 4b. malformed row (kwargs missing for an instruction that requires them): the
+# reward must survive and score 0, never propagate the exception into the trainer
+g_bad = gt(["combination:repeat_prompt"], [{}], prompt=prompt)
+check("malformed kwargs -> 0 not crash",
+      domain_reward.compute_score("simopd/ifeval", prompt + " extra", g_bad), 0.0)
 
 # 5. length constraint (nltk word counting -- exercises the heavyweight dependency)
 g = gt(["length_constraints:number_words"], [{"relation": "at least", "num_words": 5}])

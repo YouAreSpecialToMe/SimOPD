@@ -41,6 +41,9 @@ def _vendored_on_path():
     os.environ.setdefault("NLTK_DISABLE_IMPORT_SECURITY", "1")
 
 
+_WARNED_IDS = set()
+
+
 def _if_strict_score(solution_str: str, ground_truth) -> float:
     _vendored_on_path()
     from instruction_following_eval import instructions_registry
@@ -50,19 +53,28 @@ def _if_strict_score(solution_str: str, ground_truth) -> float:
     if not text.strip():
         return 0.0
     for index, instr_id in enumerate(meta["instruction_id_list"]):
-        instruction = instructions_registry.INSTRUCTION_DICT[instr_id](instr_id)
-        kwargs = meta["kwargs"][index] or {}
-        instruction.build_description(**kwargs)
-        args = instruction.get_instruction_args()
-        if args and "prompt" in args:
-            instruction.build_description(prompt=meta["prompt"])
         try:
+            instruction = instructions_registry.INSTRUCTION_DICT[instr_id](instr_id)
+            kwargs = meta["kwargs"][index] or {}
+            instruction.build_description(**kwargs)
+            args = instruction.get_instruction_args()
+            if args and "prompt" in args:
+                instruction.build_description(prompt=meta["prompt"])
             if not instruction.check_following(text):
                 return 0.0
-        except Exception:
-            # A checker crash is a failure to follow, not a training crash: the
-            # transfer harness counts these the same way (n_raised), and one
-            # malformed rollout must not kill a 250-step run.
+        except Exception as e:
+            # A crash here is a failure to follow, not a training crash: the
+            # transfer harness counts checker exceptions the same way (n_raised),
+            # and one malformed rollout or row must not kill a 250-step run. The
+            # build_description arm matters too -- some instructions (the
+            # repeat_prompt family) RAISE on missing kwargs rather than checking
+            # loosely, and prep-time validation cannot prove every kwargs dict
+            # complete. Logged once per instruction id so a systematically broken
+            # column is visible instead of reading as "hard prompts".
+            if instr_id not in _WARNED_IDS:
+                _WARNED_IDS.add(instr_id)
+                print(f"[simopd] IF checker raised for {instr_id!r} ({e!r}); scoring 0 "
+                      f"(logged once per id)", file=sys.stderr, flush=True)
             return 0.0
     return 1.0
 
