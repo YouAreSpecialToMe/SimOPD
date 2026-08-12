@@ -11,7 +11,7 @@ visual collision with the evaluation operator 𝒬; and the emergent magnitude
 coordinate is renamed M(𝒰) → M[g], because the bound is NOT a function of the
 (Φ,ℛ) pair alone — b1 and f3 induce theirs from 𝒞 (§4).**
 Companion to `MECHANISMS.md`; measured early readings against this frame in
-`expansion-early-readings.md`. The object of study is not a scalar loss but the
+`expansion-early-readings.md`; 中文摘要 `unified-operator-zh.md`. The object of study is not a scalar loss but the
 **Unified OPD Training Operator** — the update field written as one composed
 expression.
 
