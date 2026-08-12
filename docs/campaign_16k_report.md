@@ -46,11 +46,32 @@ mean@1 in-loop versus τ=0.7 avg@3 in the suite — so the two must never be com
 
 **Fleet state — training complete (2026-08-12 01:5x).** All **84 of 87 rows reached step 250**; the three
 exceptions are b2's seeds, parked at their per-seed memory ceilings (§4.5) with curves complete to 175/150/200.
-Post-hoc suite: **324 of 861 checkpoint-evaluations** done. 29 of the remaining evaluations are **held**:
+Post-hoc suite: **489 of 861 checkpoint-evaluations** complete, plus **156 cells partially done** (1+ of the 5
+benchmarks missing). 29 of the remaining evaluations are **held**:
 a checkpoint whose in-loop score collapsed emits no stop token, so all 32 samples per problem run to the 32k
 cap — ~170 GPU-h each against ~13 for a healthy one, i.e. 6% of the remaining items but 40% of the remaining
 compute, for a composite that is ~0 by construction. Held, not deleted (`evalq/held.txt`); the decision is one
 threshold away from reversal.
+
+**Status update (2026-08-13).** Nothing is in flight; the 343 outstanding cells are queued for the next
+dispatch. Current state, read off the artifact ledger:
+
+- **Suite ledger: 489 complete / 156 partial / 225 not yet run** (= 870 roster cells; 861 have saved
+  checkpoints). Held unchanged at 29; scanning every outstanding cell's in-loop score against the held
+  band (≤ 0.182) flags **zero new hold candidates** (one unscored cell: e2_set_coverage s1@250).
+- **Outstanding: 343 cells — 196 never-run + 147 partials.** The partials need only their missing
+  benchmarks (aime25 30, amc23 72, minerva 105, math500 147; aime24 is complete wherever a cell started).
+  b2's 9 unsaved checkpoints (§4.5) stay out of reach unless its training resumes.
+- **Cost, priced per step from the mtime ledger of all 488 cleanly-completed cells** (per-cell median
+  7.7 h, p10 4.1 / p90 23.8; `tp=1` so GPU·h = wall·h): never-run ≈ 1.3k GPU·h; partials ≈ 0.5k GPU·h
+  dispatched per-benchmark (`eval_offline.py --benchmarks ...`; the step-granular `sweep` path would
+  re-run all five, ≈ 1.4k). **Total ≈ 1.8k GPU·h — ~14 h on the 128-GPU fleet.**
+- **Per-arm complete cells /30** — 30: b1_skew_kl, c1_lsm_topk32_renorm, c2_quantile_budget,
+  h1_first_segment, j1_kdrl; 27: c4_pi_tail_budget; 24: f1_soft_log, f2_hard_clip, f3_power;
+  23: d2_selectkd; 21: b4_jsd, e1_pl_rank; 18: c3_intersection, h3_random_segment; 15: b2_forward_kl,
+  d1_tip; 14: g2_fire_likelihood; 13: b5_k2, g1_verified_only; 12: d3_teachability, e3_zvalue;
+  9: b3_eopd_gate, g4_failure_only, vanilla, vanilla_n8; 3: a2_coldstart, e2_set_coverage, g5_rgopd_gate;
+  0: h2_last_segment.
 
 ## 1. In-loop eval (greedy MATH500, every 25 steps)
 
@@ -173,6 +194,9 @@ Composite = equal-macro mean of AIME24+25 (avg@32), AMC23 (avg@32), Minerva (avg
 **mean±std across seeds** whose artifacts exist at that step (`·N` when a seed is missing); `σ̄` is the mean
 across-seed std over fully-reported steps; the last column counts completed checkpoint-evaluations out of 30
 (10 checkpoints × 3 seeds).
+
+_(Table is the 2026-08-12 02:10 snapshot — 324-complete era. Current per-arm completion is tallied in the
+status update at the top; the table regenerates when the outstanding 343 cells land.)_
 
 | method | s25 | s50 | s75 | s100 | s125 | s150 | s175 | s200 | s225 | s250 | σ̄ | GRR | ckpts done |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -368,13 +392,17 @@ their curves complete up to their stopping points. Full per-row history lives in
 
 ## 5. What is still running
 
-- **Training**: a2×3 (~200-215), h2×3 (~222), e2×3 (~180), g5×3 (~186) — all expected to reach 250 within
-  the day. b2×3 stay parked.
-- **Post-hoc suite**: 324/750 checkpoint-evaluations done, ~75 sweeps in flight. a2's partial sweeps
-  will be re-dispatched after it completes so its last checkpoints are covered (`eval_suite` is
-  idempotent — completed artifacts are skipped).
+_(Rewritten 2026-08-13; the original section predated training completion.)_
+
+- **Training**: complete (2026-08-12 01:5x) at 84/87 rows; a2/h2/e2/g5 all reached 250 as expected,
+  b2×3 parked at their memory ceilings.
+- **Post-hoc suite**: 489/861 complete + 156 partial; the 343 outstanding cells are queued for the next
+  dispatch — ≈ 1.8k GPU·h targeted, ~14 h on the full 128-GPU fleet. (Earlier drafts quoted /750 — that
+  denominator predates the roster reaching 87 rows; 861 = 870 roster cells minus b2's 9 unsaved
+  checkpoints.) Note `eval_suite`'s idempotence is per **step**, not per benchmark: partial cells are
+  dispatched per-benchmark to avoid re-running their completed benchmarks.
 - **Deliverables pending**: full 29×10 composite table, per-benchmark breakdown at 250, and the
-  seed-variance band per arm.
+  seed-variance band per arm — land with the outstanding cells.
 
 <!-- AUTO:EXPANSION-RESULTS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 (m25–m37) — live results
