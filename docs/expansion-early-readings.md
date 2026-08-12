@@ -181,3 +181,17 @@ no refill reaper), and the patrol/publish daemon on dsw243.
 
 _Every criterion above is stated before the deciding data exists; the live table
 in `campaign_16k_report.md` (auto-published) will carry the numbers as they land._
+
+---
+
+## Addendum — the 06:19Z auto-publish (found in the push log after this document
+was drafted; the outage began between 06:19 and ~07:30)
+
+Four s50 readings landed that this document's snapshot predates:
+
+| arm | s50 reading | bears on |
+|---|---|---|
+| `c1_tailbucket` | **0.549±0.019 @50, 0.540 @75·1** — vs shipped c1's 0.487±0.038 / 0.504±0.033 at the same steps | R2 strengthens: through 75 the ν probe now *leads* c1 by ~+0.04–0.05 at matched steps with a tighter spread, lengths still pinned. "Not load-bearing" may under-claim; "renorm is, if anything, slightly worse than keeping the tail bucket" becomes writable if this holds |
+| `h4_random_scatter` | **0.639±0.004 @50** (from 0.561 @25) | the scatter member is climbing through its excursion — at 50 it already matches h3's own peak (0.649 @50); the window-vs-scatter reading (wave 12's tail-dose test) will be a live contrast, not a one-sided rout |
+| `b4_jsd_b0.1` | 0.506 @50·1 (from 0.549 @25) | the FKL-leaning rung is degrading first — an H2-flavored (direction-matters) early point, still one seed |
+| `e1_pl_rank_a0` | 0.475±0.004 @50 — vs anchored e1's 0.499 @50 | the pure-order rung sits ≈0.02 below its anchored parent early: the anchor's contribution is visible but small, exactly the ladder-purity question wave 11 exists to price |
