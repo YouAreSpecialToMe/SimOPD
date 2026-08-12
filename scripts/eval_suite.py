@@ -57,7 +57,10 @@ def newest(out_dir, run_id, bench, step, k=None):
 
     for h in hits:
         try:
-            df = pd.read_parquet(h, columns=None)
+            # columns pinned: artifacts may carry full response text (2026-08-12),
+            # and this gate runs per-(run,step,bench) from the hourly publisher --
+            # reading the text column here would be pure waste
+            df = pd.read_parquet(h, columns=["temperature", "problem_id"])
         except Exception:
             continue
         t = float(df["temperature"].iloc[0]) if "temperature" in df else None

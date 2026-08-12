@@ -270,6 +270,18 @@ def main():
                         "finish_reason": str(comp.finish_reason),
                         "temperature": args.temperature,
                         "n": args.n,
+                        # The full completion text (2026-08-12, user request). The suite
+                        # samples at tau=0.7 and vLLM batch composition is nondeterministic,
+                        # so a trajectory NOT saved here is gone -- the greedy textdump
+                        # trick that rescued the collapse analysis cannot reproduce sampled
+                        # rollouts (late-training-collapse.md section 4 is the receipt for
+                        # what discarding text costs). Columnar parquet means readers that
+                        # select columns (verdict.py, refill scoring, suite_acc) never pay
+                        # for it; terminal-loop text compresses to almost nothing. Scoring
+                        # is untouched: the column is written after `correct` is computed.
+                        # SIMOPD_EVAL_SAVE_TEXT=0 restores the old artifact shape.
+                        **({"response": comp.text}
+                           if os.environ.get("SIMOPD_EVAL_SAVE_TEXT", "1") == "1" else {}),
                         **extra,   # always carries `correct`; transfer adds its own columns
                     }
                 )
