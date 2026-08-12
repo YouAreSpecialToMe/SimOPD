@@ -1,0 +1,24 @@
+# Pair campaign: Qwen3-8B-Base <- Qwen3-32B (the W cell, EXPANSION-PLAN §6.5).
+# Namespace: MANIFEST=configs/campaign_w8b.tsv CLAIM_DIR=.campaign_w8b BATCH_TAG=w
+# BATCH_TAG stays `w` ON PURPOSE: vanilla_s0_w already ran to completion on this
+# exact shape (81 s/step, step-0 anchor 0.664 minted via VAL_BEFORE_TRAIN) -- new
+# rows join ITS cell family and resume/compare against it, not a fresh one.
+#
+# Lane shape (measured, w_pair_launch.sh): GPUS_PER_RUN=8 -- student FSDP-4 +
+# teacher TP2 x2 replicas; ROLLOUT_GPU_MEM_UTIL=0.40 (same headroom as the proven
+# 1.7B config, NOT numerically neutral, pinned in the namespace env); cap 8192.
+#
+# Roster = §6.5's first batch: vanilla x2 + {c1, f1, best-D}. Two §6.5 members are
+# FENCED, not dropped: b3/d2 carry NGPUS_PER_NODE=2 + TEACHER_WORLD_SIZE=2 in their
+# arm env (the KEEP_SAMPLED remedy), and arm env is applied AFTER namespace env --
+# on an 8-GPU pair lane that would silently downgrade the topology to a shape the
+# 8B student cannot fit (FSDP-2 = 61G/GPU static, impossible). Unlock = a lane-level
+# topology re-assert, a run-defining change that goes through the pin.
+# Auto-widen trigger (§6.5): first-batch verdicts disagree with the main table on
+# >1/4 of arms -> the full 17-arm roster joins.
+1	d0	vanilla	0	VAL_BEFORE_TRAIN already banked for this cell (0.664); floor box d0
+1	d0	vanilla	1
+1	any	c1_lsm_topk32_renorm	0
+1	any	f1_soft_log	0
+1	any	d2_selectkd	0	needs=/nonexistent/pair-topology-reassert -- arm env NGPUS=2/TWS=2 would downgrade the 8-GPU pair lane; unlock is a pin move
+1	any	b3_eopd_gate	0	needs=/nonexistent/pair-topology-reassert -- same topology-env conflict as d2

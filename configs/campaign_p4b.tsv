@@ -1,0 +1,18 @@
+# Pair campaign: Qwen3-4B-Base <- Qwen3-14B (plan §3's "配方向上迁移" student cell;
+# note Qwen3 has NO 3B -- the family is 0.6/1.7/4/8/14/32B, so the "14B->small"
+# rung is 4B-Base, the size the plan registered).
+# Namespace: MANIFEST=configs/campaign_p4b.tsv CLAIM_DIR=.campaign_p4b BATCH_TAG=p4b
+#
+# Lane shape (arithmetic, PROBE PENDING -- every row is gated on the gate file):
+#   student 4B: ~64G training state -> FSDP-2 = 32G/GPU + 0.40*80 vLLM = 64G,
+#   ~16G headroom (the proven margin class); teacher 14B: ~28G bf16 -> TP=1 with
+#   ~40G KV at 0.40 -> TWO replicas on 2 GPUs. GPUS_PER_RUN=4, two lanes/box.
+#
+# The gate file is written by the D6-style pair probe (teacher ceiling on the
+# in-loop protocol + both models fetched into the shared cache + one 3-step
+# rehearsal with VAL_BEFORE_TRAIN=True to mint THIS cell's step-0 anchor -- the
+# 1.7B constant 0.468 and the W constant 0.664 both say nothing about a 4B-Base).
+1	d1	vanilla	0	needs=/mgfs/shared/Group_GY/changhao/simopd_data/gates/p4b_ok	floor box d1; first run mints the anchor
+1	d1	vanilla	1	needs=/mgfs/shared/Group_GY/changhao/simopd_data/gates/p4b_ok
+1	any	c1_lsm_topk32_renorm	0	needs=/mgfs/shared/Group_GY/changhao/simopd_data/gates/p4b_ok
+1	any	f1_soft_log	0	needs=/mgfs/shared/Group_GY/changhao/simopd_data/gates/p4b_ok

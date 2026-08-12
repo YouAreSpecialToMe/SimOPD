@@ -40,7 +40,10 @@ LOOP_SEC=${LOOP_SEC:-900}
 # namespace, env triple); math is the default namespace and needs no overrides.
 # A domain whose train.parquet is missing is skipped loudly, not fatally -- the
 # IF set is gated on a license token and may land later than code.
-DOMAINS=${DOMAINS:-"math if code"}
+# Pairs are namespaces too: same mechanism, bigger lanes. w8b rejoins the banked
+# W cell (TAG=w, anchor 0.664 already minted); p4b is fully gated on its probe
+# file. Order = priority: math resume, cheap domains, then whole-box pairs.
+DOMAINS=${DOMAINS:-"math if code w8b p4b"}
 
 domain_env() {  # print export statements for one domain; empty for math
     case "$1" in
@@ -51,12 +54,27 @@ domain_env() {  # print export statements for one domain; empty for math
         code) echo "export MANIFEST=configs/campaign_code.tsv CLAIM_DIR=.campaign_code"
               echo "export DATA_DIR=$DATA/simopd_code VAL_FILE_BASENAME=val_holdout.parquet"
               echo "export MAX_RESPONSE_LENGTH=4096" ;;
+        w8b)  # the measured W shape, verbatim from w_pair_launch.sh (81 s/step):
+              # student FSDP-4 + teacher TP2 x2 replicas, whole box, mem 0.40,
+              # cap 8192. TAG stays `w` so rows join the banked cell family.
+              echo "export MANIFEST=configs/campaign_w8b.tsv CLAIM_DIR=.campaign_w8b"
+              echo "export STUDENT_MODEL=Qwen/Qwen3-8B-Base TEACHER_MODEL=Qwen/Qwen3-32B"
+              echo "export NGPUS_PER_NODE=4 TEACHER_WORLD_SIZE=4 GPUS_PER_RUN=8"
+              echo "export EXTRA_HYDRA=distillation.teacher_models.teacher_model.inference.tensor_model_parallel_size=2"
+              echo "export ROLLOUT_GPU_MEM_UTIL=0.40 MAX_RESPONSE_LENGTH=8192 PPO_MAX_TOKEN_LEN_PER_GPU=12288" ;;
+        p4b)  # arithmetic shape, probe-gated (every manifest row carries needs=):
+              # student 4B FSDP-2 + teacher 14B TP1 x2 replicas, half box, mem 0.40.
+              echo "export MANIFEST=configs/campaign_p4b.tsv CLAIM_DIR=.campaign_p4b"
+              echo "export STUDENT_MODEL=Qwen/Qwen3-4B-Base TEACHER_MODEL=Qwen/Qwen3-14B"
+              echo "export NGPUS_PER_NODE=2 TEACHER_WORLD_SIZE=2 GPUS_PER_RUN=4"
+              echo "export ROLLOUT_GPU_MEM_UTIL=0.40 MAX_RESPONSE_LENGTH=8192 PPO_MAX_TOKEN_LEN_PER_GPU=12288" ;;
         math) : ;;
     esac
 }
 
-domain_data_dir() { case "$1" in if) echo "$DATA/simopd_if";; code) echo "$DATA/simopd_code";; math) echo "$DATA/simopd_math";; esac; }
-domain_claim_dir() { case "$1" in if) echo ".campaign_if";; code) echo ".campaign_code";; math) echo ".campaign";; esac; }
+domain_data_dir() { case "$1" in if) echo "$DATA/simopd_if";; code) echo "$DATA/simopd_code";; *) echo "$DATA/simopd_math";; esac; }
+domain_claim_dir() { case "$1" in if) echo ".campaign_if";; code) echo ".campaign_code";; w8b) echo ".campaign_w8b";; p4b) echo ".campaign_p4b";; math) echo ".campaign";; esac; }
+domain_width() { case "$1" in w8b) echo 8;; p4b) echo 4;; *) echo 2;; esac; }
 
 RANK=${MLP_ROLE_INDEX:-${MLP_WORKER_RACK_RANK_INDEX:-${RANK:-0}}}
 MACHINE="d${RANK}"
@@ -92,6 +110,8 @@ for DOM in $DOMAINS; do
     case "$DOM" in
         if)   [ -s "$CD/BATCH_TAG" ] || printf 'if4k' > "$CD/BATCH_TAG" ;;
         code) [ -s "$CD/BATCH_TAG" ] || printf 'code4k' > "$CD/BATCH_TAG" ;;
+        w8b)  [ -s "$CD/BATCH_TAG" ] || printf 'w' > "$CD/BATCH_TAG" ;;
+        p4b)  [ -s "$CD/BATCH_TAG" ] || printf 'p4b' > "$CD/BATCH_TAG" ;;
     esac
     upsert_map "$(domain_claim_dir "$DOM")"
 done
@@ -118,23 +138,29 @@ free_gpus() {  # indices with <500MiB used
 
 eval_workers_here() { pgrep -f "eval_worker_exp.sh" 2>/dev/null | wc -l; }
 
-startable_rows() {  # aggregated across every served domain
-    local n=0 d
+startable_rows() {  # "count maxwidth" aggregated across every served namespace --
+                    # the eviction check needs the WIDTH too: pair lanes need a
+                    # whole/half box, and evicting down to 2 free GPUs would
+                    # starve them forever behind eval backfill
+    local n=0 w=2 d
     for DOM in $DOMAINS; do
         [ -f "$(domain_data_dir "$DOM")/train.parquet" ] || continue
         d=$( (eval "$(domain_env "$DOM")"; MACHINE=$MACHINE bash deploy/campaign.sh --dry 2>/dev/null) \
             | grep -cE '^\s+any\s+\S+\s+POOL|assigned\s+\S' ) || d=0
-        n=$((n + d))
+        if [ "${d:-0}" -gt 0 ]; then
+            n=$((n + d))
+            [ "$(domain_width "$DOM")" -gt "$w" ] && w=$(domain_width "$DOM")
+        fi
     done
-    echo "$n"
+    echo "$n $w"
 }
 
 while :; do
     # -- 3. priority eviction (checked first so pass N's training sees the GPUs)
-    rows=$(startable_rows)
+    read -r rows need <<< "$(startable_rows)"
     nfree=$(free_gpus | wc -l)
-    if [ "${rows:-0}" -gt 0 ] && [ "$nfree" -lt 2 ] && [ "$(eval_workers_here)" -gt 0 ]; then
-        echo "eviction: $rows startable training rows, $nfree free GPUs -> stopping eval workers"
+    if [ "${rows:-0}" -gt 0 ] && [ "$nfree" -lt "${need:-2}" ] && [ "$(eval_workers_here)" -gt 0 ]; then
+        echo "eviction: $rows startable rows need width $need, $nfree free -> stopping eval workers"
         pkill -f "eval_worker_exp.sh" 2>/dev/null || true
         pkill -f "eval_offline.py" 2>/dev/null || true
         sleep 3
