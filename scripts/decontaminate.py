@@ -87,10 +87,23 @@ def main():
             index[g].add(i)
     print(f"{len(index)} distinct {a.n}-grams indexed\n")
 
+    # The math suite is not the only leak surface. A CODE training set's dangerous
+    # overlaps are HumanEval+/MBPP+ (the offline judges), an IF set's is IFEval --
+    # and the first code-domain run of this script printed five CLEAN rows without
+    # ever looking at either. transfer_eval.load returns the same (problems, metas,
+    # ids) shape as load_benchmark, so the transfer surfaces join the same loop.
+    surfaces = [(name, load_benchmark) for name in BENCHMARKS]
+    try:
+        import transfer_eval
+        surfaces += [(n, transfer_eval.load) for n in ("humanevalplus", "mbppplus", "ifeval")]
+    except Exception as e:
+        print(f"  transfer surfaces unavailable ({type(e).__name__}: {e}); "
+              f"checking the math suite only")
+
     rows, excluded = [], {}
-    for name in BENCHMARKS:
+    for name, loader in surfaces:
         try:
-            problems, _, ids = load_benchmark(name)
+            problems, _, ids = loader(name)
         except Exception as e:
             print(f"  {name}: could not load ({type(e).__name__}); skipped")
             continue
@@ -140,8 +153,11 @@ def main():
     # the comparisons this project judges on are unaffected -- but the absolute pass@1
     # printed beside them is not, and a reviewer will ask. Recording the list lets the
     # table carry both numbers instead of an apology.
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data",
-                       "contaminated_ids.json")
+    # Next to the training set it describes, NOT the repo's tracked data/ file:
+    # the first code-domain run silently overwrote the math campaign's committed
+    # record on a live worktree -- a tracked-file mutation waiting for the next
+    # `git reset --hard` (the same fuse as the 2026-08-12 duplicate-run incident).
+    out = os.path.join(a.data_dir, "contaminated_ids.json")
     with open(os.path.normpath(out), "w") as f:
         json.dump({"n": a.n, "threshold": DUP, "excluded": excluded}, f, indent=2)
     print(f"wrote {os.path.normpath(out)}")
