@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Submit the SimOPD fleet to PAI-DLC as ONE elastic pytorchjob: N workers x 8 GPU,
+# every worker running deploy/dlc/worker.sh's supervisor loop. Written 2026-08-13
+# for the 512-card allocation; any worker count works (--workers 64 = 512 GPUs).
+#
+# Why one job and not one-job-per-run (the older deploy/pai/submit_dlc.sh shape):
+# at 512 cards the campaign is ~40-250 independent rows PLUS an eval backlog that
+# must absorb every idle card. Per-run jobs would re-implement, badly, what the
+# manifest pool + mkdir claims already do across nodes on /mgfs -- and they cannot
+# flip a finished run's cards to eval. One job of identical supervisors can:
+# training drains -> cards become eval workers within a pass; new waves land in
+# campaign.tsv -> workers evict eval and claim them. Utilization is a property of
+# the loop, not of the submission.
+#
+# This cluster's DLC pods mount /mgfs directly (tools/dlc/exp*.sh use /mgfs paths
+# throughout), so there is NO data staging and NO image baking: the venv, both
+# code trees, datasets and checkpoints are the same files DSW used. The image
+# only needs CUDA userspace + python; the venv on /mgfs supplies the rest.
+#
+#   export WORKSPACE_ID=... RESOURCE_ID=... IMAGE=...
+#   bash deploy/dlc/submit_fleet.sh                 # 64 workers = 512 GPUs
+#   WORKERS=8 bash deploy/dlc/submit_fleet.sh       # smoke at 64 GPUs first
+#
+# Governance notes, so the submission stays inside the campaign's rules:
+#   * workers run the EXP tree (BATCH_TAG=16k, BATCH_MIN_WAVE=9) -- they cannot
+#     touch waves 1-8 even if the manifest still lists them;
+#   * machine identity is rank-keyed (d0..dN-1) and survives pod restarts; the
+#     MACHINE_MAP upsert lives in worker.sh;
+#   * preemption is priced in: SAVE_FREQ=25 banks mean a preempted row loses
+#     <=24 steps, and the fingerprint decides resume-vs-refuse, same as DSW.
+set -euo pipefail
+
+WORKSPACE_ID=${WORKSPACE_ID:?set WORKSPACE_ID (PAI console)}
+RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (quota id)}
+IMAGE=${IMAGE:?set IMAGE (any CUDA-12 python base the cluster blesses)}
+
+WORKERS=${WORKERS:-64}
+WORKER_GPU=${WORKER_GPU:-8}
+WORKER_CPU=${WORKER_CPU:-96}
+WORKER_MEMORY=${WORKER_MEMORY:-800Gi}
+PRIORITY=${PRIORITY:-5}
+JOB_NAME=${JOB_NAME:-simopd-fleet-$(date +%m%d%H%M)}
+DLC=${DLC:-/mgfs/shared/Group_GY/changhao/tools/pai/bin/dlc}
+
+# The worker script is read from /mgfs at boot, so iterating on it needs no
+# resubmission for RESTARTED pods -- but live pods only re-read it on their next
+# incarnation. Whole-fleet behavior changes still deserve a fresh job.
+CMD="bash /mgfs/shared/Group_GY/changhao/SimOPD-exp/deploy/dlc/worker.sh"
+
+set -x
+"$DLC" submit pytorchjob \
+    --name="$JOB_NAME" \
+    --workers="$WORKERS" \
+    --worker_gpu="$WORKER_GPU" \
+    --worker_cpu="$WORKER_CPU" \
+    --worker_memory="$WORKER_MEMORY" \
+    --worker_image="$IMAGE" \
+    --workspace_id="$WORKSPACE_ID" \
+    --resource_id="$RESOURCE_ID" \
+    --priority="$PRIORITY" \
+    --job_max_running_time_minutes=0 \
+    --command="$CMD"
