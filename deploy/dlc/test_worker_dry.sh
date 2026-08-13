@@ -83,7 +83,12 @@ touch -d '10 minutes ago' "$EXP_ROOT/.campaign_code/MACHINE_MAP.lock"
 cleanup() {  # strip this harness's fake identities from every real map
     for cd_ in .campaign .campaign_if .campaign_code .campaign_w8b .campaign_p4b; do
         m="$EXP_ROOT/$cd_/MACHINE_MAP"
-        [ -f "$m" ] && grep -v '^fake-dlc-' "$m" > "$m.clean" && mv "$m.clean" "$m"
+        [ -f "$m" ] || continue
+        # no && after grep: when every row is fake, grep -v selects nothing and
+        # exits 1, which skipped the mv and left the fakes in place (found as a
+        # stale fake-dlc-w0 registration blocking a manual --dry)
+        grep -v '^fake-dlc-' "$m" > "$m.clean" || true
+        mv "$m.clean" "$m"
     done
 }
 trap cleanup EXIT

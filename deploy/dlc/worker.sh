@@ -187,10 +187,19 @@ startable_rows() {  # "count maxwidth" aggregated across every served namespace 
         # literal "none" -- the first version grepped 'assigned\s+\S', which
         # matches "assigned      none" and would have evicted eval workers on
         # every pass forever (caught in review, never shipped)
+        #
+        # `|| true`, NOT `|| d=0`: on a fully busy box --dry prints the whole
+        # plan and THEN exits FATAL (<2 free GPUs), so under pipefail the
+        # assignment "fails" AFTER capturing a perfectly good count -- and
+        # `|| d=0` overwrote it, which made the eviction gate permanently
+        # closed on exactly the boxes it exists for (caught by the dry
+        # harness, 2026-08-13). awk's END prints 0 on empty input, so a
+        # campaign that dies before printing still yields d=0 via the guard.
         d=$( (eval "$(domain_env "$DOM")"; MACHINE=$MACHINE timeout 180 bash deploy/campaign.sh --dry 2>/dev/null) \
             | awk '$1=="assigned"{for(i=2;i<=NF;i++)if($i!="none")n++}
                    $1=="pool"&&$2=="free"{for(i=3;i<=NF;i++)if($i!="none")n++}
-                   END{print n+0}' ) || d=0
+                   END{print n+0}' ) || true
+        [ -n "${d:-}" ] || d=0
         if [ "${d:-0}" -gt 0 ]; then
             n=$((n + d))
             [ "$(domain_width "$DOM")" -gt "$w" ] && w=$(domain_width "$DOM")
