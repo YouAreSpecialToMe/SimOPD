@@ -84,7 +84,17 @@ domain_data_dir() { case "$1" in if) echo "$DATA/simopd_if";; code) echo "$DATA/
 domain_claim_dir() { case "$1" in if) echo ".campaign_if";; code) echo ".campaign_code";; w8b) echo ".campaign_w8b";; p4b) echo ".campaign_p4b";; math) echo ".campaign";; esac; }
 domain_width() { case "$1" in w8b) echo 8;; p4b) echo 4;; *) echo 2;; esac; }
 
-RANK=${MLP_ROLE_INDEX:-${MLP_WORKER_RACK_RANK_INDEX:-${RANK:-0}}}
+# rank resolution, VERBATIM order from the colleagues' proven payloads
+# (tools/dlc/exp*.sh line 44): rack-rank first, then role-index, then RANK.
+# No silent default: a rankless boot would make every worker claim d0 and the
+# identity guard would kill all but one -- die here with the fix instead.
+RANK=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-}}}
+if [ -z "$RANK" ]; then
+    echo "FATAL: no rank env (MLP_WORKER_RACK_RANK_INDEX / MLP_ROLE_INDEX / RANK)." >&2
+    echo "       A DLC pytorchjob always sets one; for a manual boot:" >&2
+    echo "       MLP_ROLE_INDEX=<n> bash deploy/dlc/worker.sh" >&2
+    exit 1
+fi
 MACHINE="d${RANK}"
 LOG_DIR="$DATA/dlc_logs"
 mkdir -p "$LOG_DIR"
