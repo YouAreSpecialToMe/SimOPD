@@ -19,8 +19,8 @@
 # only needs CUDA userspace + python; the venv on /mgfs supplies the rest.
 #
 #   export WORKSPACE_ID=... RESOURCE_ID=... IMAGE=...
-#   bash deploy/dlc/submit_fleet.sh                 # sizes itself: TOTAL_GPUS=500 -> 62 workers = 496
-#   TOTAL_GPUS=512 bash deploy/dlc/submit_fleet.sh  # a clean 512 -> 64 workers
+#   bash deploy/dlc/submit_fleet.sh 500             # card count as the argument -> 62 workers = 496
+#   TOTAL_GPUS=512 bash deploy/dlc/submit_fleet.sh  # same thing as env; default is 500
 #   WORKERS=8 bash deploy/dlc/submit_fleet.sh       # smoke at 64 GPUs first (explicit count wins)
 #
 # Governance notes, so the submission stays inside the campaign's rules:
@@ -40,7 +40,11 @@ IMAGE=${IMAGE:?set IMAGE (any CUDA-12 python base the cluster blesses)}
 # rounded DOWN -- asking for more than the quota holds queues forever, stranding
 # a remainder (500 -> 62 workers = 496, 4 unused) merely wastes the remainder.
 # An explicitly set WORKERS always wins (smoke runs, odd quotas).
-TOTAL_GPUS=${TOTAL_GPUS:-500}
+# card count: positional arg beats env beats the 500 default
+TOTAL_GPUS=${1:-${TOTAL_GPUS:-500}}
+case "$TOTAL_GPUS" in (''|*[!0-9]*)
+    echo "FATAL: card count must be a number, got '$TOTAL_GPUS'" >&2; exit 1 ;;
+esac
 WORKER_GPU=${WORKER_GPU:-8}
 if [ -z "${WORKERS:-}" ]; then
     WORKERS=$(( TOTAL_GPUS / WORKER_GPU ))
