@@ -48,6 +48,14 @@ LOOP_SEC=${LOOP_SEC:-900}
 # after N passes. The boot-time reaper stays REAL in dry mode on purpose -- point
 # EVALQ at a sandbox queue to test it (deploy/dlc/test_worker_dry.sh does).
 WORKER_DRY=${WORKER_DRY:-0}
+# EVAL_ONLY=1 turns the supervisor into a pure eval drainer: no namespace
+# seeding, no identity upsert (an eval job must not register d-ranks that a
+# later training fleet will fight over), no campaign scans, NO EVICTION and no
+# training launches -- just boot hygiene (orphan/claim reaper), feed_evalq
+# over FEED_TAGS, and backfilling every idle GPU with eval workers. This is
+# the 200-card "drain the suite backlog first" job: the queue already covers
+# every unfinished (run, step) cell, baseline first.
+EVAL_ONLY=${EVAL_ONLY:-0}
 WORKER_PASSES=${WORKER_PASSES:-0}
 # Domains this fleet serves, in priority order. Each is a (manifest, claim
 # namespace, env triple); math is the default namespace and needs no overrides.
@@ -136,6 +144,7 @@ upsert_map() {  # $1 = claim dir
         sleep 2
     done
 }
+[ "$EVAL_ONLY" = 1 ] && DOMAINS=""   # no namespaces served; loop below is a no-op
 for DOM in $DOMAINS; do
     CD="$EXP_ROOT/$(domain_claim_dir "$DOM")"
     mkdir -p "$CD"
@@ -283,7 +292,7 @@ while :; do
     #    no eval workers. Gate on the cheap check first: a fresh fleet skips the
     #    whole scan every pass.
     evalw=$(eval_workers_here)
-    if [ "$evalw" -gt 0 ]; then
+    if [ "$EVAL_ONLY" != 1 ] && [ "$evalw" -gt 0 ]; then
         read -r rows need <<< "$(startable_rows)"
     else
         rows=0 need=2
@@ -306,7 +315,7 @@ while :; do
     # -- 1. training first, domains in priority order; a domain missing its
     #       dataset is skipped loudly (the IF set waits on a license token)
     launched_gpus=" "
-    for DOM in $DOMAINS; do
+    for DOM in $DOMAINS; do    # empty under EVAL_ONLY -- training never runs
         if [ ! -f "$(domain_data_dir "$DOM")/train.parquet" ]; then
             echo "domain $DOM: no train.parquet yet, skipped"
             continue

@@ -155,6 +155,17 @@ chk "backfill targeted 8 GPUs"            '[ "$(grep -c "DRY: would start eval w
 chk "no eviction when idle"               '! grep -q "DRY: would pkill" "$SB/w0.out"'
 chk "dry training claims nothing"         '! grep -rq "fake-dlc-w0" "$EXP_ROOT/.campaign_code/claims" 2>/dev/null'
 
+say "TEST D: EVAL_ONLY drainer -- feed+backfill only, zero training machinery"
+PATH="$SB/bin:$PATH" GPU_STATE="$SB/free" FAKE_HOSTNAME="fake-dlc-e0" \
+MLP_ROLE_INDEX=0 EXP_ROOT="$EXP_ROOT" DATA="$SB" EVALQ="$SB/evalq" \
+EVAL_ONLY=1 WORKER_DRY=1 WORKER_PASSES=1 LOOP_SEC=1 \
+bash "$EXP_ROOT/deploy/dlc/worker.sh" > "$SB/we.out" 2>&1
+ERC=$?
+chk "eval-only exits cleanly"             '[ "$ERC" = 0 ]'
+chk "eval-only backfills all 8"           '[ "$(grep -c "DRY: would start eval worker" "$SB/we.out")" = 8 ]'
+chk "no campaign scan / training lines"   '! grep -qE "domain .*(skipped|train)|=== d0 ===|eviction:" "$SB/we.out"'
+chk "no identity registered by eval job"  '! grep -rq "fake-dlc-e0" "$EXP_ROOT"/.campaign*/MACHINE_MAP 2>/dev/null'
+
 echo
 echo "RESULT: $([ $FAILS -eq 0 ] && echo ALL PASS || echo "$FAILS FAILURE(S)")   (sandbox: $SB)"
 exit $([ $FAILS -eq 0 ] && echo 0 || echo 1)

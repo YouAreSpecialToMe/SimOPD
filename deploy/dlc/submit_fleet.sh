@@ -77,7 +77,11 @@ echo "fleet sizing: $WORKERS workers x $WORKER_GPU GPU = $((WORKERS * WORKER_GPU
 WORKER_CPU=${WORKER_CPU:-96}
 WORKER_MEMORY=${WORKER_MEMORY:-800Gi}
 PRIORITY=${PRIORITY:-5}
-JOB_NAME=${JOB_NAME:-simopd-fleet-$(date +%m%d%H%M)}
+# EVAL_ONLY=1 submits the same worker in pure eval-drainer mode (no training,
+# no eviction, no identity registration) -- the "run every checkpoint through
+# the offline suite first" job:  EVAL_ONLY=1 bash deploy/dlc/submit_fleet.sh 200
+[ "${EVAL_ONLY:-0}" = 1 ] && _kind=eval || _kind=fleet
+JOB_NAME=${JOB_NAME:-simopd-$_kind-$(date +%m%d%H%M)}
 DLC=${DLC:-/mgfs/shared/Group_GY/changhao/tools/pai/bin/dlc}
 # The whole design assumes /mgfs is visible inside the job. On this cluster the
 # existing DLC jobs get it via their dataset attachment -- if your quota needs an
@@ -91,6 +95,7 @@ EXTRA_ARGS=()
 # resubmission for RESTARTED pods -- but live pods only re-read it on their next
 # incarnation. Whole-fleet behavior changes still deserve a fresh job.
 CMD="bash /mgfs/shared/Group_GY/changhao/SimOPD-exp/deploy/dlc/worker.sh"
+[ "${EVAL_ONLY:-0}" = 1 ] && CMD="EVAL_ONLY=1 $CMD"
 
 # Two ways to hand this to DLC, same job either way. The colleagues' pattern
 # is console + a payload script on /mgfs -- worker.sh IS our payload, so the
