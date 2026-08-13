@@ -32,9 +32,20 @@
 #     <=24 steps, and the fingerprint decides resume-vs-refuse, same as DSW.
 set -euo pipefail
 
-WORKSPACE_ID=${WORKSPACE_ID:?set WORKSPACE_ID (PAI console)}
-RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (quota id)}
-IMAGE=${IMAGE:?set IMAGE (any CUDA-12 python base the cluster blesses)}
+# Probed facts (tools/pai/FINDINGS.md, 2026-07-30, account changhao.li):
+#   * workspace is ws1741o20vr72qfb -- defaulted below, override if the quota
+#     lands elsewhere;
+#   * the dlc CLI must be configured with endpoint
+#     dlc-gateway.gy.pai-eflops.aliyuncs.com -- the console-advertised
+#     pai-proxy endpoint answers "InnerUrl invalid" to everything;
+#   * credentials live pod-local (/root/.dlc/config, 600) ON PURPOSE: the
+#     shared 448T mount is group-readable, keys never go there.
+# RESOURCE_ID (the quota id of the ~500-card allocation) and IMAGE could not
+# be discovered from this account (empty listings) -- they come with the quota
+# grant / from a colleague's successful job in the console.
+WORKSPACE_ID=${WORKSPACE_ID:-ws1741o20vr72qfb}
+RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (quota id -- arrives with the allocation)}
+IMAGE=${IMAGE:?set IMAGE (copy the image URI from a known-good DLC job)}
 
 # Sizing: workers are whole 8-GPU pods, so the fleet is WORKERS = TOTAL_GPUS/8
 # rounded DOWN -- asking for more than the quota holds queues forever, stranding
