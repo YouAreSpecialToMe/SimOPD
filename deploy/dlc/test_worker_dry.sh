@@ -75,6 +75,13 @@ cp -r "$DATA/simopd_code" "$SB/simopd_code" 2>/dev/null || mkdir -p "$SB/simopd_
 # NOTE: DATA=$SB redirects EVALQ/evals/logs/reapers; EXP_ROOT stays REAL, so
 # campaign.sh parses the real manifests and real claim namespaces.
 
+# ---- feed test: a settled 16k ckpt (must be queued) and a domain-tag ckpt
+# (must not be -- domain runs carry their metric in-loop, not the math suite)
+mkdir -p "$SB/ckpt/simopd/feedrun_s0_16k/global_step_50/actor" \
+         "$SB/ckpt/simopd/feedrun_s0_code4k/global_step_50/actor"
+touch -d '20 minutes ago' "$SB/ckpt/simopd/feedrun_s0_16k/global_step_50" \
+                          "$SB/ckpt/simopd/feedrun_s0_code4k/global_step_50"
+
 # ---- stale lock: pre-seed one to prove the steal ------------------------------
 mkdir -p "$EXP_ROOT/.campaign_code"
 mkdir -p "$EXP_ROOT/.campaign_code/MACHINE_MAP.lock" 2>/dev/null || true
@@ -130,6 +137,9 @@ chk "IF domain skipped (no dataset)"      'grep -q "domain if: no train.parquet 
 chk "code rows counted startable"         'grep -qE "eviction: [1-9][0-9]* startable" "$SB/w0.out"'
 chk "eviction stayed DRY"                 'grep -q "DRY: would pkill" "$SB/w0.out"'
 chk "no backfill while busy"              '! grep -q "would start eval worker" "$SB/w0.out"'
+chk "eval feed queued the settled 16k ckpt" 'grep -qx "feedrun_s0_16k 50" "$SB/evalq/pending.txt"'
+chk "eval feed skips domain tags"         '! grep -q "feedrun_s0_code4k" "$SB/evalq/pending.txt"'
+chk "eval feed deduped across 2 ranks"    '[ "$(grep -cx "feedrun_s0_16k 50" "$SB/evalq/pending.txt")" = 1 ]'
 cp "$SB/w0.out" "$SB/wA0.out"; cp "$SB/w1.out" "$SB/wA1.out"   # TEST B reuses w0.out; keep A's for forensics
 
 say "TEST A2: single pass on w8b only -- namespace seeding for the pair"

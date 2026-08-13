@@ -224,6 +224,46 @@ startable_rows() {  # "count maxwidth" aggregated across every served namespace 
     echo "$n $w"
 }
 
+FEED_TAGS=${FEED_TAGS:-"16k w"}   # p4b joins via env once its gate opens
+FEED_SEC=${FEED_SEC:-1800}
+feed_evalq() {
+    local stamp="$EVALQ/last_feed" lock="$EVALQ/feed.lock" now age ck run step tag added=0
+    now=$(date +%s)
+    if [ -f "$stamp" ]; then
+        age=$((now - $(stat -c %Y "$stamp" 2>/dev/null || echo 0)))
+        [ "$age" -lt "$FEED_SEC" ] && return 0
+    fi
+    if ! mkdir "$lock" 2>/dev/null; then
+        # steal only a dead feeder's lock, same rule as the map lock
+        age=$((now - $(stat -c %Y "$lock" 2>/dev/null || echo "$now")))
+        { [ "$age" -gt 1800 ] && rmdir "$lock" 2>/dev/null && mkdir "$lock" 2>/dev/null; } || return 0
+    fi
+    touch "$stamp"
+    mkdir -p "$EVALQ/claims"; touch "$EVALQ/pending.txt"
+    for tag in $FEED_TAGS; do
+        for ck in "$DATA/ckpt/simopd/"*"_${tag}"/global_step_*/actor; do
+            [ -d "$ck" ] || continue
+            step=${ck%/actor}; step=${step##*global_step_}
+            run=${ck%/global_step_*}; run=${run##*/}
+            # settled = the step dir stopped moving >=10 min ago; a bank still
+            # being written must not be evaluated mid-copy
+            [ $((now - $(stat -c %Y "${ck%/actor}" 2>/dev/null || echo "$now"))) -lt 600 ] && continue
+            local n=0 b
+            for b in aime24 aime25 amc23 minerva math500; do
+                compgen -G "$DATA/evals/${run}__${b}__step${step}__seed*" >/dev/null && n=$((n+1))
+            done
+            [ "$n" -ge 5 ] && continue                            # already measured
+            [ -d "$EVALQ/claims/${run}__${step}" ] && continue    # in flight
+            grep -qx "$run $step" "$EVALQ/pending.txt" && continue # already queued
+            echo "$run $step" >> "$EVALQ/pending.txt"
+            added=$((added+1))
+        done
+    done
+    rmdir "$lock" 2>/dev/null
+    [ "$added" -gt 0 ] && echo "eval feed: +$added cells (pending $(grep -c . "$EVALQ/pending.txt" 2>/dev/null || echo 0))"
+    return 0
+}
+
 while :; do
     # -- 3. priority eviction (checked first so pass N's training sees the GPUs).
     #    startable_rows costs one campaign --dry PER DOMAIN -- a full lustre scan
@@ -274,6 +314,16 @@ while :; do
         launched_gpus+="$(echo "$out" | grep -oE 'GPU_LIST\s+[0-9, ]+' \
                           | sed 's/GPU_LIST//; s/,/ /g') "
     done
+
+    # -- 1.5 feed the eval queue: the fleet feeds itself. The m-fleet era fed
+    #    evalq from an hourly hop-pod cron (exp_patrol.sh) with a hand-picked
+    #    13-arm roster -- scarce eval cards then, and hop pods die (dsw243
+    #    did). Here any worker feeds, one at a time (lock), at most once per
+    #    FEED_SEC fleet-wide (stamp), roster = every run under the tags this
+    #    fleet serves. Domain tags (if4k/code4k) are deliberately NOT fed:
+    #    the 5-bench suite is the MATH metric; domain runs carry their metric
+    #    in-loop (val every 25 steps), transfer probes are D6/final-ckpt work.
+    feed_evalq
 
     # -- 2. eval backfill on whatever is still idle
     [ "$WORKER_DRY" = "1" ] && sleep 1 || sleep 60   # settle; launched_gpus is the real guard
