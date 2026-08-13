@@ -86,9 +86,7 @@ $$
 \tag{2}
 $$
 
-其估计对象是 $\mathbb{E}[\,\cdot\mid w=1\,]$ 而非 $\mathbb{E}[w\cdot(\cdot)]$。这一区别不是形式上的:在 G 轴测得的 trajectory 保留率(0.5%–2%)下,两者相差 50–200 倍。两个选择权重($w$ 与 $m$)都被对称地归一化。[^norm]
-
-[^norm]: 本节与内部定稿 `docs/UNIFIED-LOSS.md` (v2 §0/§6) 一致——早期草稿只归一化了 $m$ 而未归一化 $w$,该修正已随 v2 记录在案。
+其估计对象是 $\mathbb{E}[\,\cdot\mid w=1\,]$ 而非 $\mathbb{E}[w\cdot(\cdot)]$。这一区别不是形式上的:在 G 轴测得的 trajectory 保留率(0.5%–2%)下,两者相差 50–200 倍。两个选择权重($w$ 与 $m$)都被对称地归一化。
 
 ## 2.2 四个宏坐标
 
@@ -203,7 +201,7 @@ $$
 
 我们发现,表面上属于不同 operator coordinates 的设计——例如改变 discrepancy geometry、对训练信号做 clipping 或 nonlinear compression——虽然形式完全不同,却呈现出高度一致的稳定性规律。
 
-真正能够解释这些方法差异的,并不是平均 loss、整体 gradient norm 或常见的 bulk statistics,而是**极少数 token 上实际进入 optimizer 的 extreme update signal**。在我们的实验中,随着该极端信号的规模逐步下降,late-stage collapse 被系统性推迟:[^ladder]
+真正能够解释这些方法差异的,并不是平均 loss、整体 gradient norm 或常见的 bulk statistics,而是**极少数 token 上实际进入 optimizer 的 extreme update signal**。在我们的实验中,随着该极端信号的规模逐步下降,late-stage collapse 被系统性推迟:
 
 | 极端更新信号规模 | $81.6$ | $10$ | $4.5$ | $2.3$ | $1$ |
 |:--|:--|:--|:--|:--|:--|
