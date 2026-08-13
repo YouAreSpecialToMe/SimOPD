@@ -246,7 +246,13 @@ feed_evalq() {
     touch "$stamp"
     mkdir -p "$EVALQ/claims"; touch "$EVALQ/pending.txt"
     for tag in $FEED_TAGS; do
-        for ck in "$DATA/ckpt/simopd/"*"_${tag}"/global_step_*/actor; do
+        # BASELINE FIRST: every comparison is anchored to vanilla, yet the 16k
+        # sweep left it at 9/30 suite cells (mid-curve s75-s225 all missing)
+        # while b1 got 30/30 -- alphabetical glob order put vanilla last. The
+        # queue is consumed top-down, so feed order IS priority; the
+        # already-queued guard below makes the double glob safe.
+        for ck in "$DATA/ckpt/simopd/"vanilla*"_${tag}"/global_step_*/actor \
+                  "$DATA/ckpt/simopd/"*"_${tag}"/global_step_*/actor; do
             [ -d "$ck" ] || continue
             step=${ck%/actor}; step=${step##*global_step_}
             run=${ck%/global_step_*}; run=${run##*/}
