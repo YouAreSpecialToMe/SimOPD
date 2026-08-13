@@ -340,8 +340,8 @@ footer{padding:14px 18px 0;color:var(--ink3);font-size:11.5px;border-top:1px sol
 <script>
 const D=/*__DATA__*/;
 const NAMES=Object.keys(D.arms).sort();
-const ORDER=["climb","stable","deepU","drift","lock","dead"];
-const LAB={climb:"上升",stable:"平稳",deepU:"深 U 回升",lock:"锁死塌陷",drift:"不锁而降",dead:"塌陷不返"};
+const ORDER=["live","climb","stable","deepU","drift","lock","dead"];
+const LAB={live:"在跑",climb:"上升",stable:"平稳",deepU:"深 U 回升",lock:"锁死塌陷",drift:"不锁而降",dead:"塌陷不返"};
 const PINCOL=["--p1","--p2","--p3"];
 const $=s=>document.querySelector(s), NS="http://www.w3.org/2000/svg";
 const cv=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
