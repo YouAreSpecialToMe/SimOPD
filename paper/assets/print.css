@@ -1,0 +1,272 @@
+/* Print stylesheet for the SimOPD memos. Paged media is real here: paged.js
+   implements @page margin boxes, so page numbers and the running head come
+   from CSS counters, not from the printer's own header/footer. */
+
+@page {
+    size: A4;
+    margin: 22mm 21mm 20mm 21mm;
+
+    @top-right {
+        content: "SimOPD · 统一 OPD 训练算子";
+        font-family: "PingFang SC", "Heiti SC", sans-serif;
+        font-size: 8pt;
+        color: #8a8a8a;
+        padding-bottom: 3mm;
+    }
+    @bottom-center {
+        content: counter(page);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 9pt;
+        color: #555;
+        padding-top: 4mm;
+    }
+}
+
+/* front page carries the title block; a running head there would be noise */
+@page :first {
+    margin-top: 26mm;
+    @top-right { content: none; }
+    @bottom-center { content: none; }
+}
+
+/* ---------- base type ------------------------------------------------------
+   Latin from Times, CJK from Songti: the standard Chinese academic pairing.
+   Headings switch to PingFang/Heiti so structure reads at a glance.         */
+html {
+    font-size: 10.5pt;
+}
+body {
+    font-family: "Times New Roman", Times, "Songti SC", "STSong", serif;
+    line-height: 1.75;
+    color: #1a1a1a;
+    text-align: justify;
+    hyphens: none;
+    margin: 0;
+}
+p {
+    margin: 0 0 0.62em 0;
+    orphans: 2;
+    widows: 2;
+}
+strong { font-weight: 600; }
+em { font-style: italic; }
+a { color: inherit; text-decoration: none; }
+
+code, pre, tt {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+}
+code {
+    background: #f4f4f5;
+    padding: 0.05em 0.28em;
+    border-radius: 2px;
+}
+
+/* ---------- title block ---------------------------------------------------- */
+.titleblock {
+    margin-bottom: 9mm;
+    padding-bottom: 5mm;
+    border-bottom: 0.6pt solid #c8c8c8;
+    text-align: left;
+}
+.titleblock .kicker {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-size: 8.5pt;
+    letter-spacing: 0.09em;
+    color: #7a7a7a;
+    margin-bottom: 3mm;
+    text-transform: none;
+}
+.titleblock .doctitle {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-size: 19pt;
+    font-weight: 600;
+    line-height: 1.4;
+    margin: 0 0 2.5mm 0;
+    letter-spacing: 0.01em;
+}
+.titleblock .subtitle {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-size: 10.5pt;
+    font-weight: 400;
+    color: #555;
+    line-height: 1.6;
+    margin-bottom: 3mm;
+}
+.titleblock .byline {
+    font-size: 9.5pt;
+    color: #777;
+}
+
+/* ---------- abstract ------------------------------------------------------- */
+.abstract {
+    margin: 0 0 7mm 0;
+    padding: 0 0 0 5mm;
+    border-left: 1.6pt solid #dcdcdc;
+    font-size: 9.9pt;
+    line-height: 1.72;
+}
+.abstract-title {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-size: 10pt;
+    font-weight: 600;
+    margin: 0 0 2mm 0;
+    color: #333;
+}
+.abstract p:last-child { margin-bottom: 0; }
+
+/* ---------- table of contents --------------------------------------------- */
+#TOC {
+    break-after: page;
+    font-size: 9.8pt;
+    /* body is justified; a justified one-line TOC entry stretches its few
+       characters across the whole measure ("问  题  设  定") */
+    text-align: left;
+}
+#TOC .toc-title {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-size: 11pt;
+    font-weight: 600;
+    margin: 0 0 2.5mm 0;
+    padding-bottom: 1.5mm;
+    border-bottom: 0.5pt solid #dcdcdc;
+}
+#TOC ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+#TOC ul ul { padding-left: 6mm; }
+#TOC li { margin: 0.9mm 0; }
+#TOC ul ul li { color: #4a4a4a; font-size: 9.4pt; }
+
+/* ---------- headings ------------------------------------------------------- */
+h1, h2, h3 {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-weight: 600;
+    break-after: avoid-page;
+    page-break-after: avoid;
+    text-align: left;
+}
+h1 {
+    font-size: 14pt;
+    margin: 8mm 0 3mm 0;
+    padding-bottom: 1.5mm;
+    border-bottom: 0.5pt solid #dcdcdc;
+}
+h1:first-of-type { margin-top: 0; }
+h2 {
+    font-size: 11.5pt;
+    margin: 6mm 0 2.2mm 0;
+    color: #222;
+}
+h3 {
+    font-size: 10.5pt;
+    margin: 4.5mm 0 1.8mm 0;
+    color: #333;
+}
+
+/* ---------- math ----------------------------------------------------------
+   SVG output scales proportionally, so an over-wide operator shrinks to the
+   text block instead of bleeding into the margin.                           */
+mjx-container[display="true"] {
+    margin: 0.85em 0 !important;
+    overflow: visible;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+mjx-container[display="true"] svg {
+    max-width: 100%;
+    height: auto;
+}
+mjx-container { color: #111; }
+
+/* ---------- tables (booktabs-like: horizontal rules only) ------------------ */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3.5mm 0 4.5mm 0;
+    font-size: 9.2pt;
+    line-height: 1.55;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+thead th {
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-weight: 600;
+    font-size: 9pt;
+    text-align: left;
+    padding: 2mm 2.5mm;
+    border-top: 1.1pt solid #333;
+    border-bottom: 0.6pt solid #333;
+    background: none;
+}
+tbody td {
+    padding: 1.8mm 2.5mm;
+    vertical-align: top;
+    border-bottom: 0.35pt solid #e2e2e2;
+    text-align: left;
+}
+tbody tr:last-child td { border-bottom: 1.1pt solid #333; }
+caption {
+    caption-side: bottom;
+    font-size: 8.6pt;
+    color: #666;
+    padding-top: 1.5mm;
+    text-align: left;
+}
+
+/* ---------- lists ---------------------------------------------------------- */
+ul, ol {
+    margin: 0 0 0.7em 0;
+    padding-left: 6.5mm;
+}
+li { margin: 0.5mm 0; }
+li > p { margin-bottom: 0.3em; }
+
+/* ---------- blockquote (used for the framing question) --------------------- */
+blockquote {
+    margin: 3mm 0 3.5mm 0;
+    padding: 1.5mm 0 1.5mm 5mm;
+    border-left: 2pt solid #b9b9b9;
+    color: #333;
+    font-style: normal;
+}
+blockquote p { margin: 0; }
+
+/* ---------- footnotes (pandoc puts them at the end; label the section) ----- */
+.footnotes {
+    margin-top: 8mm;
+    padding-top: 3mm;
+    border-top: 0.5pt solid #dcdcdc;
+    font-size: 8.8pt;
+    line-height: 1.6;
+    color: #3a3a3a;
+}
+.footnotes hr { display: none; }
+.footnotes::before {
+    content: "注释";
+    display: block;
+    font-family: "PingFang SC", "Heiti SC", sans-serif;
+    font-size: 10pt;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 2mm;
+}
+.footnotes ol { padding-left: 5mm; }
+/* pandoc's "↩" backlinks are navigation; on paper they are noise */
+.footnotes a.footnote-back { display: none; }
+a.footnote-ref sup {
+    font-size: 0.72em;
+    color: #444;
+}
+
+/* screen preview only: paged.js draws the sheets, give them a page-like frame */
+@media screen {
+    body { background: #ececed; }
+    .pagedjs_page {
+        background: #fff;
+        margin: 8mm auto;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.22);
+    }
+}

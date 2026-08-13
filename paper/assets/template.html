@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="$if(lang)$$lang$$else$zh-CN$endif$">
+<head>
+<meta charset="utf-8">
+<title>$title$</title>
+<link rel="stylesheet" href="../assets/print.css">
+<script src="../assets/setup.js"></script>
+<script src="../node_modules/mathjax/es5/tex-svg-full.js" id="MathJax-script"></script>
+<script src="../node_modules/pagedjs/dist/paged.polyfill.js"></script>
+</head>
+<body>
+
+<header class="titleblock">
+  <div class="kicker">SimOPD · 立项陈述与阶段性发现</div>
+  <h1 class="doctitle">$title$</h1>
+$if(subtitle)$
+  <div class="subtitle">$subtitle$</div>
+$endif$
+$if(date)$
+  <div class="byline">$date$</div>
+$endif$
+</header>
+
+$if(abstract)$
+<section class="abstract">
+  <h2 class="abstract-title">摘要</h2>
+$abstract$
+</section>
+$endif$
+
+$if(toc)$
+<nav id="TOC" role="doc-toc">
+  <h2 class="toc-title">目录</h2>
+$toc$
+</nav>
+$endif$
+
+$body$
+
+</body>
+</html>
