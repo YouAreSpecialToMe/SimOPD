@@ -44,7 +44,10 @@ set -euo pipefail
 # be discovered from this account (empty listings) -- they come with the quota
 # grant / from a colleague's successful job in the console.
 WORKSPACE_ID=${WORKSPACE_ID:-ws1741o20vr72qfb}
-RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (quota id -- arrives with the allocation)}
+# RESOURCE_ID is only needed for CLI direct-submit; the console path (the
+# default, and how the colleagues submit) picks the quota from the form's
+# dropdown -- no id string required.
+RESOURCE_ID=${RESOURCE_ID:-}
 # The exact image the proven DSW pods run (read from a live pod's PID1 env,
 # DOCKER_IMAGE_URL, 2026-08-13): ubuntu22.04 + cuda12.4 + py311 + torch2.6.0.
 # Every campaign run to date executed inside this environment, so the fleet
@@ -89,17 +92,40 @@ EXTRA_ARGS=()
 # incarnation. Whole-fleet behavior changes still deserve a fresh job.
 CMD="bash /mgfs/shared/Group_GY/changhao/SimOPD-exp/deploy/dlc/worker.sh"
 
-set -x
-"$DLC" submit pytorchjob \
-    --name="$JOB_NAME" \
-    --workers="$WORKERS" \
-    --worker_gpu="$WORKER_GPU" \
-    --worker_cpu="$WORKER_CPU" \
-    --worker_memory="$WORKER_MEMORY" \
-    --worker_image="$IMAGE" \
-    --workspace_id="$WORKSPACE_ID" \
-    --resource_id="$RESOURCE_ID" \
-    --priority="$PRIORITY" \
-    --job_max_running_time_minutes=0 \
-    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
-    --command="$CMD"
+# Two ways to hand this to DLC, same job either way. The colleagues' pattern
+# is console + a payload script on /mgfs -- worker.sh IS our payload, so the
+# DEFAULT here is the console card: every form value computed and printed for
+# copy-paste, quota picked from the form's dropdown. CLI direct-submit only
+# runs when it actually can (config present + RESOURCE_ID given).
+if [ -e "$HOME/.dlc/config" ] && [ -n "$RESOURCE_ID" ] && [ "${CONSOLE:-0}" != 1 ]; then
+    set -x
+    "$DLC" submit pytorchjob \
+        --name="$JOB_NAME" \
+        --workers="$WORKERS" \
+        --worker_gpu="$WORKER_GPU" \
+        --worker_cpu="$WORKER_CPU" \
+        --worker_memory="$WORKER_MEMORY" \
+        --worker_image="$IMAGE" \
+        --workspace_id="$WORKSPACE_ID" \
+        --resource_id="$RESOURCE_ID" \
+        --priority="$PRIORITY" \
+        --job_max_running_time_minutes=0 \
+        ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
+        --command="$CMD"
+else
+    cat <<CARD
+== DLC 控制台提交单(照抄进网页表单)=====================================
+  任务名称        $JOB_NAME
+  任务类型        PyTorch 训练 (PyTorchJob)
+  节点数量        $WORKERS
+  单节点资源      GPU $WORKER_GPU / CPU $WORKER_CPU / 内存 $WORKER_MEMORY
+  节点镜像        $IMAGE
+  工作空间        $WORKSPACE_ID
+  资源配额        ${RESOURCE_ID:-(表单下拉里选新批的那份配额)}
+  最长运行时长    不限
+  数据集/挂载     确认 /mgfs 在容器内可见(工作空间隐式挂载则无需额外配置)
+  启动命令        $CMD
+==========================================================================
+(可选 CLI 直提: 配好 ~/.dlc/config 且传 RESOURCE_ID=<配额id> 后重跑本脚本)
+CARD
+fi

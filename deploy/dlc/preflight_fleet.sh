@@ -31,13 +31,14 @@ fi
 
 echo "== submission =="
 [ -x "$DLC" ] && ok "dlc CLI at $DLC" || miss "dlc CLI not executable at $DLC"
-[ -e "$HOME/.dlc/config" ] && ok "dlc CLI configured (~/.dlc/config)" \
-    || miss "dlc CLI unconfigured -- run 'dlc config' once with your AK (user step; keys never in chat)"
-# WORKSPACE_ID and IMAGE carry proven defaults inside submit_fleet.sh (the
-# probed workspace + the live pods' own image); only the quota id is truly
-# external -- it arrives with the card allocation.
-[ -n "${RESOURCE_ID:-}" ] && ok "RESOURCE_ID set" \
-    || miss "RESOURCE_ID unset -- the quota id of the allocation (console/admin, comes with the cards)"
+# Submission path decided 2026-08-13: CONSOLE, like the colleagues -- no CLI
+# config and no quota-id string needed (the form's dropdown picks the quota;
+# submit_fleet.sh prints every field as a copy-paste card). CLI direct-submit
+# remains available if ~/.dlc/config + RESOURCE_ID ever both exist.
+[ -e "$HOME/.dlc/config" ] && ok "dlc CLI configured (CLI direct-submit available)" \
+    || note "dlc CLI unconfigured -- fine on the console path; submit_fleet.sh prints the form card"
+[ -n "${RESOURCE_ID:-}" ] && ok "RESOURCE_ID set (CLI path armed)" \
+    || note "RESOURCE_ID unset -- console dropdown picks the quota; only CLI direct-submit needs the id"
 [ -n "${WORKSPACE_ID:-}" ] && ok "WORKSPACE_ID set (override)" || ok "WORKSPACE_ID defaulted (ws1741o20vr72qfb)"
 [ -n "${IMAGE:-}" ] && ok "IMAGE set (override)" || ok "IMAGE defaulted (the live pods' own image)"
 [ -n "${DATA_SOURCES:-}" ] && ok "DATA_SOURCES set" \

@@ -92,6 +92,11 @@ exec > >(tee -a "$LOG_DIR/${MACHINE}_$(date +%Y%m%d_%H%M%S).log") 2>&1
 echo "== dlc worker $MACHINE on $(hostname) $(date -u +%FT%TZ) =="
 
 cd "$EXP_ROOT"
+# mounted-workspace git quirk, straight from the colleagues' proven DLC
+# payloads (tools/dlc/exp*.sh): never let an ownership check across the fs
+# boundary block the job -- campaign.sh runs rev-parse/status/diff constantly.
+git config --global --add safe.directory "$EXP_ROOT" 2>/dev/null || true
+git config --global --add safe.directory /mgfs/shared/Group_GY/changhao/SimOPD 2>/dev/null || true
 . ./simopd_env.sh
 
 # ---- per-domain namespaces + rank-keyed identity upsert ----------------------
