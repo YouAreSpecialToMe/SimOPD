@@ -36,6 +36,13 @@ EXP_ROOT=${EXP_ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 DATA=${DATA:-/mgfs/shared/Group_GY/changhao/simopd_data}
 EVALQ=${EVALQ:-$DATA/evalq_exp}
 LOOP_SEC=${LOOP_SEC:-900}
+# Test seams, both default-off. WORKER_DRY=1 makes every pass observational:
+# training uses campaign.sh --dry (claims nothing), eviction logs its decision
+# instead of killing, backfill echoes instead of spawning. WORKER_PASSES=N exits
+# after N passes. The boot-time reaper stays REAL in dry mode on purpose -- point
+# EVALQ at a sandbox queue to test it (deploy/dlc/test_worker_dry.sh does).
+WORKER_DRY=${WORKER_DRY:-0}
+WORKER_PASSES=${WORKER_PASSES:-0}
 # Domains this fleet serves, in priority order. Each is a (manifest, claim
 # namespace, env triple); math is the default namespace and needs no overrides.
 # A domain whose train.parquet is missing is skipped loudly, not fatally -- the
@@ -180,7 +187,7 @@ startable_rows() {  # "count maxwidth" aggregated across every served namespace 
         # literal "none" -- the first version grepped 'assigned\s+\S', which
         # matches "assigned      none" and would have evicted eval workers on
         # every pass forever (caught in review, never shipped)
-        d=$( (eval "$(domain_env "$DOM")"; MACHINE=$MACHINE bash deploy/campaign.sh --dry 2>/dev/null) \
+        d=$( (eval "$(domain_env "$DOM")"; MACHINE=$MACHINE timeout 180 bash deploy/campaign.sh --dry 2>/dev/null) \
             | awk '$1=="assigned"{for(i=2;i<=NF;i++)if($i!="none")n++}
                    $1=="pool"&&$2=="free"{for(i=3;i<=NF;i++)if($i!="none")n++}
                    END{print n+0}' ) || d=0
@@ -193,15 +200,31 @@ startable_rows() {  # "count maxwidth" aggregated across every served namespace 
 }
 
 while :; do
-    # -- 3. priority eviction (checked first so pass N's training sees the GPUs)
-    read -r rows need <<< "$(startable_rows)"
+    # -- 3. priority eviction (checked first so pass N's training sees the GPUs).
+    #    startable_rows costs one campaign --dry PER DOMAIN -- a full lustre scan
+    #    of checkpoints and logs each (~30-60s measured on the hop pod) -- and its
+    #    only consumer is the eviction decision, which is moot when this box runs
+    #    no eval workers. Gate on the cheap check first: a fresh fleet skips the
+    #    whole scan every pass.
+    evalw=$(eval_workers_here)
+    if [ "$evalw" -gt 0 ]; then
+        read -r rows need <<< "$(startable_rows)"
+    else
+        rows=0 need=2
+    fi
     nfree=$(free_gpus | wc -l)
-    if [ "${rows:-0}" -gt 0 ] && [ "$nfree" -lt "${need:-2}" ] && [ "$(eval_workers_here)" -gt 0 ]; then
+    # one line per pass: the gate's actual inputs, so silence is diagnosable
+    echo "pass: evalw=$evalw free=$nfree startable=${rows:-0} need=${need:-2}"
+    if [ "${rows:-0}" -gt 0 ] && [ "$nfree" -lt "${need:-2}" ] && [ "$evalw" -gt 0 ]; then
         echo "eviction: $rows startable rows need width $need, $nfree free -> stopping eval workers"
-        pkill -f "eval_worker_exp.sh" 2>/dev/null || true
-        pkill -f "eval_offline.py" 2>/dev/null || true
-        sleep 3
-        bash "$DATA/reap_orphan_vllm.sh" 2>/dev/null || true
+        if [ "$WORKER_DRY" = "1" ]; then
+            echo "DRY: would pkill eval workers + reap orphans"
+        else
+            pkill -f "eval_worker_exp.sh" 2>/dev/null || true
+            pkill -f "eval_offline.py" 2>/dev/null || true
+            sleep 3
+            bash "$DATA/reap_orphan_vllm.sh" 2>/dev/null || true
+        fi
     fi
 
     # -- 1. training first, domains in priority order; a domain missing its
@@ -212,8 +235,13 @@ while :; do
             echo "domain $DOM: no train.parquet yet, skipped"
             continue
         fi
-        out=$( (eval "$(domain_env "$DOM")"
-                MACHINE=$MACHINE bash deploy/campaign.sh 2>&1) ) || true
+        if [ "$WORKER_DRY" = "1" ]; then
+            out=$( (eval "$(domain_env "$DOM")"
+                    MACHINE=$MACHINE bash deploy/campaign.sh --dry 2>&1) ) || true
+        else
+            out=$( (eval "$(domain_env "$DOM")"
+                    MACHINE=$MACHINE bash deploy/campaign.sh 2>&1) ) || true
+        fi
         echo "$out" | tail -3
         # GPUs this pass just handed to lanes: a lane spends minutes loading
         # weights before it holds memory, so the <500MiB check alone would let
@@ -223,17 +251,27 @@ while :; do
     done
 
     # -- 2. eval backfill on whatever is still idle
-    sleep 60   # settle; the launched_gpus exclusion is the real guard
+    [ "$WORKER_DRY" = "1" ] && sleep 1 || sleep 60   # settle; launched_gpus is the real guard
     for g in $(free_gpus); do
         case "$launched_gpus" in *" $g "*) continue ;; esac
         # trailing space, not \b: pgrep -f is POSIX ERE and \b silently matches a
         # literal b, so "gpu 1" would collide with "gpu 10" AND every duplicate
         # check would fail -- one extra eval worker per GPU per pass
         pgrep -f "eval_worker_exp.sh $g " >/dev/null 2>&1 && continue
+        if [ "$WORKER_DRY" = "1" ]; then
+            echo "DRY: would start eval worker on gpu $g"
+            continue
+        fi
         nohup bash "$DATA/eval_worker_exp.sh" "$g" "$EVALQ" \
             > "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log" 2>&1 &
         echo "eval backfill: worker on gpu $g"
     done
 
+    # test seam: WORKER_PASSES=N exits after N supervisor passes (0 = run forever)
+    PASS_N=$(( ${PASS_N:-0} + 1 ))
+    if [ "$WORKER_PASSES" -gt 0 ] && [ "$PASS_N" -ge "$WORKER_PASSES" ]; then
+        echo "worker: WORKER_PASSES=$WORKER_PASSES reached, exiting"
+        exit 0
+    fi
     sleep "$LOOP_SEC"
 done
