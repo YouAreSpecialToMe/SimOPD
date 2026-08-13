@@ -487,7 +487,7 @@ _(Rewritten 2026-08-13; the original section predated training completion.)_
 <!-- AUTO:EXPANSION-RESULTS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 (m25–m37) — live results
 
-_Auto-published 2026-08-13T23:39:56Z by `exp_publish.py` from lane logs and suite artifacts; pin `999aec9`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
+_Auto-published 2026-08-13T23:43:33Z by `exp_publish.py` from lane logs and suite artifacts; pin `4886259`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
 
 ### In-loop val (greedy MATH500, mean±std over seeds)
 
