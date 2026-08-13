@@ -182,11 +182,15 @@ claim_complete() {  # RUN STEP -> 0 when all five benchmark artifacts exist
     done
     [ "$n" -ge 5 ]
 }
-# Reap a claim only when it is FINISHED (artifacts complete -- leftover claim,
-# safe to clear any time) or ANCIENT (>36h; a healthy checkpoint-eval is ~13h,
-# so 36h means a wrecked owner). The first draft reaped anything >2h old, which
-# would have released claims under LIVE long evals on other boxes on every pod
-# restart -- constant duplicated work. Caught in review.
+# Reap a claim when it is FINISHED (artifacts complete -- leftover claim, safe
+# to clear any time) or SILENT beyond REAP_SILENT_SEC. The threshold history
+# matters: the first draft reaped anything >2h old and was rejected in review
+# because a LIVE cell can run ~13h -- back then a claim's mtime never moved
+# after creation, so age meant "since claimed", and only >36h was safe. As of
+# 2026-08-13 eval_worker_exp.sh HEARTBEATS its claim (touch every 5 min), so
+# mtime means "last alive" and 2h of true silence is a dead owner: a pod
+# killed mid-cell frees its cells in 2h instead of 36, and the per-bench
+# resume in eval_suite makes the redo pay only the missing benchmarks.
 now=$(date +%s)
 for c in "$EVALQ"/claims/*__*; do
     [ -d "$c" ] || continue
@@ -194,8 +198,8 @@ for c in "$EVALQ"/claims/*__*; do
     age=$(( now - $(stat -c %Y "$c") ))
     if claim_complete "$RUN" "$STEP"; then
         rm -rf "$c" && echo "reaped finished-claim leftover $name"
-    elif [ "$age" -gt 129600 ]; then
-        rm -rf "$c" && echo "reaped ancient claim $name (${age}s)"
+    elif [ "$age" -gt "${REAP_SILENT_SEC:-7200}" ]; then
+        rm -rf "$c" && echo "reaped silent claim $name (${age}s)"
     fi
 done
 

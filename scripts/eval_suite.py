@@ -81,12 +81,23 @@ def cmd_run(a):
     for _, benches, k in SUITE:
         by_n.setdefault(k, []).extend(benches)
     for k, benches in sorted(by_n.items(), reverse=True):
+        # Per-bench resume (2026-08-13): a cell interrupted mid-way keeps its
+        # finished benchmarks (the sweep left 156 such partials -- "aime24 is
+        # complete wherever a cell started"). Skip by the SAME newest() the
+        # aggregator reads, so skip and score can never disagree; a redone cell
+        # pays only its missing benchmarks.
+        todo = [b for b in benches if newest(a.out_dir, a.run_id, b, a.step, k=k) is None]
+        done = [b for b in benches if b not in todo]
+        if done:
+            print(f"[suite] n={k}: skip existing {' '.join(done)}", flush=True)
+        if not todo:
+            continue
         cmd = [sys.executable, os.path.join(HERE, "eval_offline.py"),
                "--model", a.model, "--run-id", a.run_id, "--step", str(a.step),
-               "--benchmarks", ",".join(benches), "--n", str(k),
+               "--benchmarks", ",".join(todo), "--n", str(k),
                "--temperature", str(TEMPERATURE), "--top-p", str(TOP_P),
                "--max-tokens", str(MAX_TOKENS), "--out-dir", a.out_dir]
-        print(f"[suite] n={k}: {' '.join(benches)}", flush=True)
+        print(f"[suite] n={k}: {' '.join(todo)}", flush=True)
         subprocess.run(cmd, check=True)
     return cmd_acc(a)
 
