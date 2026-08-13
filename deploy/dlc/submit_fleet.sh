@@ -32,6 +32,18 @@
 #     <=24 steps, and the fingerprint decides resume-vs-refuse, same as DSW.
 set -euo pipefail
 
+# Foolproofing, from the wild (job dlc1mk5l3etxjzed, 2026-08-14): this
+# SUBMITTER was pasted as the DLC job command -- all 15 pods printed the
+# console card and exited 0 within 4 seconds. Inside a DLC container (rank/job
+# env present) the only sensible meaning of running this script is "run the
+# payload": exec worker.sh, EVAL_ONLY passes through, the card-count argument
+# is meaningless there and dropped.
+if [ -n "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; then
+    echo "detected DLC container (rank/job env present): this script is the SUBMITTER,"
+    echo "exec'ing the payload instead: worker.sh (EVAL_ONLY=${EVAL_ONLY:-0})"
+    exec bash /mgfs/shared/Group_GY/changhao/SimOPD-exp/deploy/dlc/worker.sh
+fi
+
 # Probed facts (tools/pai/FINDINGS.md, 2026-07-30, account changhao.li):
 #   * workspace is ws1741o20vr72qfb -- defaulted below, override if the quota
 #     lands elsewhere;
