@@ -103,12 +103,38 @@ domain_width() { case "$1" in w8b) echo 8;; p4b) echo 4;; *) echo 2;; esac; }
 # identity guard would kill all but one -- die here with the fix instead.
 RANK=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-}}}
 if [ -z "$RANK" ]; then
-    echo "FATAL: no rank env (MLP_WORKER_RACK_RANK_INDEX / MLP_ROLE_INDEX / RANK)." >&2
-    echo "       A DLC pytorchjob always sets one; for a manual boot:" >&2
-    echo "       MLP_ROLE_INDEX=<n> bash deploy/dlc/worker.sh" >&2
+    # Console-only by construction (we are before the log tee). The value dump
+    # mirrors the colleagues' MoE payload, whose identical guard plus remedy
+    # ("set NODE_RANK in the DLC environment") is field evidence this platform
+    # sometimes does NOT inject rank envs into a job.
+    echo "FATAL: no rank env." >&2
+    echo "  available: MLP_WORKER_RACK_RANK_INDEX=${MLP_WORKER_RACK_RANK_INDEX:-<empty>}" \
+         "MLP_ROLE_INDEX=${MLP_ROLE_INDEX:-<empty>} RANK=<empty>" \
+         "WORLD_SIZE=${WORLD_SIZE:-<empty>} MLP_WORKER_NUM=${MLP_WORKER_NUM:-<empty>}" >&2
+    echo "  env snapshot (MLP_*/MASTER_*/KUBE rank-ish):" >&2
+    env | grep -E '^(MLP_|MASTER_|WORLD_|NODE_|RANK=|KUBERNETES_)' | head -20 | sed 's/^/    /' >&2
+    echo "  fix: submit as pytorchjob (injects MLP_ROLE_INDEX), or add rank envs in the" >&2
+    echo "       job's environment panel; manual boot: MLP_ROLE_INDEX=<n> bash worker.sh" >&2
     exit 1
 fi
 MACHINE="d${RANK}"
+# ---- shared-fs preflight: BEFORE any /mgfs write and BEFORE the log tee, so
+# the verdict always reaches the DLC console. Without -e (deliberate: the
+# supervisor loop must outlive transient failures) a missing mount would
+# otherwise limp forever doing nothing -- the worst failure mode is silence.
+# Modeled on the colleagues' MoE payload, which dumps its world before
+# touching shared storage.
+if [ ! -d "$EXP_ROOT/.git" ]; then
+    echo "FATAL: shared filesystem not visible from this container." >&2
+    echo "  expected code tree: $EXP_ROOT" >&2
+    echo "  /mgfs contents: $(ls /mgfs 2>/dev/null | head -5 | tr '\n' ' ')" >&2
+    [ -d /mgfs ] || echo "  /mgfs does not exist at all -- the mount is absent" >&2
+    echo "  fix: attach the mgfs dataset/storage mount in the DLC job config" >&2
+    echo "       (copy the 数据集挂载 entry from any colleague job that runs)." >&2
+    exit 1
+fi
+export PYTHONUNBUFFERED=1   # children's prints reach logs live, not on buffer flush
+
 # One monitorable path per job kind: the 200-card eval drainer logs under
 # dlc_logs/eval/ (25 supervisors + up to 200 per-GPU eval workers + the
 # progress heartbeat), training fleets under dlc_logs/ as before.
