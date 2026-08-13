@@ -75,14 +75,31 @@ def r4(v):
     return int(out) if d == 0 else out
 
 
-def series(df, col, steps, seeds, key):
-    """[per-seed [per-step value]] for one arm; None when a seed never reported."""
-    out = []
+def series(df, col, steps, seeds, key=None):
+    """One arm's curve, both ways.
+
+    {"m": seed-mean per step, "n": how many seeds that mean averaged, "s": per-seed}
+
+    The mean is the default line because a reader comparing 29 arms wants one
+    curve each; the per-seed lines stay in the payload because at these sample
+    counts the spread is the interesting part (AIME's avg@32 rests on ~42 correct
+    samples out of 960). `n` is what makes a mean honest when a step has only
+    some of the three seeds evaluated -- the same job the report's `·N` does.
+    """
+    per = []
     for sd in seeds:
         sg = df[df.seed == sd].set_index("step")[col]
-        out.append([r4(sg.get(st)) if st in sg.index else None for st in steps]
+        per.append([sg.get(st) if st in sg.index else None for st in steps]
                    if len(sg) else None)
-    return out if any(s and any(v is not None for v in s) for s in out) else None
+    if not any(s and any(v is not None and not pd.isna(v) for v in s) for s in per):
+        return None
+    mean, cnt = [], []
+    for i in range(len(steps)):
+        vals = [s[i] for s in per if s and s[i] is not None and not pd.isna(s[i])]
+        mean.append(r4(sum(vals) / len(vals)) if vals else None)
+        cnt.append(len(vals))
+    return {"m": mean, "n": cnt,
+            "s": [[r4(v) for v in s] if s else None for s in per]}
 
 
 def main():
@@ -250,6 +267,7 @@ th{color:var(--ink3);font-weight:500}
     要分离需按题内配对比较。
   </div>
   <div class="hd">
+    <button id="mode">显示:seed 均值</button>
     <button id="clr">清除钉选</button>
     <span class="mono" style="font-size:11.5px;color:var(--ink3)" id="pins">未钉选</span>
   </div>
@@ -260,7 +278,7 @@ const D=/*__DATA__*/;
 const NS="http://www.w3.org/2000/svg";
 const ARMS=Object.keys(D.arms).sort((a,b)=>(D.arms[b].comp??-1)-(D.arms[a].comp??-1)||a.localeCompare(b));
 const PC=["var(--p1)","var(--p2)","var(--p3)"];
-let hover=null, pins=[];
+let hover=null, pins=[], meanMode=true;
 
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;};
 const sv=(t,at)=>{const e=document.createElementNS(NS,t);for(const k in at)e.setAttribute(k,at[k]);return e;};
@@ -305,8 +323,9 @@ for(const blk of D.blocks){
     const s=sv("svg",{}); d.appendChild(s); g.appendChild(d);
     const base=sv("g",{}), hi=sv("g",{}); s.appendChild(base); s.appendChild(hi);
     // pooled range over every arm+seed of THIS panel, so arms stay comparable
+    // (uses per-seed values, so switching to the mean never overflows the axis)
     let lo=Infinity, hi2=-Infinity;
-    for(const a in p.d) for(const ser of p.d[a]) if(ser) for(const v of ser)
+    for(const a in p.d) for(const ser of p.d[a].s) if(ser) for(const v of ser)
       if(v!=null){lo=Math.min(lo,v);hi2=Math.max(hi2,v);}
     if(!isFinite(lo)){lo=0;hi2=1;}
     if(p.frac) lo=Math.min(lo,0);
@@ -348,23 +367,41 @@ function paint(){
         "stroke-dasharray":"3 3","stroke-width":1}));
     }
     for(const a in o.p.d){
-      const pi=pins.indexOf(a), on=(a===spot)||pi>=0;
+      const e=o.p.d[a], pi=pins.indexOf(a), on=(a===spot)||pi>=0;
       const col=pi>=0?PC[pi]:(a===spot?"var(--accent)":"var(--faint)");
-      for(const ser of o.p.d[a]){ if(!ser)continue;
-        const d=path(o,ser); if(!d)continue;
-        (on?o.hi:o.base).appendChild(sv("path",{d,fill:"none",stroke:col,
-          "stroke-width":on?1.9:0.8,opacity:on?1:(spot||pins.length?0.16:0.42)}));
+      const tgt=on?o.hi:o.base;
+      const dim=on?1:(spot||pins.length?0.16:0.42);
+      // seed lines: always in per-seed mode; in mean mode only for the arm in focus,
+      // so the spread stays visible exactly where someone is reading it
+      if(!meanMode||on){
+        for(const ser of e.s){ if(!ser)continue;
+          const d=path(o,ser); if(!d)continue;
+          tgt.appendChild(sv("path",{d,fill:"none",stroke:col,
+            "stroke-width":meanMode?0.7:(on?1.9:0.8),
+            opacity:meanMode?(on?0.34:dim):dim}));
+        }
+      }
+      if(meanMode){
+        const d=path(o,e.m);
+        if(d) tgt.appendChild(sv("path",{d,fill:"none",stroke:col,
+          "stroke-width":on?2.1:0.85,opacity:dim}));
       }
     }
     const who=spot||pins[0];
     o.pv.textContent = who&&o.p.d[who] ? (()=>{
-        for(const ser of o.p.d[who]){ if(!ser)continue;
-          for(let i=ser.length-1;i>=0;i--) if(ser[i]!=null) return fmt(ser[i]); }
+        const e=o.p.d[who];
+        for(let i=e.m.length-1;i>=0;i--) if(e.m[i]!=null)
+          return fmt(e.m[i])+(e.n[i]<D.seeds.length?("·"+e.n[i]):"");
         return "";})() : "";
   }
   document.getElementById("pins").textContent=pins.length?("已钉:"+pins.join(" · ")):"未钉选";
 }
 document.getElementById("clr").onclick=()=>{pins=[];paint();};
+document.getElementById("mode").onclick=e=>{
+  meanMode=!meanMode;
+  e.target.textContent="显示:"+(meanMode?"seed 均值":"逐 seed");
+  paint();
+};
 addEventListener("resize",paint);
 paint();
 </script></body></html>
