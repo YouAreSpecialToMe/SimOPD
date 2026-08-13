@@ -131,3 +131,36 @@ quota is ~500, not a clean 512 — `submit_fleet.sh` derives the worker count):
 math resume 78 + IF 126×2 + code 126×2 + w8b 4×8 + p4b 4×4 ≈ **410 GPUs of
 training**, remainder + every draining lane = eval. At 500 → 62 workers = 496
 usable; the eval share absorbs the difference. One submission.
+
+---
+
+## 8. Correctness audit before the first row (2026-08-13, CPU-only — all green)
+
+Seven mechanical checks, no GPUs (`scripts/audit_domains_cpu.sh`, reproducible):
+
+1. **Reward unit battery** 14/14 at current HEAD.
+2. **Call contract**: the naive/dapo/batch reward managers invoke
+   `compute_score(data_source=, solution_str=, ground_truth=, extra_info=)` —
+   the dispatcher's signature matches keyword-for-keyword, and the manager's
+   per-sample timeout guard scores 0.0 instead of killing a run.
+3. **Routing**: `codecontests` → prime_code in THIS verl checkout, proven
+   empirically (a correct program scores 1.0 through `default_compute_score`).
+4. **Schema**: code parquet ≡ math parquet, column-for-column and
+   type-for-type (prompt = chat ndarray, reward_model = {style, ground_truth}).
+5. **Prompt lengths** (1.7B tokenizer): code train p50=521 / p99=1377 /
+   max=2373 → **3.8% exceed the 1024 cap**; val 5/200. **Ruling: the cap stays
+   1024.** The dataloader's `filter_overlong_prompts` drop is identical for
+   every arm (effective set ≈12,287 train / ≈196 val for all of them), so arm
+   comparisons stay internally valid; raising the cap inflates every code
+   row's packing ceiling and still cannot keep max=2373. Recorded here so the
+   row counts read as protocol, not surprise.
+6. **Official preflight** on the code parquets with the domain's exact knobs:
+   `preflight ok` (k1_rec registered, 6 hook modules importable).
+7. **Roster**: all 42 stock arms present in each of the three manifests; the
+   late additions (f5_tanh, c1_direct, c1_tailbucket, h5_gen100, c2_qb_fixed8,
+   c2_qb_perseq, f2_clip2.3, e1_pl_rank_a0, e2_set_coverage_a0, b4_jsd_b0.1,
+   b4_jsd_b0.9) verified individually: **math ✓ / if ✓ / code ✓** each.
+
+What CPU cannot prove stays on the smoke job: the 3-step rehearsal per domain
+(val swap + custom-reward seam, live), and IF's own length audit the day its
+parquet exists (the prep re-runs section 5 by hand).
