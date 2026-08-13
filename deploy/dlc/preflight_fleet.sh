@@ -33,9 +33,13 @@ echo "== submission =="
 [ -x "$DLC" ] && ok "dlc CLI at $DLC" || miss "dlc CLI not executable at $DLC"
 [ -e "$HOME/.dlc/config" ] && ok "dlc CLI configured (~/.dlc/config)" \
     || miss "dlc CLI unconfigured -- run 'dlc config' once with your AK (user step; keys never in chat)"
-for v in WORKSPACE_ID RESOURCE_ID IMAGE; do
-    [ -n "$(printenv $v)" ] && ok "$v set" || miss "$v unset (PAI console)"
-done
+# WORKSPACE_ID and IMAGE carry proven defaults inside submit_fleet.sh (the
+# probed workspace + the live pods' own image); only the quota id is truly
+# external -- it arrives with the card allocation.
+[ -n "${RESOURCE_ID:-}" ] && ok "RESOURCE_ID set" \
+    || miss "RESOURCE_ID unset -- the quota id of the allocation (console/admin, comes with the cards)"
+[ -n "${WORKSPACE_ID:-}" ] && ok "WORKSPACE_ID set (override)" || ok "WORKSPACE_ID defaulted (ws1741o20vr72qfb)"
+[ -n "${IMAGE:-}" ] && ok "IMAGE set (override)" || ok "IMAGE defaulted (the live pods' own image)"
 [ -n "${DATA_SOURCES:-}" ] && ok "DATA_SOURCES set" \
     || note "DATA_SOURCES unset -- fine IF the workspace mounts /mgfs implicitly; verify on the smoke job"
 

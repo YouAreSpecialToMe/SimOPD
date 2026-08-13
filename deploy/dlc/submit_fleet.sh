@@ -45,7 +45,11 @@ set -euo pipefail
 # grant / from a colleague's successful job in the console.
 WORKSPACE_ID=${WORKSPACE_ID:-ws1741o20vr72qfb}
 RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (quota id -- arrives with the allocation)}
-IMAGE=${IMAGE:?set IMAGE (copy the image URI from a known-good DLC job)}
+# The exact image the proven DSW pods run (read from a live pod's PID1 env,
+# DOCKER_IMAGE_URL, 2026-08-13): ubuntu22.04 + cuda12.4 + py311 + torch2.6.0.
+# Every campaign run to date executed inside this environment, so the fleet
+# defaults to it; override only if the grant forces a different registry.
+IMAGE=${IMAGE:-dashscope-edge-registry-vpc.ap-southeast-5.cr.aliyuncs.com/gy-pai/modelscope-ubuntu22.04-cuda12.4.0-py311-torch2.6.0:gpu}
 
 # Sizing: workers are whole 8-GPU pods, so the fleet is WORKERS = TOTAL_GPUS/8
 # rounded DOWN -- asking for more than the quota holds queues forever, stranding
