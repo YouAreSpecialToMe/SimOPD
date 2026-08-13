@@ -109,7 +109,14 @@ if [ -z "$RANK" ]; then
     exit 1
 fi
 MACHINE="d${RANK}"
-LOG_DIR="$DATA/dlc_logs"
+# One monitorable path per job kind: the 200-card eval drainer logs under
+# dlc_logs/eval/ (25 supervisors + up to 200 per-GPU eval workers + the
+# progress heartbeat), training fleets under dlc_logs/ as before.
+#   tail -f $DATA/dlc_logs/eval/progress.log        # 总进度,一行/喂料轮
+#   tail -f $DATA/dlc_logs/eval/d0_*.log            # 某台监督循环
+#   tail -f $DATA/dlc_logs/eval/d3_evalw_gpu5.log   # 某张卡的 eval 引擎
+#   grep -h FAILED $DATA/dlc_logs/eval/*_evalw_*.log  # 失败单元清单
+[ "$EVAL_ONLY" = 1 ] && LOG_DIR="$DATA/dlc_logs/eval" || LOG_DIR="$DATA/dlc_logs"
 mkdir -p "$LOG_DIR"
 exec > >(tee -a "$LOG_DIR/${MACHINE}_$(date +%Y%m%d_%H%M%S).log") 2>&1
 echo "== dlc worker $MACHINE on $(hostname) $(date -u +%FT%TZ) =="
@@ -285,6 +292,16 @@ feed_evalq() {
     done
     rmdir "$lock" 2>/dev/null
     [ "$added" -gt 0 ] && echo "eval feed: +$added cells (pending $(grep -c . "$EVALQ/pending.txt" 2>/dev/null || echo 0))"
+    # progress heartbeat, one line per feed cycle (the lock above means one
+    # writer). queued_lines = lines ever queued (complete ones stay listed and
+    # are skipped by workers), in_flight = live claims, artifacts = benchmark
+    # parquets written so far (grows toward 5 x cells).
+    printf '%s queued_lines=%s in_flight=%s artifacts=%s feed=+%s\n' \
+        "$(date -u +%FT%TZ)" \
+        "$(grep -c . "$EVALQ/pending.txt" 2>/dev/null || echo 0)" \
+        "$(ls "$EVALQ/claims" 2>/dev/null | wc -l | tr -d ' ')" \
+        "$(ls "$DATA/evals" 2>/dev/null | wc -l | tr -d ' ')" \
+        "$added" >> "$LOG_DIR/progress.log"
     return 0
 }
 
