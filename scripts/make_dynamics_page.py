@@ -67,6 +67,55 @@ METRICS = [
 ]
 
 
+SUITE_ANCHOR = 0.145   # untrained student's composite (report §3.1 "Δ vs base")
+
+
+def _num(cell):
+    """'0.335±0.003·2' / '**0.354±0.002**' / '0.338·1' / '–' -> float or None."""
+    c = cell.strip().strip("*").split("±")[0].split("·")[0].strip()
+    try:
+        return float(c)
+    except ValueError:
+        return None
+
+
+def parse_suite(md_path):
+    """Offline 5-bench suite numbers, read from the campaign report's own tables.
+
+    The suite lives in eval parquets on the shared filesystem, not in the
+    training CSV -- but the report is regenerated from those parquets and IS in
+    the repo, so the page can carry both scoreboards without the fleet. Returns
+    (step curve {arm: [[step, composite], ...]}, finals {arm: {...}}).
+    """
+    if not os.path.exists(md_path):
+        return {}, {}
+    steps = [25, 50, 75, 100, 125, 150, 175, 200, 225, 250]
+    curve, finals, mode = {}, {}, None
+    for ln in open(md_path):
+        if ln.startswith("| method | s25 |"):
+            mode = "curve"; continue
+        if ln.startswith("| method | seeds | composite |"):
+            mode = "finals"; continue
+        if mode and not ln.startswith("|"):
+            mode = None; continue
+        if not mode or ln.startswith("|---") or ln.startswith("| ↳"):
+            continue
+        f = [c.strip() for c in ln.strip().strip("|").split("|")]
+        arm = f[0].strip().strip("*")
+        if not arm or " " in arm:
+            continue
+        if mode == "curve":
+            pts = [[s, v] for s, v in zip(steps, (_num(c) for c in f[1:11])) if v is not None]
+            if pts:
+                curve[arm] = pts
+        else:                                   # | arm | seeds | composite | Δ | AIME | AMC | Minerva | MATH500 |
+            vals = [_num(c) for c in f[2:8]]
+            if vals[0] is not None:
+                finals[arm] = dict(suite=vals[0], aime=vals[2], amc=vals[3],
+                                   minerva=vals[4], s500=vals[5])
+    return curve, finals
+
+
 def r4(v):
     if v is None or pd.isna(v):
         return None
@@ -81,12 +130,22 @@ def r4(v):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default=os.path.join(ROOT, "docs/data/training_metrics_16k_allkeys.csv.gz"))
+    # BOTH metric dumps by default: the 16k batch (29 arms) and the expansion
+    # batch (13 more -- c1_direct, qb_fixed8, f5_tanh, ...). Passing one alone
+    # silently drops the other half of the campaign from the page, which is how
+    # a regeneration can look successful and lose 13 arms.
+    ap.add_argument("--csv", nargs="+", default=[
+        os.path.join(ROOT, "docs/data/training_metrics_16k_allkeys.csv.gz"),
+        os.path.join(ROOT, "docs/data/training_metrics_exp_allkeys.csv.gz")])
     ap.add_argument("--out", default=os.path.join(ROOT, "docs/arm-dynamics.html"))
     ap.add_argument("--every", type=int, default=1)
+    ap.add_argument("--suite-md", default=os.path.join(ROOT, "docs/campaign_16k_report.md"),
+                    help="offline suite tables are read from the report (regenerated from "
+                         "the eval parquets); pass /dev/null to build the training-only page")
     a = ap.parse_args()
+    suite_curve, suite_fin = parse_suite(a.suite_md)
 
-    df = pd.read_csv(a.csv)
+    df = pd.concat([pd.read_csv(p) for p in a.csv], ignore_index=True)
     seeds = sorted(int(s) for s in df.seed.unique())
     NMAX = int(df.step.max())
     grid = [s for s in range(1, NMAX + 1) if s % a.every == 0]
@@ -124,6 +183,15 @@ def main():
             if s:
                 data[arm] = s
         metrics.append({**{kk: vv for kk, vv in m.items() if kk != "k"}, "id": m["k"], "d": data})
+        # The offline suite goes DIRECTLY under the in-loop panel: the two
+        # scoreboards use different decoding (greedy/16k vs tau=0.7/top-p0.95/
+        # 32k/avg@3) and disagree by up to +0.21 on collapsed arms, which is a
+        # finding, not noise -- side by side is the only honest layout.
+        if m["k"] == VAL and suite_curve:
+            metrics.append(dict(
+                t="离线套件 composite", h="τ=0.7·top-p0.95·avg@3 · 五 bench 复合 · 臂均值(报告表)",
+                ref=SUITE_ANCHOR, frac=1, sparse=1, id="suite/composite",
+                d={arm: [pts, None, None] for arm, pts in suite_curve.items()}))
 
     for arm, g in byarm.items():
         clip = g.groupby("step")["response_length/clip_ratio"].mean()
@@ -141,7 +209,8 @@ def main():
             fin=r4(v.iloc[-1]) if len(v) else None, peak=r4(v.max()) if len(v) else None,
             fall=r4(v.max() - v.iloc[-1]) if len(v) else None,
             trunc=r4(last.get("response_length/clip_ratio")), len=r4(last.get("response_length/mean")),
-            ent=r4(last.get("actor/entropy")), nsteps=int(g.step.max()))
+            ent=r4(last.get("actor/entropy")), nsteps=int(g.step.max()),
+            **suite_fin.get(arm, {}))
         own = []
         for c in specific_cols:
             if arm in owners[c]:
@@ -283,7 +352,10 @@ let hot=null, pins=[], filt="all", qs="", cross=null;
 $("#meta").textContent=`${NAMES.length} 臂 · ${D.nmax} 步 · 种子 ${D.seeds.join("/")} · 每 ${D.every} 步`;
 $("#foot").innerHTML=`细线 = 该臂三种子均值;固定臂另画三条种子细线。竖虚线 = 该臂 lock 步(此后 ≥90% rollout 撞帽)。`
  +` 两个信号面板<b>刻意分开</b>:k1 族报 Δℓ,top-k 族报散度 loss,量纲不同不得同图。`
- +` 数据 <span class="mono">docs/data/training_metrics_16k_allkeys.csv.gz</span>,由 <span class="mono">scripts/make_dynamics_page.py</span> 生成。`;
+ +` <b>两块记分牌不可混读</b>:in-loop 是 greedy·16k 帽的健康遥测,离线套件是 τ=0.7·top-p0.95·32k·avg@3 的正式测量;`
+ +` 终止受损的臂在 greedy 下会一路复读到帽而取不出答案,套件分因此可高出 0.2 以上(f3:0.473 → 0.684)。`
+ +` 数据 <span class="mono">docs/data/training_metrics_16k_allkeys.csv.gz</span> + 套件表取自 <span class="mono">docs/campaign_16k_report.md</span>(489/861 格已完成),`
+ +` 由 <span class="mono">scripts/make_dynamics_page.py</span> 生成。`;
 
 /* ---------- sidebar ---------- */
 const chips=[["all","全部"]].concat(ORDER.map(r=>[r,LAB[r]]));
@@ -330,7 +402,8 @@ function renderPins(){
   if(!pins.length){P.innerHTML='<span class="empty">未固定任何臂 — 点击曲线或左侧臂名以固定对比(最多 3)</span>';return}
   P.innerHTML=pins.map((n,i)=>{const A=D.arms[n];
     return `<button class="pinchip" data-a="${n}" style="color:var(${PINCOL[i]})">${n}
-      <span class="st">@250 ${A.fin??"–"} · lock ${A.lock??"从不"} · 截断 ${A.trunc} · ${A.gpuh??"–"} GPU·h</span>
+      <span class="st">@250 ${A.fin??"–"} · lock ${A.lock??"从不"} · 截断 ${A.trunc} · ${A.gpuh??"–"} GPU·h${
+        A.suite!=null?` · 套件 ${A.suite}(AIME ${A.aime??"–"} · AMC ${A.amc??"–"} · Minerva ${A.minerva??"–"} · M500 ${A.s500??"–"})`:""}</span>
       <span class="x">✕</span></button>`}).join("");
   P.querySelectorAll(".pinchip").forEach(b=>b.onclick=()=>togglePin(b.dataset.a));
 }
