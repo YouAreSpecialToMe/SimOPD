@@ -33,12 +33,19 @@ args / the `data=` line), so domain runs split batches by construction.
   `train.parquet` **12,826 rows** — deliberately below the math set's 14,476;
   reward reachability outranked size matching. Val = 200 held-out same-dist
   rows. All 8 surfaces CLEAN at 13-gram (incl. HumanEval+/MBPP+/IFEval).
-- **IF**: `nvidia/Nemotron-Cascade-RL-Instruction-Following` sampled to 14,476
-  (anchor family = the math set's own), constraint ids validated against the
-  vendored registry, kwargs None-stripped. **Gated on an HF license token —
-  prep is one command once the token lands.** Val = google/IFEval 541,
-  strict-prompt-acc. The public fallback (allenai/RLVR-IFeval) was probed and
-  rejected: Tulu's `validate_*` taxonomy is not registry-compatible.
+- **IF** _(corrected 2026-08-13, the day the set was actually built)_: the
+  planned `nvidia/Nemotron-Cascade-RL-Instruction-Following` id was a phantom
+  (404 — and the real dataset is public, no license token needed). Real source:
+  **`nvidia/Nemotron-RL-instruction_following`**, 46,391 prompts, of which 77%
+  use nvidia's EXTENDED constraint taxonomy (bigram_wrapping, last_word_answer,
+  …) that the vendored Google checker cannot instantiate — those score 0
+  forever and read as "hard prompts", so they are dropped by the registry
+  validation. Kept: the **~10.7k fully checkable rows** (deduped) — same ruling
+  as the code set: reward reachability outranks size matching. Loaded by raw
+  jsonl parse (the shard's list offsets trip datasets' arrow builder). Val =
+  google/IFEval 541, strict-prompt-acc (built, registry-asserted). The public
+  fallback (allenai/RLVR-IFeval) was probed and rejected: Tulu's `validate_*`
+  taxonomy is not registry-compatible.
 
 ## 3. Roster
 

@@ -1,6 +1,13 @@
 # Prepare SimOPD instruction-following domain data (anchor-aligned):
-#   train: nvidia/Nemotron-Cascade-RL-Instruction-Following (108,938 prompts with
-#          IFEval-taxonomy constraint annotations), sampled to the math set's size
+#   train: nvidia/Nemotron-RL-instruction_following (46,391 prompts; the
+#          "Nemotron-Cascade-RL-Instruction-Following" id in the original plan
+#          was a phantom -- 404 on the Hub, and the dataset is public, not
+#          gated). 77% of rows use nvidia's EXTENDED constraint taxonomy
+#          (bigram_wrapping, last_word_answer, ...) that the vendored Google
+#          checker cannot instantiate; those rows are dropped by the existing
+#          registry validation, leaving ~10.7k fully checkable rows. Ruling =
+#          the code set's own precedent: reward reachability outranks size
+#          matching (code kept 12,826 for the same reason).
 #   val:   google/IFEval (541 prompts; strict-prompt-acc is the in-loop metric)
 # Output: verl parquet format under ~/data/simopd_if/
 #
@@ -35,7 +42,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "third_party"))
 os.environ.setdefault("NLTK_DISABLE_IMPORT_SECURITY", "1")
 
 DATA_SOURCE = "simopd/ifeval"
-TRAIN_SET = "nvidia/Nemotron-Cascade-RL-Instruction-Following"
+TRAIN_SET = "nvidia/Nemotron-RL-instruction_following"
 VAL_SET = "google/IFEval"
 # The math train set is 14,476 rows; matching it keeps "domain" the only thing the
 # two campaigns disagree about (steps-per-epoch, dataloader rhythm all identical).
@@ -92,9 +99,25 @@ def main():
         _build_val(out_dir, known)
         return
 
-    train = datasets.load_dataset(TRAIN_SET, split="train")
-    cols = set(train.column_names)
-    # The card documents instruction_id_list/prompt/kwargs; fail loudly if the
+    # The repo ships ONE jsonl whose list columns trip datasets' arrow builder
+    # ("Length spanned by list offsets (14705) larger than values array
+    # (14704)"), so the load is a raw line parse ON PURPOSE -- same rows, no
+    # arrow cast, and one malformed line cannot sink the other 46k.
+    from huggingface_hub import hf_hub_download
+    fp = hf_hub_download(TRAIN_SET, "instruction_following.jsonl", repo_type="dataset")
+    train = []
+    bad_json = 0
+    with open(fp) as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                train.append(json.loads(ln))
+            except Exception:
+                bad_json += 1
+    cols = set(train[0].keys())
+    # The file documents instruction_id_list/prompt/kwargs; fail loudly if the
     # schema moved rather than silently writing empty ground truths.
     for need in ("prompt", "instruction_id_list"):
         assert need in cols, f"{TRAIN_SET} schema drift: no '{need}' in {sorted(cols)}"
@@ -102,6 +125,8 @@ def main():
     assert kw_col, f"{TRAIN_SET} schema drift: no kwargs column in {sorted(cols)}"
 
     dropped_unknown = 0
+    dropped_dup = 0
+    seen = set()
     rows = []
     for i, ex in enumerate(train):
         ids = list(ex["instruction_id_list"] or [])
@@ -112,9 +137,14 @@ def main():
         if not ids or len(ids) != len(kws) or any(x not in known for x in ids):
             dropped_unknown += 1
             continue
-        rows.append((ex["prompt"], ids, kws, ex.get("dataset", "") or ex.get("source", "")))
-    print(f"loaded {len(train)}; dropped {dropped_unknown} rows with unknown/misaligned "
-          f"instruction ids (registry has {len(known)})")
+        if ex["prompt"] in seen:
+            dropped_dup += 1
+            continue
+        seen.add(ex["prompt"])
+        rows.append((ex["prompt"], ids, kws, str(ex.get("id", ""))))
+    print(f"loaded {len(train)} ({bad_json} unparseable lines); dropped {dropped_unknown} "
+          f"rows outside the vendored registry ({len(known)} checkable ids), "
+          f"{dropped_dup} duplicate prompts")
 
     import random
     rng = random.Random(args.seed)
