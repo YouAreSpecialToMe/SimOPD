@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Submit the SimOPD fleet to PAI-DLC as ONE elastic pytorchjob: N workers x 8 GPU,
 # every worker running deploy/dlc/worker.sh's supervisor loop. Written 2026-08-13
-# for the 512-card allocation; any worker count works (--workers 64 = 512 GPUs).
+# for the ~500-card allocation; the exact total is not known until the quota
+# lands, so sizing is derived, not assumed (see TOTAL_GPUS below).
 #
 # Why one job and not one-job-per-run (the older deploy/pai/submit_dlc.sh shape):
 # at 512 cards the campaign is ~40-250 independent rows PLUS an eval backlog that
@@ -18,8 +19,9 @@
 # only needs CUDA userspace + python; the venv on /mgfs supplies the rest.
 #
 #   export WORKSPACE_ID=... RESOURCE_ID=... IMAGE=...
-#   bash deploy/dlc/submit_fleet.sh                 # 64 workers = 512 GPUs
-#   WORKERS=8 bash deploy/dlc/submit_fleet.sh       # smoke at 64 GPUs first
+#   bash deploy/dlc/submit_fleet.sh                 # sizes itself: TOTAL_GPUS=500 -> 62 workers = 496
+#   TOTAL_GPUS=512 bash deploy/dlc/submit_fleet.sh  # a clean 512 -> 64 workers
+#   WORKERS=8 bash deploy/dlc/submit_fleet.sh       # smoke at 64 GPUs first (explicit count wins)
 #
 # Governance notes, so the submission stays inside the campaign's rules:
 #   * workers run the EXP tree (BATCH_TAG=16k, BATCH_MIN_WAVE=9) -- they cannot
@@ -34,8 +36,22 @@ WORKSPACE_ID=${WORKSPACE_ID:?set WORKSPACE_ID (PAI console)}
 RESOURCE_ID=${RESOURCE_ID:?set RESOURCE_ID (quota id)}
 IMAGE=${IMAGE:?set IMAGE (any CUDA-12 python base the cluster blesses)}
 
-WORKERS=${WORKERS:-64}
+# Sizing: workers are whole 8-GPU pods, so the fleet is WORKERS = TOTAL_GPUS/8
+# rounded DOWN -- asking for more than the quota holds queues forever, stranding
+# a remainder (500 -> 62 workers = 496, 4 unused) merely wastes the remainder.
+# An explicitly set WORKERS always wins (smoke runs, odd quotas).
+TOTAL_GPUS=${TOTAL_GPUS:-500}
 WORKER_GPU=${WORKER_GPU:-8}
+if [ -z "${WORKERS:-}" ]; then
+    WORKERS=$(( TOTAL_GPUS / WORKER_GPU ))
+    SIZING="target TOTAL_GPUS=$TOTAL_GPUS, remainder $((TOTAL_GPUS - WORKERS * WORKER_GPU)) unused"
+else
+    SIZING="WORKERS set explicitly"
+fi
+if [ "$WORKERS" -lt 1 ]; then
+    echo "FATAL: TOTAL_GPUS=$TOTAL_GPUS < one $WORKER_GPU-GPU worker" >&2; exit 1
+fi
+echo "fleet sizing: $WORKERS workers x $WORKER_GPU GPU = $((WORKERS * WORKER_GPU)) GPUs ($SIZING)"
 WORKER_CPU=${WORKER_CPU:-96}
 WORKER_MEMORY=${WORKER_MEMORY:-800Gi}
 PRIORITY=${PRIORITY:-5}

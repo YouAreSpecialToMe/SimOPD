@@ -126,6 +126,8 @@ Notes on the record:
   without this, eval backfill would starve pair lanes forever at 2-GPU
   granularity.
 
-512-card budget with everything on (steady state): math resume 78 + IF 126×2
-+ code 126×2 + w8b 4×8 + p4b 4×4 ≈ **410 GPUs of training**, remainder + every
-draining lane = eval. One submission.
+Fleet budget with everything on (steady state), sized by `TOTAL_GPUS` (the
+quota is ~500, not a clean 512 — `submit_fleet.sh` derives the worker count):
+math resume 78 + IF 126×2 + code 126×2 + w8b 4×8 + p4b 4×4 ≈ **410 GPUs of
+training**, remainder + every draining lane = eval. At 500 → 62 workers = 496
+usable; the eval share absorbs the difference. One submission.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SimOPD DLC fleet worker -- one instance per 8-GPU worker pod of a single big
-# pytorchjob. Written 2026-08-13 for the 512-card shape.
+# pytorchjob. Written 2026-08-13 for the ~500-card shape; the worker count is
+# elastic (rank-keyed identity), so the loop is size-agnostic by construction.
 #
 # The design inverts the cluster's usual DLC pattern (tools/dlc/exp*.sh: one big
 # Ray job, rank 0 drives, workers `ray start --block`). Our workload is the
