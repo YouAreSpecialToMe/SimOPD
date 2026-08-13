@@ -37,6 +37,13 @@ effects; the eval protocol is M-IV.
   stable; r(log EOS density, final) = +0.653, tighter than truncation itself.
 - The compression dose-response (registered, falsifiable): five same-support
   same-branch arms, magnitude bound ∞/10/log/2.3/1 → lock 122/198/208/247/never.
+  Correction 2026-08-13: lock LAGS harm — by the val-collapse criterion
+  (≥0.10 off peak) the intervals are (100,125]/(175,200]/(175,200]/(200,225]/
+  never, so f1/f2 tie at eval resolution and the strict 5/5 belongs to the lock
+  metric only. b1 dies on BOTH scoreboards at 225 (suite 0.338→0.246; τ0.7/32k
+  does not rescue it) while lock waits until 247: the damage is concurrent with
+  the mid-ratchet (training on degenerate rollouts), and the harm→lock lag
+  grows as the bound shrinks (≈0 / ≈0 / ≈8 / ≈22+).
 - The magnitude-unification hypothesis (registered): the only two capped top-k
   arms (e2, b2) are exactly the unbounded losses.
 - Termination pressure: b5↔j1 controlled pair (verifier zeroes a capped rollout).
