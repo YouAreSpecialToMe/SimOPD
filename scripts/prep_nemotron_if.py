@@ -75,6 +75,11 @@ def main():
     ap.add_argument("--sample", type=int, default=MATH_SET_SIZE,
                     help="training rows to keep (seeded shuffle); 0 = all")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--val-only", action="store_true",
+                    help="build only ifeval.parquet (google/IFEval is public; the "
+                         "TRAIN set is license-gated, so the val set need not wait "
+                         "for the token). The worker gates the domain on "
+                         "train.parquet, so landing val alone starts nothing.")
     args = ap.parse_args()
 
     from instruction_following_eval import instructions_registry
@@ -82,6 +87,10 @@ def main():
 
     out_dir = os.path.expanduser(args.local_save_dir)
     os.makedirs(out_dir, exist_ok=True)
+
+    if args.val_only:
+        _build_val(out_dir, known)
+        return
 
     train = datasets.load_dataset(TRAIN_SET, split="train")
     cols = set(train.column_names)
@@ -119,6 +128,10 @@ def main():
     ds.to_parquet(os.path.join(out_dir, "train.parquet"))
     print(f"train: {len(ds)} -> {out_dir}/train.parquet")
 
+    _build_val(out_dir, known)
+
+
+def _build_val(out_dir, known):
     val = datasets.load_dataset(VAL_SET, split="train")   # IFEval ships as 'train'
     vrows = []
     for i, ex in enumerate(val):
