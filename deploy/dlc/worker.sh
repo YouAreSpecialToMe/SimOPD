@@ -36,6 +36,11 @@ set -uo pipefail
 EXP_ROOT=${EXP_ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 DATA=${DATA:-/mgfs/shared/Group_GY/changhao/simopd_data}
 EVALQ=${EVALQ:-$DATA/evalq_exp}
+# IF-domain reward: two constraint families (number_sentences,
+# capital_word_frequency -- 12.5% of IF rows) need NLTK punkt at score time;
+# without this they raise, score 0 forever, and read as "hard prompts"
+# (caught live-firing real rows, 2026-08-13). Data lives on the shared disk.
+export NLTK_DATA=${NLTK_DATA:-$DATA/nltk_data}
 LOOP_SEC=${LOOP_SEC:-900}
 # Test seams, both default-off. WORKER_DRY=1 makes every pass observational:
 # training uses campaign.sh --dry (claims nothing), eviction logs its decision
