@@ -434,3 +434,22 @@ and domains.
 **判决实验(在途)**:(a) vanilla@125/150 打捞校正——若 ~0.317 成立,则"塌缩臂底层能力 > 稳定臂 c1"定量成立,非机制主张升级;(b) R6:h5 vs h1(±0.02)同稳定类不同监督内容的能力等价性检验;(c) e2/g5@250 canonical 格未落齐(e2@250 仅 aime 两格、g5@225 缺 math500),F2 带对撞继续挂起。
 
 **状态**:命题成立。Finding 2 论文骨架就绪:必要两窗口 + 非充分谱宽 + c1 解离 + 分解式定性读法。
+
+### F4→F6 主链层级(2026-08-14,用户定稿):长度与熵都不是机制变量
+
+**层级(已写入论文 Finding 1 收尾段,commit b722fad)**:
+
+设计坐标 (μ, w, m, Γ)【论文 eq:canonical】 ⟶ 机制 (G_late, R_stop) ⟶ 行为结果 (ℓ̄, c) ⟶ 评测结果 Acc
+
+- **observable length 不是机制变量**,是两力作用后的 outcome(F4 的读法收紧:别把长度曲线当机制证据);
+- **entropy 不在主链上**,多数臂里只是 secondary diagnostic(F1 的"调节因子"定位与此一致);
+- Finding 1 管"坐标→机制→行为",Finding 2 管"行为→评测",主链把两个 Finding 串成一条因果线。
+
+**论文定稿双句(用户原话,已入 Finding 1)**:
+
+1. "Response entropy is neither a reliable explanation nor an early-warning signal for OPD length collapse: most locked policies cross the transition with nearly unchanged entropy."
+   支撑:16 锁死臂中 12 个跨越 lock 前后熵变 <0.15 nats(vanilla 家族 0.26→0.24);跨臂 |ρ(H, acc/掉幅)| ≤ 0.18(p ≥ 0.36);例外即真退化(b3 熵死型、h2/d3/a2 高熵起点型)。
+2. "Response length is strongly associated with failure within a policy, yet carries little directional information across policies once termination failure is accounted for; truncation, rather than length itself, mediates the performance loss."
+   支撑:格内错答/对答长度中位比 5.08×(IQR 2.6–8.8,93% 格 >1);稳臂间 ρ(L250, acc250)=−0.06(p=0.86);全部 canonical 格 ρ(len, comp)=−0.02(p=0.83)。
+
+**方法论提醒**:凡把「变长」「低熵」当塌缩机制解释的说法,先对照本层级——它们分别是行为层和链外诊断,机制层证据必须落在 (G_late, R_stop) 的构造性坐标上。
