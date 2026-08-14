@@ -461,3 +461,11 @@ and domains.
 3. "The fact that most excess tokens are repeated teacher-style closing patterns further suggests that collapse is actively learned at late on-policy states, rather than being a passive failure to emit EOS."(97.3% 模板证据的解释句)
 
 同批瘦身:删 Numbers 段熵反例句(与主链层级段重复)、删 5,690/1,347 内联数(表中已有)、删「measurable/deferred」缓冲句。论文附录另于 0b3d3a3 换为分臂对照小面板(六指标 × 每臂 vs vanilla 虚线 + 方法名),spaghetti 全臂叠加图撤销。
+
+### Finding 1 机制叙事定稿(2026-08-14,用户口述,commit 26bd1c0 入文)
+
+在定稿三句之上补齐"为什么"层,全部入论文 Finding 1:
+
+- **总纲**:Response length is governed by the balance between continuation drive and stopping restoration(斜体入开篇);R_stop 定义放宽为「让 EOS 相对 continuation 占优——直接抬 EOS 或压低 continuation 皆可」。
+- **塌缩条件式**:collapse = 持续的 G_late > R_stop,而非「没有 EOS 监督」;稳定两路线 = 弱油门(G≈0,上排)/ 强刹车(R 持久,右列),塌缩只占剩下那一格。
+- **分臂机制**:h1 双零对照(G≈0 且 R≈0 仍稳 ⇒ 缺停止监督本身不致塌);h2 G≫R 最快锁(37);vanilla/D 系正反馈环 L↑⇒EOS 采样更少(R↓)+晚态更多(G↑)⇒L↑,display 公式入文;c2/c4 驱动仍在(先冲 ~12k)但直接支撑监督不等 EOS 被采样即可调 EOS,内点平衡 G(L*)≈R(L*) 停在 8.6k;c1 第三路线:采样优势构造上非正,晚态压制而非强化 continuation,G 弱或为负——短、稳、学得慢(桥接 Finding 2)。
