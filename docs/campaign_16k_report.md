@@ -487,7 +487,7 @@ _(Rewritten 2026-08-13; the original section predated training completion.)_
 <!-- AUTO:EXPANSION-RESULTS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 (m25–m37) — live results
 
-_Auto-published 2026-08-14T16:54:12Z by `exp_publish.py` from lane logs and suite artifacts; pin `3e8ed2d`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
+_Auto-published 2026-08-14T17:09:56Z by `exp_publish.py` from lane logs and suite artifacts; pin `ffd788d`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
 
 ### In-loop val (greedy MATH500, mean±std over seeds)
 
@@ -525,7 +525,7 @@ _Auto-published 2026-08-14T16:54:12Z by `exp_publish.py` from lane logs and suit
 | h5_gen100 | 75 | **0.285±0.004** | 0.042±0.007 | 0.370±0.010 | 0.121±0.004 | 0.607±0.008 | 3/3 |
 | h5_gen100 | 100 | **0.290±0.006** | 0.048±0.003 | 0.382±0.011 | 0.112±0.001 | 0.619±0.012 | 3/3 |
 | h5_gen100 | 125 | **0.294±0.007** | 0.052±0.003 | 0.388±0.015 | 0.120±0.008 | 0.616±0.008 | 3/3 |
-| h5_gen100 | 150 | **0.297±0.005·2** | 0.050±0.007·2 | 0.389±0.004·2 | 0.127±0.013·2 | 0.621±0.010·2 | 2/3 |
+| h5_gen100 | 150 | **0.296±0.004** | 0.048±0.006 | 0.386±0.006 | 0.131±0.011 | 0.620±0.007 | 3/3 |
 | h5_gen100 | 175 | **0.299±0.001·2** | 0.049±0.007·2 | 0.380±0.008·2 | 0.131±0.002·2 | 0.636±0.002·2 | 2/3 |
 | h5_gen100 | 200 | **0.300±0.001·2** | 0.049±0.004·2 | 0.391±0.002·2 | 0.127±0.000·2 | 0.634±0.004·2 | 2/3 |
 | h5_gen100 | 225 | **0.306±0.002·2** | 0.052±0.001·2 | 0.390±0.004·2 | 0.142±0.003·2 | 0.640±0.000·2 | 2/3 |
