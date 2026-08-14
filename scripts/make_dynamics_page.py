@@ -266,10 +266,30 @@ def main():
         # "first step after which >=90% of rollouts hit the cap for the rest of the run";
         # needs at least two steps of evidence, which is what makes b1's 247 legal.
         lock = None if (last_bad is None or last_bad >= int(g.step.max()) - 1) else last_bad + 1
+        # ...but clip_ratio is measured against the ARM's own generation limit, so a
+        # short-rollout arm (h5 generates K=100 by construction) sits at clip 1.0 from
+        # step ~10 and would wear a false "lock 11" badge. A lock means running away to
+        # the CAMPAIGN cap; require the length to actually be there. Same reason the
+        # in-loop columns are dropped below: a 100-token answer cannot be scored by the
+        # in-loop harness, so h5's val is structurally 0 and its only honest scoreboard
+        # is the offline suite (which puts it level with h1 -- finding R6).
+        capped = g.groupby("step")["response_length/mean"].mean()
+        short = float(capped.max()) < 0.5 * CAP and float(clip.max()) >= 0.9
+        if short:
+            lock = None
         v = g.groupby("step")[VAL].mean().dropna()
+        if short:
+            v = v.iloc[0:0]
         last = g.groupby("step").mean(numeric_only=True).iloc[-1]
+        # Expansion arms carry no hand-assigned regime; defaulting them to "lock"
+        # filed 13 suspended-or-healthy arms under 锁死塌陷 (h5, which never runs away,
+        # among them). Unknown is a bucket, not a verdict -- and the axis letter is
+        # mechanical from the run_id, so derive it rather than showing "–".
         arms_meta[arm] = dict(
-            axis=AXIS.get(arm, "–"), reg=REGIME.get(arm, "lock"), lock=lock, gpuh=GPUH.get(arm),
+            axis=AXIS.get(arm) or (arm[0].upper() if arm[0] in "abcdefghj" else "–"),
+            reg=REGIME.get(arm) or ("lock" if lock else "live"),
+            lock=lock, gpuh=GPUH.get(arm),
+            shortgen=int(round(float(capped.max()))) if short else None,
             fin=r4(v.iloc[-1]) if len(v) else None, peak=r4(v.max()) if len(v) else None,
             fall=r4(v.max() - v.iloc[-1]) if len(v) else None,
             trunc=r4(last.get("response_length/clip_ratio")), len=r4(last.get("response_length/mean")),
@@ -466,7 +486,8 @@ function renderPins(){
   if(!pins.length){P.innerHTML='<span class="empty">未固定任何臂 — 点击曲线或左侧臂名以固定对比(最多 3)</span>';return}
   P.innerHTML=pins.map((n,i)=>{const A=D.arms[n];
     return `<button class="pinchip" data-a="${n}" style="color:var(${PINCOL[i]})">${n}
-      <span class="st">@250 ${A.fin??"–"} · lock ${A.lock??"从不"} · 截断 ${A.trunc} · ${A.gpuh??"–"} GPU·h${
+      <span class="st">${A.shortgen?`生成上限 ${A.shortgen} tok — in-loop 与截断率不可比,只看离线套件`
+        :`@250 ${A.fin??"–"} · lock ${A.lock??"从不"} · 截断 ${A.trunc}`} · ${A.gpuh??"–"} GPU·h${
         A.suite!=null?` · 套件 ${A.suite}(AIME ${A.aime??"–"} · AMC ${A.amc??"–"} · Minerva ${A.minerva??"–"} · M500 ${A.s500??"–"})`:""}</span>
       <span class="x">✕</span></button>`}).join("");
   P.querySelectorAll(".pinchip").forEach(b=>b.onclick=()=>togglePin(b.dataset.a));
