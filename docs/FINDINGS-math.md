@@ -375,3 +375,37 @@ e2/g5 构成 α 律(旧锚,~0.18)与 F2 锁死带([0.223,0.269])的**对撞预�
 若落带内,说明差值≈锁前能力增长(可反推增长率);若落 0.18 附近,
 锁死带的"打捞地板"解释需要修正。连同已注册的 vanilla@125 打捞率>0.3,
 三发子弹同一批格子裁决。
+
+### F5 预测律的定位修正(2026-08-14,用户裁定):candidate empirical law,非 universal law
+
+**能说的**:在当前 math setting、当前师生配对(1.7B←4B-2507)与已测试臂中,
+成熟塌缩后的 accuracy 可被一个 phase-dependent 简式很好预测(held-out 格
+R²=0.96,全局单系数)。**不能说的**:OPD 普遍遵循 α≈0.60。
+
+**四个未测的外推维度**:
+1. **teacher–student pair**:能力差距 / 模型家族变化下 α 是否稳定;
+2. **domain**:math 之外(code / IF / agent)是否仍是 pre-answer → post-answer
+   两相位结构;
+3. **model scale**:1.7B/4B 之外;
+4. **collapse mechanism**:若某臂的塌缩不是模板复读型而是别种退化,关系
+   是否成立(g2——唯一未锁满、α 离群 0.41——已是此维度的弱提示)。
+
+**值得追的是更高层结构** Acc_total ≈ C·[1−(1−α_phase)·r],判据三条:
+(i) 同一 collapse phase 内 α 相对稳定;(ii) 少量 calibration 即可预测
+held-out arms/checkpoints;(iii) pre-answer 与 post-answer 相位对应显著
+不同的 α。三条成立即是很强的 general principle;**升级为 collapse law 的
+条件** = code 与不同师生对复现「early α≈0,mature α∈[0.5,0.7]」。
+
+**测试台现状**:维度 1、2 的基础设施已建成——w8b(8B←32B)/p4b(4B←14B)
+配对与 IF/code 域战役(42 臂 × 3 seed × 2 域,数据集/判分/preflight 全绿)
+正是跨对、跨域复测的现成载体。注意域侧的交互:DOMAINS-AMENDMENT 已注册
+P-domain-no-collapse(4k 帽下自然长度短,EOS 不应自饿)——若域内根本不塌,
+此律在该域的检验改走别的构造(如对健康 ckpt 做人为截断扫描直接量 α),
+而这本身又是对「α 是策略性质还是截断机制性质」的更干净分离。
+
+**论文标准措辞(用户定稿)**:Preliminary evidence suggests that OPD
+collapse may admit a simple phase-dependent decomposition between underlying
+capability and delivery failure. In our current math setting, a single
+mature-collapse coefficient predicts held-out collapsed cells accurately; we
+will test whether the same structure transfers across teacher–student pairs
+and domains.
