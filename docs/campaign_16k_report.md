@@ -487,7 +487,7 @@ _(Rewritten 2026-08-13; the original section predated training completion.)_
 <!-- AUTO:EXPANSION-RESULTS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 (m25–m37) — live results
 
-_Auto-published 2026-08-14T04:07:38Z by `exp_publish.py` from lane logs and suite artifacts; pin `f35b3bb`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
+_Auto-published 2026-08-14T13:15:15Z by `exp_publish.py` from lane logs and suite artifacts; pin `91c13fe`. 39 runs observed, 3 at step 250. Same protocol as the tables above (greedy MATH500 in-loop; suite = τ0.7/top-p0.95/32k). ⚠ `h5_gen100`'s in-loop val is greedy@**100-token budget** — structurally ~0, NOT main-table-comparable; its judge is the suite table below._
 
 ### In-loop val (greedy MATH500, mean±std over seeds)
 
@@ -509,5 +509,20 @@ _Auto-published 2026-08-14T04:07:38Z by `exp_publish.py` from lane logs and suit
 
 ### Post-hoc suite composites (complete checkpoints only)
 
-_no complete suite artifacts yet_
+| arm | step | composite | AIME24+25 | AMC23 | Minerva | MATH500 | seeds |
+|---|---|---|---|---|---|---|---|
+| b4_jsd_b0.1 | 25 | **0.179±0.004·2** | 0.016±0.002·2 | 0.223±0.002·2 | 0.089±0.005·2 | 0.387±0.007·2 | 2/3 |
+| b4_jsd_b0.9 | 25 | **0.212·1** | 0.021·1 | 0.279·1 | 0.093·1 | 0.455·1 | 1/3 |
+| c2_qb_perseq | 25 | **0.282±0.000·2** | 0.043±0.000·2 | 0.360±0.002·2 | 0.124±0.009·2 | 0.600±0.010·2 | 2/3 |
+| e1_pl_rank_a0 | 25 | **0.123±0.001** | 0.012±0.002 | 0.152±0.003 | 0.058±0.004 | 0.272±0.007 | 3/3 |
+| e2_set_coverage_a0 | 25 | **0.245±0.001** | 0.019±0.002 | 0.306±0.013 | 0.128±0.009 | 0.526±0.001 | 3/3 |
+| f2_clip2.3 | 25 | **0.252±0.004** | 0.026±0.001 | 0.323±0.014 | 0.119±0.004 | 0.540±0.005 | 3/3 |
+| f4_posclip | 25 | **0.273±0.006** | 0.035±0.005 | 0.346±0.013 | 0.135±0.007 | 0.576±0.004 | 3/3 |
+| f5_tanh | 25 | **0.273±0.002** | 0.040±0.004 | 0.337±0.006 | 0.133±0.010 | 0.583±0.004 | 3/3 |
+| h5_gen100 | 25 | **0.287±0.004** | 0.039±0.002 | 0.372±0.004 | 0.138±0.012 | 0.598±0.008 | 3/3 |
+| h5_gen100 | 50 | **0.294±0.000·2** | 0.049±0.002·2 | 0.384±0.014·2 | 0.123±0.010·2 | 0.620±0.006·2 | 2/3 |
+| h5_gen100 | 75 | **0.283±0.004·2** | 0.039±0.007·2 | 0.371±0.014·2 | 0.121±0.005·2 | 0.602±0.002·2 | 2/3 |
+| h5_gen100 | 100 | **0.288±0.005·2** | 0.049±0.004·2 | 0.379±0.014·2 | 0.111±0.001·2 | 0.612±0.004·2 | 2/3 |
+| h5_gen100 | 125 | **0.296·1** | 0.049·1 | 0.396·1 | 0.123·1 | 0.617·1 | 1/3 |
+| h5_gen100 | 150 | **0.293·1** | 0.055·1 | 0.386·1 | 0.118·1 | 0.614·1 | 1/3 |
 <!-- AUTO:EXPANSION-RESULTS END -->
