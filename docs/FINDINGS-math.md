@@ -453,3 +453,11 @@ and domains.
    支撑:格内错答/对答长度中位比 5.08×(IQR 2.6–8.8,93% 格 >1);稳臂间 ρ(L250, acc250)=−0.06(p=0.86);全部 canonical 格 ρ(len, comp)=−0.02(p=0.83)。
 
 **方法论提醒**:凡把「变长」「低熵」当塌缩机制解释的说法,先对照本层级——它们分别是行为层和链外诊断,机制层证据必须落在 (G_late, R_stop) 的构造性坐标上。
+
+### Finding 1 论文定稿句(2026-08-14,用户原话,commit 7b3ccfc 入文)
+
+1. "Length collapse is not caused by missing EOS supervision alone. It emerges when late-position training continues to favor generation while the counteracting stopping signal becomes too weak."(开篇主张,取代 starvation 叙事)
+2. "Different OPD designs avoid collapse either by removing late continuation pressure or by maintaining a persistent stopping-restoration channel."(2×2 的设计空间总结:上排=去驱动,右列=保恢复)
+3. "The fact that most excess tokens are repeated teacher-style closing patterns further suggests that collapse is actively learned at late on-policy states, rather than being a passive failure to emit EOS."(97.3% 模板证据的解释句)
+
+同批瘦身:删 Numbers 段熵反例句(与主链层级段重复)、删 5,690/1,347 内联数(表中已有)、删「measurable/deferred」缓冲句。论文附录另于 0b3d3a3 换为分臂对照小面板(六指标 × 每臂 vs vanilla 虚线 + 方法名),spaghetti 全臂叠加图撤销。
