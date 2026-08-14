@@ -116,6 +116,50 @@ def parse_suite(md_path):
     return curve, finals
 
 
+def load_cells(path):
+    """Offline suite curves straight from post_eval_cells.csv (canonical source;
+    the report tables lag behind it). Returns {metric_id: {arm: [[step, v], ...]}}.
+
+    cap  = P(correct|finished) per cell acc*(1-trc)/(1-tr), cell-mean -- the
+           capability line (F5/F6 口径,截断率高时受幸存者选择偏差,读趋势不读绝对值)
+    salv = P(correct|truncated) per cell trc*acc/tr over cells with tr>0
+    comp = canonical composite (aime24+25 合组后四组均值,仅完整格)
+    """
+    if not os.path.exists(path):
+        return {}
+    c = pd.read_csv(path)
+    c = c[c.run.str.contains("16k", na=False)].copy()
+    c["grp"] = c.bench.replace({"aime24": "aime", "aime25": "aime"})
+    keys = ("comp", "cap", "salv", "trunc", "stop",
+            "aime24", "aime25", "amc23", "math500", "minerva")
+    out = {k: {} for k in keys}
+    for (arm, step), d in c.groupby(["arm", "step"]):
+        step = int(step)
+        if d.grp.nunique() == 4:
+            out["comp"].setdefault(arm, []).append(
+                [step, r4(d.groupby("grp").avg_at_k.mean().mean())])
+        ok = d.dropna(subset=["avg_at_k", "trunc_rate", "trunc_rate_correct"])
+        fin = ok[ok.trunc_rate < 1]
+        if len(fin):
+            cap = (fin.avg_at_k * (1 - fin.trunc_rate_correct)
+                   / (1 - fin.trunc_rate)).mean()
+            out["cap"].setdefault(arm, []).append([step, r4(cap)])
+        tr = ok[ok.trunc_rate > 0]
+        if len(tr):
+            salv = (tr.trunc_rate_correct * tr.avg_at_k / tr.trunc_rate).mean()
+            out["salv"].setdefault(arm, []).append([step, r4(salv)])
+        out["trunc"].setdefault(arm, []).append([step, r4(d.trunc_rate.mean())])
+        out["stop"].setdefault(arm, []).append([step, r4(d.fr_stop.mean())])
+        for b in ("aime24", "aime25", "amc23", "math500", "minerva"):
+            bb = d[d.bench == b]
+            if len(bb):
+                out[b].setdefault(arm, []).append([step, r4(bb.avg_at_k.mean())])
+    for k in out:
+        for arm in out[k]:
+            out[k][arm].sort()
+    return out
+
+
 def r4(v):
     if v is None or pd.isna(v):
         return None
@@ -142,8 +186,11 @@ def main():
     ap.add_argument("--suite-md", default=os.path.join(ROOT, "docs/campaign_16k_report.md"),
                     help="offline suite tables are read from the report (regenerated from "
                          "the eval parquets); pass /dev/null to build the training-only page")
+    ap.add_argument("--cells", default=os.path.join(ROOT, "docs/data/post_eval_cells.csv"),
+                    help="per-cell suite table; feeds the eval-set panel block")
     a = ap.parse_args()
     suite_curve, suite_fin = parse_suite(a.suite_md)
+    cells = load_cells(a.cells)
 
     df = pd.concat([pd.read_csv(p) for p in a.csv], ignore_index=True)
     seeds = sorted(int(s) for s in df.seed.unique())
@@ -187,11 +234,28 @@ def main():
         # scoreboards use different decoding (greedy/16k vs tau=0.7/top-p0.95/
         # 32k/avg@3) and disagree by up to +0.21 on collapsed arms, which is a
         # finding, not noise -- side by side is the only honest layout.
-        if m["k"] == VAL and suite_curve:
+        if m["k"] == VAL and (cells.get("comp") or suite_curve):
+            comp = cells.get("comp") or suite_curve
+            src = "cells 表" if cells.get("comp") else "报告表"
             metrics.append(dict(
-                t="离线套件 composite", h="τ=0.7·top-p0.95·avg@3 · 五 bench 复合 · 臂均值(报告表)",
+                t="离线套件 composite", h="τ=0.7·top-p0.95·32k·avg@k · aime合组四组均值 · " + src,
                 ref=SUITE_ANCHOR, frac=1, sparse=1, id="suite/composite",
-                d={arm: [pts, None, None] for arm, pts in suite_curve.items()}))
+                d={arm: [pts, None, None] for arm, pts in comp.items()}))
+            for key, t, hh in (
+                ("cap",     "P(对|完成)",    "能力线:完成样本正确率 · cell 均值(高截断臂受幸存者偏差,读趋势)"),
+                ("salv",    "P(对|截断)",    "打捞率:截断样本仍被判对的比例(答案后循环的指纹)"),
+                ("trunc",   "套件截断率",    "32k 预算 τ0.7 下仍撞帽的比例"),
+                ("stop",    "自主停止率",    "finish_reason=stop 占比 · 交付门"),
+                ("aime24",  "AIME24 avg@32", "逐 bench · τ=0.7·32k"),
+                ("aime25",  "AIME25 avg@32", "逐 bench · τ=0.7·32k"),
+                ("amc23",   "AMC23 avg@32",  "逐 bench · τ=0.7·32k"),
+                ("math500", "MATH500 avg@3", "逐 bench · τ=0.7·32k"),
+                ("minerva", "Minerva avg@3", "逐 bench · τ=0.7·32k"),
+            ):
+                if cells.get(key):
+                    metrics.append(dict(
+                        t=t, h=hh, ref=None, frac=1, sparse=1, id="suite/" + key,
+                        d={arm: [pts, None, None] for arm, pts in cells[key].items()}))
 
     for arm, g in byarm.items():
         clip = g.groupby("step")["response_length/clip_ratio"].mean()
