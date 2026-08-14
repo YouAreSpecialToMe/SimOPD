@@ -632,7 +632,7 @@ installed in the campaign venv and installing into it while rows are flying is n
 <!-- AUTO:EXPANSION-DYNAMICS BEGIN (exp_publish.py -- do not edit inside) -->
 ## Expansion waves 9–15 — dynamics at a glance
 
-_Auto-published 2026-08-14T02:17:09Z; latest logged step per arm, seed-averaged. Compare against §2's table for the 16k-campaign arms._
+_Auto-published 2026-08-14T02:32:56Z; latest logged step per arm, seed-averaged. Compare against §2's table for the 16k-campaign arms._
 
 | arm | step | len | trunc | entropy | s/it |
 |---|---|---|---|---|---|
