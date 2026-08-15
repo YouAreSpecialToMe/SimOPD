@@ -155,7 +155,16 @@ def main():
                    help="enable_thinking=True in the chat template (thinking-regime ceilings "
                         "and the annex cells; pair with --max-tokens 16384)")
     p.add_argument("--tp", type=int, default=1)
-    p.add_argument("--gpu-mem-util", type=float, default=0.85)
+    # 0.85 left ~10 GiB of an 80 GiB card unused, and KV capacity is the binding
+    # constraint of this suite: at 32k per request the cache admits only 18
+    # concurrent sequences, so decode runs at ~80 tok/s x 18 while the 1.7B model
+    # itself is nowhere near compute-bound. vLLM's own "fully utilize" figure
+    # (73.4 GiB KV, util ~0.99) leaves no room for the chunked-prefill activation
+    # spike; 0.93 keeps a 5.5 GiB margin over the measured 5.0 GiB of weights +
+    # activation + CUDA graphs and still buys ~9% concurrency. Resource knob only:
+    # sampling, seeds and n are untouched, so cells stay comparable to the ones
+    # already on disk.
+    p.add_argument("--gpu-mem-util", type=float, default=0.93)
     p.add_argument("--parallel", type=int, default=None,
                    help="evalplus unit-test workers (code benchmarks only); default = cpu count")
     # One resolution chain for BOTH fleets, and it must match verdict.py's read dir
