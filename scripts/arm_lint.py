@@ -40,6 +40,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # exactly the ceremony a branch change should cost.
 EXPECT_PG = {
     "vanilla": True, "a1_gkd_mix0.5": True, "a3_offpolicy": True, "a2_coldstart": True,
+    "a4_dagger_anneal": True, "a5_aggrevate": True,
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,
     "b4_jsd": False, "b4_jsd_b0.1": False, "b4_jsd_b0.9": False, "b5_k2": False,
     "c1_lsm_topk32_renorm": True, "c1_direct": False, "c1_tailbucket": True,
@@ -96,6 +97,15 @@ def main():
     for a in arms:
         rid, env, status = a["run_id"], (a.get("env") or {}), a["status"]
         tag = f"[{rid}]"
+
+        # One dose, one knob: gkd_mix.install() refuses SIMOPD_GKD_LAMBDA +
+        # SIMOPD_GKD_SCHEDULE together (constant vs schedule claiming the same
+        # coin); catch it at registration so that refusal never actually fires.
+        for ek in [k for k in a if k.startswith("env")]:
+            d = a.get(ek)
+            if isinstance(d, dict) and "SIMOPD_GKD_LAMBDA" in d and "SIMOPD_GKD_SCHEDULE" in d:
+                problems.append(f"{tag} {ek} sets both SIMOPD_GKD_LAMBDA and "
+                                f"SIMOPD_GKD_SCHEDULE -- one dose, one knob")
 
         # --- env knobs actually consumed somewhere ---
         for k in env:

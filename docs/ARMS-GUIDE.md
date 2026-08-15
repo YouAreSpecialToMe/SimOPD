@@ -185,15 +185,41 @@ sbatch slurm/coldstart.sbatch        # 阶段 1(或改写成本地脚本)
 > 它在 `campaign.tsv` 里被显式排除在共享池之外,正是因为它曾经抢到一条泳道、失败、
 > 然后被无限重试。
 
-#### `a1_gkd_mix0.5` — GKD 混合(**唯一未实现的臂**)
+#### `a1_gkd_mix0.5` — GKD 混合(门控:等预计算缓存)
 
 **直观**:每个 batch 里混入一部分老师自己生成的响应(off-policy),λ=0.5。
 
-**为什么卡住**:替换必须发生在 **generation 之后、`compute_log_prob` 之前**,而
-verl v1 里那条路是 TransferQueue 的 agent loop
-(`trainer_base._submit_batch_to_rollout → AgentLoopManager`),不是一个可换的调用点 ——
-属于真正的 trainer 手术,不是一个 loss 或一个 patch。`a2_coldstart` 已经给 A 轴提供了
-一个 off-policy 臂(同一干预,分阶段而非交错),所以推迟。
+**历史**:最初以为要动 TransferQueue 的 agent loop(真 trainer 手术)所以推迟;
+2026-08-06 借 i1 的 rollout-server 注入路径落地(`src/simopd/gkd_mix.py`:
+per-(prompt,step) 确定性掷币,命中改为对缓存的 teacher 响应打分而非生成)。
+现门控在 `scripts/gen_offpolicy.py` 的一次性预计算上,与 a3/a4 共享解锁。
+
+#### `a4_dagger_anneal` — DAgger 退火(arXiv 2605.12913)
+
+**直观**:和 a1 同一台机器,但 off-policy 比例不是常数而是 **λ(step) 从 1.0
+退火到 0.0** —— 训练开始时全部抄老师范文,结束时全部自己写,渐进过渡。
+每条 response 仍整条归属单一作者(论文 turn 级规则的单轮镜像;token 级穿插
+在 multi-turn 工作中被判不稳定,这里同样不做)。
+
+**做法**:`SIMOPD_GKD_SCHEDULE="mode=linear,start=1.0,end=0.0,warmup=0,decay=250"`
+(`src/simopd/gkd_schedule.py`,STACX DAggerSchedule 的逐式移植:linear/cosine/
+exponential/step 四种模式 + warmup,快降慢降全可调)。主形状全窗线性的平均剂量
+0.502 ≈ a1 的常数 0.5,{a1,a4} 构成匹配平均剂量对;decay=125 半窗变体(= 发表
+recipe 的归一化形状)已注册为裁定臂。实测遥测(λ 目标/实现、师生 token 比例)
+经 `gkd_stats` 接力落到 wandb 的 `distillation/gkd_*` 面板。
+
+**执行**:解锁与 a1 完全相同(同一缓存、同一 3 步彩排),彩排额外要求看到
+λ_realized 贴合调度曲线、wandb gkd 面板出数。
+
+#### `a5_aggrevate` — AggreVaTe 单切换(未实现,设计已冻结)
+
+**直观**:每条 response 只有一个切换点 κ~U{0, T_max(step)}:学生写 0..κ−1,
+teacher **在线**从 κ 续写到结束(前缀依赖当前学生权重,缓存不可能)。T_max
+从 0 线性升到 16384,step 0 即论文的 iter-0 纯 teacher 冷启动;与 a4 共享
+归一化窗口,{a4,a5} 把"混合结构"隔离成唯一变量。κ~U 天然前载 teacher 剂量
+(实测 teacher-token 占比衰减快于名义曲线)—— 以遥测实测为准,记录在案。
+待做手术:rollout server 内两段生成(现成零件:h5 截断生成 + gkd_mix 打分
+技巧 + lane 内 teacher 引擎)。
 
 ---
 
@@ -591,8 +617,10 @@ DISTILLATION_LOSS_MODE=k1_firstseg  SIMOPD_FIRST_SEGMENT_K=512
 | run_id | 轴 | 一句话 | loss_mode | 状态 |
 |---|---|---|---|---|
 | `vanilla` | — | sampled-token reverse KL,PG 形式 | `k1_rec` | stock |
-| `a1_gkd_mix0.5` | A | GKD λ=0.5 混合 | — | **blocked** |
+| `a1_gkd_mix0.5` | A | GKD λ=0.5 混合 | `k1_rec` | needs(等预计算) |
 | `a2_coldstart` | A | 离策略 SFT 冷启动 → OPD | `k1_rec` | stock*(需前置) |
+| `a4_dagger_anneal` | A | DAgger:λ(step) 1→0 退火,整条 response 掷币 | `k1_rec` | needs(等预计算) |
+| `a5_aggrevate` | A | AggreVaTe:学生前缀 κ + teacher 在线续写 | `k1_rec` | needs(等手术) |
 | `b1_skew_kl` | B | `KL(π ‖ 0.1π+0.9q)`,有界 | `skew_kl_a0.1` | stock |
 | `b2_forward_kl` | B | forward KL(已知更差的对照) | `forward_kl_topk` | stock |
 | `c1_lsm_topk32_renorm` | C | teacher top-32 上的截断 reverse KL | `lsm_topk_renorm` | stock |

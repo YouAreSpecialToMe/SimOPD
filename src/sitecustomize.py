@@ -203,7 +203,8 @@ def _after_vllm_rollout_utils():
 # BEFORE a run starts, on the machine that will run it -- the failure this guards was
 # a module that existed on the author's box and on none of the four that needed it.
 REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch",
-                    "simopd.zmq_lane", "simopd.gkd_mix", "simopd.b3_additive")
+                    "simopd.zmq_lane", "simopd.gkd_mix", "simopd.gkd_schedule",
+                    "simopd.gkd_stats", "simopd.b3_additive")
 
 
 # verl module -> what to run once it has finished executing

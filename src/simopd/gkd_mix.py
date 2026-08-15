@@ -22,11 +22,19 @@ behavior-policy term). The wrapper reuses the ORIGINAL generate as a scoring cal
 (prompt = prompt_ids + cached response, prompt_logprobs=0, max_tokens=1) and slices
 the response tail -- the same tail-length pattern informativeness.py uses -- so the
 returned TokenOutput is shaped exactly like a generation result.
+
+a4_dagger_anneal rides this same wrapper: SIMOPD_GKD_SCHEDULE makes the coin's lam
+step-dependent (gkd_schedule, the STACX DAggerSchedule port), and a per-step bucket
+counts realised sequence outcomes plus delivered teacher/student token totals,
+relayed to the trainer's wandb row through gkd_stats (losses._gkd_relay_metrics).
 """
 
+import atexit
 import hashlib
 import os
 import sys
+
+from simopd import gkd_schedule, gkd_stats
 
 _MARK = "_simopd_gkd"
 _cache = None
@@ -38,6 +46,56 @@ _stats = {"hit": 0, "decline": 0, "miss": 0, "pass": 0}
 # any future ablation away from 0.5 must convert, or it silently inverts the axis.
 def _lam():
     return float(os.environ.get("SIMOPD_GKD_LAMBDA", "0.5"))
+
+
+_sched = None
+
+
+def _lam_at(step):
+    """P(off-policy) at this step. SIMOPD_GKD_SCHEDULE (a4_dagger_anneal) makes it
+    step-dependent via gkd_schedule; otherwise the constant SIMOPD_GKD_LAMBDA
+    (a1/a3, byte-identical to the pre-schedule behavior). Setting both is refused
+    at install() -- two knobs claiming one dose is the ambiguity class arm_lint
+    exists for, and the coin must have exactly one registered curve."""
+    global _sched
+    spec = os.environ.get("SIMOPD_GKD_SCHEDULE", "")
+    if not spec:
+        return _lam()
+    if _sched is None:
+        _sched = gkd_schedule.parse(spec)
+    return _sched.value_at(step)
+
+
+def _knob():
+    spec = os.environ.get("SIMOPD_GKD_SCHEDULE", "")
+    return f"schedule[{spec}]" if spec else f"lambda={_lam()}"
+
+
+# Per-step telemetry bucket (a4 requirement, applied to every gkd arm): the
+# realised sequence- and token-level mix is measured HERE, where the decision and
+# the delivered tokens both live, and relayed to the trainer's wandb row through
+# gkd_stats. `step` rollover (any change, including backwards on resume) flushes;
+# atexit catches the final step. Only training-path requests are counted -- the
+# scoring passthrough never touches the bucket.
+_bucket = {"step": None, "lam_target": 0.0, "hit": 0, "decline": 0, "miss": 0,
+           "teacher_tokens": 0, "student_tokens": 0, "miss_tokens": 0}
+
+
+def _flush_bucket():
+    if _bucket["step"] is None or (_bucket["hit"] + _bucket["decline"] + _bucket["miss"]) == 0:
+        return
+    gkd_stats.append(dict(_bucket))
+
+
+def _roll_bucket(step, lam):
+    # Steps are barriers in the protocol loop (generate -> train -> sync), so the
+    # first request of a new step flushes the finished one; a straggler landing
+    # after the roll would leak into the next bucket -- tolerated, this is a
+    # monitoring channel and the sync loop does not pipeline steps.
+    if step != _bucket["step"]:
+        _flush_bucket()
+        _bucket.update(step=step, lam_target=lam, hit=0, decline=0, miss=0,
+                       teacher_tokens=0, student_tokens=0, miss_tokens=0)
 
 
 def _load_cache():
@@ -61,7 +119,7 @@ def _load_cache():
                   f"(pre-audit artifact) -- regenerate before trusting it",
                   file=sys.stderr, flush=True)
         _cache = {r["prefix_hash"]: list(r["response_ids"]) for _, r in df.iterrows()}
-        print(f"[simopd] gkd_mix: cache loaded, {len(_cache)} prompts, lambda={_lam()}",
+        print(f"[simopd] gkd_mix: cache loaded, {len(_cache)} prompts, {_knob()}",
               file=sys.stderr, flush=True)
     return _cache
 
@@ -95,6 +153,16 @@ def tail_logprobs(extra_fields, n):
 def install():
     if os.environ.get("SIMOPD_GKD_CACHE", "") == "":
         return
+    if os.environ.get("SIMOPD_GKD_SCHEDULE", "") and os.environ.get("SIMOPD_GKD_LAMBDA", "") != "":
+        raise RuntimeError(
+            "gkd_mix: both SIMOPD_GKD_SCHEDULE and SIMOPD_GKD_LAMBDA are set -- two knobs "
+            "claiming one dose. An arm registers exactly one curve (a1/a3: constant LAMBDA; "
+            "a4: SCHEDULE); unset the other.")
+    if os.environ.get("SIMOPD_GKD_SCHEDULE", ""):
+        # Parse eagerly: a typo'd schedule must kill the run here, not at step 0's
+        # first coin inside the server actor where the traceback is three layers deep.
+        gkd_schedule.parse(os.environ["SIMOPD_GKD_SCHEDULE"])
+    atexit.register(_flush_bucket)
     mod = sys.modules.get("verl.workers.rollout.vllm_rollout.vllm_async_server")
     if mod is None:
         return
@@ -115,16 +183,27 @@ def install():
         key = prompt_key(prompt_ids)
         cached = cache.get(key)
         step = getattr(self, "global_steps", 0) or 0
-        if cached is None or not coin(key, step, _lam()):
+        lam = _lam_at(step)
+        _roll_bucket(step, lam)
+        if cached is None or not coin(key, step, lam):
             _stats["miss" if cached is None else "decline"] += 1
+            _bucket["miss" if cached is None else "decline"] += 1
             seen = _stats["hit"] + _stats["decline"] + _stats["miss"]
             if seen % 500 == 1:
                 elig = _stats["hit"] + _stats["decline"]
-                lam = _stats["hit"] / elig if elig else 0.0
-                print(f"[simopd] gkd_mix: realised lambda {lam:.3f} over {elig} eligible "
+                real = _stats["hit"] / elig if elig else 0.0
+                print(f"[simopd] gkd_mix: realised lambda {real:.3f} over {elig} eligible "
                       f"(hit {_stats['hit']} / declined {_stats['decline']}); "
-                      f"{_stats['miss']} cache misses (val/unseen)", file=sys.stderr, flush=True)
-            return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
+                      f"{_stats['miss']} cache misses (val/unseen); "
+                      f"target lambda {lam:.3f} @ step {step}", file=sys.stderr, flush=True)
+            out = await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
+            tok = getattr(out, "token_ids", None)
+            if tok is not None:
+                # Misses are val/unseen prompts: kept out of student_tokens so
+                # gkd_teacher_token_frac measures the TRAINING mix, not diluted
+                # by validation generations on val-frequency steps.
+                _bucket["student_tokens" if cached is not None else "miss_tokens"] += len(tok)
+            return out
 
         _stats["hit"] += 1
         max_tokens = sampling_params.get("max_tokens") if isinstance(sampling_params, dict) else None
@@ -151,7 +230,11 @@ def install():
         # early); pass the abort through instead of KeyError-ing inside the server
         # actor (audit 2026-08-07 F4).
         if getattr(scored, "stop_reason", None) == "aborted" or "prompt_logprobs" not in extra:
+            # Aborted hits deliver nothing, so the bucket counts nothing: the
+            # telemetry reports tokens that actually reached the batch.
             return scored
+        _bucket["hit"] += 1
+        _bucket["teacher_tokens"] += len(resp)
         lps = tail_logprobs(extra, len(resp))
         extra.pop("prompt_logprobs", None); extra.pop("prompt_ids", None)
         # "completed" is verl's vocabulary for a finished generation ("stop" was ours
@@ -161,5 +244,5 @@ def install():
 
     setattr(generate, _MARK, True)
     cls.generate = generate
-    print(f"[simopd] gkd_mix armed on vLLMHttpServer.generate (lambda={_lam()})",
-          file=sys.stderr, flush=True)
+    print(f"[simopd] gkd_mix armed on vLLMHttpServer.generate ({_knob()}; "
+          f"stats -> {gkd_stats.path()})", file=sys.stderr, flush=True)

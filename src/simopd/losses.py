@@ -152,6 +152,42 @@ def _clip_metrics(losses, mask, distillation_config):
     return {"distillation/clip_hit_rate": Metric(aggregation=AggregationType.MEAN, value=hit)}
 
 
+def _gkd_relay_metrics():
+    """A-axis mixing telemetry (a1/a3/a4): re-emit the rollout server's newest
+    flushed per-step row (gkd_stats sideband) as wandb metrics. Armed only when
+    the arm is (SIMOPD_GKD_CACHE set); vanilla stays byte-identical. Lives in
+    k1_rec because the A axis pins the protocol loss -- an A arm on any other
+    loss mode has no registered form, and would lose this panel (loudly: the
+    wandb keys simply never appear).
+
+    Keys: gkd_lambda_target (the schedule/constant the coin used),
+    gkd_lambda_realized (hit / eligible, sequence-level), gkd_teacher_token_frac
+    (delivered teacher tokens / all delivered rollout tokens -- the dose that
+    actually reached the batch), raw counts, and gkd_stats_step (the server step
+    the row describes; trails the trainer step by ~1 by construction, join on it).
+    """
+    if os.environ.get("SIMOPD_GKD_CACHE", "") == "":
+        return {}
+    from simopd import gkd_stats
+
+    row = gkd_stats.latest()
+    if not row:
+        return {}
+    elig = row.get("hit", 0) + row.get("decline", 0)
+    tt, st = row.get("teacher_tokens", 0), row.get("student_tokens", 0)
+    vals = {
+        "gkd_lambda_target": row.get("lam_target"),
+        "gkd_lambda_realized": (row["hit"] / elig) if elig else None,
+        "gkd_teacher_token_frac": (tt / (tt + st)) if (tt + st) else None,
+        "gkd_teacher_tokens": tt,
+        "gkd_student_tokens": st,
+        "gkd_cache_miss": row.get("miss", 0),
+        "gkd_stats_step": row.get("step"),
+    }
+    return {"distillation/" + k: Metric(aggregation=AggregationType.MEAN, value=float(v))
+            for k, v in vals.items() if v is not None}
+
+
 @register_distillation_loss(
     DistillationLossSettings(names=["k1_rec"], use_estimator=True)
 )  # type: ignore[arg-type]
@@ -166,6 +202,7 @@ def k1_with_recorder(config, distillation_config, model_output, data):
     metrics = {"distillation/abs_loss": Metric(aggregation=AggregationType.MEAN, value=losses[mask].abs().mean())}
     metrics.update(_delta_ell_metrics(losses, mask))
     metrics.update(_clip_metrics(losses, mask, distillation_config))
+    metrics.update(_gkd_relay_metrics())
     return losses, metrics
 
 

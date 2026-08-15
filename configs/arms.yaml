@@ -97,6 +97,103 @@ arms:
     env: {}
     seam: "identical to a1_gkd_mix0.5 (shared machinery); unlock = a1's unlock"
 
+  - run_id: a4_dagger_anneal
+    axis: A
+    cohort: supplement
+    desc: "DAgger anneal (2605.12913): P(off-policy) = lambda(step), 1.0 -> 0.0, whole-response coin"
+    status: needs
+    note: "ADDED 2026-08-15 (DAgger import): gives the lambda ladder {a3, a1,
+           vanilla} its SCHEDULE dimension. Same gkd_mix machinery; the coin's
+           dose is lambda(step) from src/simopd/gkd_schedule.py -- a verbatim
+           port of STACX dagger_schedule.py::DAggerSchedule (same four modes,
+           warmup/decay semantics, equations), so recipes quoted in the paper's
+           units transfer by renaming iteration -> step. Both knobs are
+           P(teacher-sourced): no inversion (unlike the paper-lambda trap above).
+           MIXING ATOMICITY: whole-response per-(prompt,step) coin -- the
+           single-turn image of the paper's turn-level rule (it rejects
+           token-level interleaving as unstable); in single turn the mixture
+           exists only ACROSS the batch, every sequence single-author.
+           PRIMARY shape mode=linear,start=1.0,end=0.0,decay=250: mean dose over
+           250 steps = 0.502 == a1's constant 0.5, so {a1, a4} isolates schedule
+           SHAPE at matched average dose (the c2_qb_fixed8 discipline).
+           REGISTERED ADJUDICATOR, not launched with the primary: decay=125 --
+           the published agentic recipe (0.2/round x 10 iters) in normalized
+           time: anneal done at 50%, second half pure on-policy consolidation.
+           Launch it if the primary reads well or the your-last-checkpoint-only-
+           just-went-on-policy objection becomes load-bearing. a2 comparison is
+           RECIPE-level only: a2's off-policy dose sits outside the 250-step
+           budget (separate SFT stage, held-out prompts, true SFT objective) --
+           unmatchable by construction; any verdict must say so. ESTIMATOR
+           caveat inherited from a1/a3 verbatim: sampled k1 under PG follows the
+           sampler, so teacher-sourced sequences contribute log-ratio-weighted
+           cloning (NOT STACX mixture_dagger_opd's unweighted CE branch; their
+           student branch is K3, ours k1). a4 doses the data-source SCHEDULE
+           under our estimator; it does not reproduce their objective.
+           TELEMETRY (CPU battery 30/30, scripts/gkd_schedule_battery.py):
+           per-step server-side bucket -> gkd_stats sideband -> k1_rec emits
+           distillation/gkd_lambda_target, gkd_lambda_realized (hit/eligible),
+           gkd_teacher_token_frac (delivered-token dose), token/miss counts,
+           gkd_stats_step (join key; trails trainer step by ~1 by design).
+           PRE-REGISTER at launch (RESULTS-GAPS discipline): F3 lens -- early
+           phase every sequence carries teacher EOS supervision (median 694
+           tok) => no lock; whether short-form survives the lambda -> 0 handoff
+           IS the gradual-vs-abrupt mechanism question vs a2."
+    env2_pending:
+      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_SCHEDULE: "mode=linear,start=1.0,end=0.0,warmup=0,decay=250"
+    env: {}
+    seam: "a1's rollout-server injection + gkd_schedule (step-dependent coin) +
+           gkd_stats relay (server -> trainer wandb bridge, same-node lane
+           assumption documented in the module). Unlock = a1's unlock (same
+           cache, same 3-step rehearsal; rehearsal must additionally show
+           lambda_realized tracking the schedule and the wandb gkd_* panel
+           populating) + gkd_schedule_battery green"
+
+  - run_id: a5_aggrevate
+    axis: A
+    cohort: supplement
+    desc: "AggreVaTe (2605.12913 Eq.9): student prefix 0..kappa-1, ONLINE teacher completes from kappa"
+    status: needs
+    note: "ADDED 2026-08-15 (DAgger import, phase 2 -- machinery NOT landed yet;
+           this entry freezes the design). Single-switch roll-in, the exact image
+           of STACX aggrevate_pure: kappa ~ U{0, T_max(step)} fresh per
+           (prompt, step); student generates tokens 0..kappa-1, the teacher
+           completes from kappa to termination. One contiguous handoff -- never
+           token-interleaving (rejected as unstable in the multi-turn work; same
+           reasoning binds harder in flat text). T_max(step) reuses
+           gkd_schedule: mode=linear,start=0,end=16384,decay=250 -- kappa=0 at
+           step 0 IS the paper's iter-0 pure-teacher cold start, and the ramp
+           shares a4's normalized window so {a4, a5} isolates mixing STRUCTURE
+           (batch-atomic vs within-sequence switch) with the schedule pinned.
+           RECORDED PROPERTY, not a bug: kappa~U front-loads the teacher --
+           P(any teacher tail) ~ min(1, L_student/T_max), so realised
+           teacher_token_frac decays faster than the nominal ramp; the telemetry
+           row is the honest dose and comparisons run on realised curves.
+           Teacher tail is generated ONLINE (a fixed cache is impossible: the
+           prefix depends on current student weights) at the protocol's rollout
+           params (tau=1.0, top-p=1.0, budget 16384-kappa) in the student
+           template -- gen_offpolicy.py's discipline, applied live. Loss needs
+           no surgery: the protocol estimator already follows the executor
+           per token (r6 reading -- student segment standard OPD, teacher
+           segment log-ratio-weighted cloning). KAPPA FORM: raw token position
+           is the primary (faithful to Eq.9's U{0,T_max}); boundary-snapped
+           kappa (nearest newline/step marker -- multi-turn hands off at turn
+           boundaries, flat text has none) is the registered variant, launch
+           only if the primary's handoff-quality confound becomes load-bearing.
+           SURGERY (why status=needs): two-stage generate inside the rollout
+           server via the in-lane teacher engine. Existing parts: h5's capped
+           student generation + gkd_mix's score-not-generate trick (student
+           logprobs over the teacher tail) + the teacher engine itself (today
+           scoring-only). Status flips when the seam lands + 3-step rehearsal
+           (must show kappa histogram, realised teacher_token_frac, and both
+           segments' logprobs flowing) + telemetry keys gkd_tmax /
+           gkd_kappa_mean / gkd_tail_token_frac added to the relay."
+    env: {}
+    seam: "NOT LANDED. Rollout-server two-stage generation (student prefix ->
+           teacher online continuation -> stitched TokenOutput with full student
+           logprobs via scoring call); teacher engine gains a generation entry
+           point. Sequenced after a4's rehearsal passes."
+
   - run_id: a2_coldstart
     axis: A
     desc: "off-policy SFT cold start then OPD (Rethinking recipe)"
