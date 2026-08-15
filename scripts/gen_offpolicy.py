@@ -31,7 +31,28 @@ def main():
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--gpu-mem-util", type=float, default=0.85)
     p.add_argument("--dry", action="store_true")
+    # Data-parallel sharding (2026-08-15, for the 8-GPU box): SamplingParams carries a
+    # PER-REQUEST seed, so each prompt's sample depends on (seed, prompt) and not on
+    # batch composition -- N shards produce token-identical rows to one single-GPU
+    # pass, just N times sooner. Shards slice AFTER the dedupe below, so they are
+    # disjoint by construction; --merge concatenates and re-checks key uniqueness.
+    p.add_argument("--shard", default=None, help="i/n: generate rows i::n into <out>.shard<i>of<n>")
+    p.add_argument("--merge", type=int, default=None,
+                   help="merge <out>.shard*of<N> into <out> and verify, no GPU")
     a = p.parse_args()
+
+    if a.merge:
+        import pandas as pd
+
+        parts = [pd.read_parquet(f"{a.out}.shard{i}of{a.merge}") for i in range(a.merge)]
+        out = pd.concat(parts, ignore_index=True)
+        assert out["prefix_hash"].is_unique, "merged shards repeat a key; a shard ran twice?"
+        caps = set(out["gen_max_tokens"]), set(out["temperature"]), set(out["teacher"])
+        assert all(len(c) == 1 for c in caps), f"shards disagree on provenance: {caps}"
+        out.to_parquet(a.out)
+        print(f"merged {a.merge} shards -> {a.out}   {len(out)} rows   "
+              f"resp len p50 {out['response_tokens'].median():.0f}")
+        return 0
 
     import pandas as pd
     from transformers import AutoTokenizer
@@ -49,7 +70,33 @@ def main():
     prefixes = [_template_ids(tok, [{"role": "user", "content": c}], enable_thinking=False)
                 for c in contents]
     keys = [prefix_hash(ids) for ids in prefixes]
-    assert len(set(keys)) == len(keys), "duplicate prefix hashes; widen the key"
+    # The train parquet carries a few genuinely duplicated prompts (measured
+    # 2026-08-15: 9 identical-content pairs in 14,476 rows). Full-prefix keys make
+    # key equality mean prompt equality, so a duplicate SHARES its first
+    # occurrence's cache row -- the correct GKD semantics (same X -> same fixed
+    # (X,Y)). Verify that equality before collapsing: a same-key pair with
+    # DIFFERENT ids would be a real 64-bit collision and still dies loudly
+    # (audit C1's original point stands for cross-prompt collisions).
+    first_row = {}
+    keep = []
+    for i, k in enumerate(keys):
+        j = first_row.setdefault(k, i)
+        if j != i:
+            assert prefixes[j] == prefixes[i], (
+                f"prefix_hash collision between DIFFERENT prompts (rows {j} vs {i}); widen the key")
+            continue
+        keep.append(i)
+    if len(keep) < len(keys):
+        print(f"{len(keys) - len(keep)} duplicate prompts share their first occurrence's cache row")
+        prefixes = [prefixes[i] for i in keep]
+        keys = [keys[i] for i in keep]
+
+    if a.shard:
+        i, n = (int(x) for x in a.shard.split("/"))
+        assert 0 <= i < n, f"--shard {a.shard}: want i/n with 0 <= i < n"
+        prefixes, keys = prefixes[i::n], keys[i::n]
+        a.out = f"{a.out}.shard{i}of{n}"
+        print(f"shard {i}/{n}: {len(keys)} prompts -> {a.out}")
 
     if a.dry:
         responses = [[1, 2, 3]] * len(prefixes)
