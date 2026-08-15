@@ -211,15 +211,21 @@ recipe 的归一化形状)已注册为裁定臂。实测遥测(λ 目标/实现�
 **执行**:解锁与 a1 完全相同(同一缓存、同一 3 步彩排),彩排额外要求看到
 λ_realized 贴合调度曲线、wandb gkd 面板出数。
 
-#### `a5_aggrevate` — AggreVaTe 单切换(未实现,设计已冻结)
+#### `a5_aggrevate` — AggreVaTe 单切换(已落地,待 keys 预计算 + 彩排)
 
 **直观**:每条 response 只有一个切换点 κ~U{0, T_max(step)}:学生写 0..κ−1,
 teacher **在线**从 κ 续写到结束(前缀依赖当前学生权重,缓存不可能)。T_max
 从 0 线性升到 16384,step 0 即论文的 iter-0 纯 teacher 冷启动;与 a4 共享
 归一化窗口,{a4,a5} 把"混合结构"隔离成唯一变量。κ~U 天然前载 teacher 剂量
 (实测 teacher-token 占比衰减快于名义曲线)—— 以遥测实测为准,记录在案。
-待做手术:rollout server 内两段生成(现成零件:h5 截断生成 + gkd_mix 打分
-技巧 + lane 内 teacher 引擎)。
+
+**做法**:`src/simopd/a5_aggrevate.py` 同 seam 包装(与 gkd_mix 互斥,install
+互检拒绝):学生按 κ 截断生成 → 经具名 `simopd_teacher_registry`(sitecustomize
+在 trainer 建完 teacher 池后发布 handle)拿 teacher server actor,token-ids
+在线续写 → 打分调用取全响应学生 logprobs → 缝合返回。κ=0 的裸 prompt 尾调
+用靠哨兵剥离防递归。遥测:`gkd_tmax`/`gkd_kappa_mean`/`gkd_tail_token_frac`/
+结局计数走通用 gkd 接力。解锁:`gen_offpolicy.py --dry` 出 keys(纯 CPU,
+不等 GPU 预计算)+ 3 步彩排(κ 直方图、实测尾占比、哨兵剥离)。
 
 ---
 
@@ -620,7 +626,7 @@ DISTILLATION_LOSS_MODE=k1_firstseg  SIMOPD_FIRST_SEGMENT_K=512
 | `a1_gkd_mix0.5` | A | GKD λ=0.5 混合 | `k1_rec` | needs(等预计算) |
 | `a2_coldstart` | A | 离策略 SFT 冷启动 → OPD | `k1_rec` | stock*(需前置) |
 | `a4_dagger_anneal` | A | DAgger:λ(step) 1→0 退火,整条 response 掷币 | `k1_rec` | needs(等预计算) |
-| `a5_aggrevate` | A | AggreVaTe:学生前缀 κ + teacher 在线续写 | `k1_rec` | needs(等手术) |
+| `a5_aggrevate` | A | AggreVaTe:学生前缀 κ + teacher 在线续写 | `k1_rec` | needs(等彩排) |
 | `b1_skew_kl` | B | `KL(π ‖ 0.1π+0.9q)`,有界 | `skew_kl_a0.1` | stock |
 | `b2_forward_kl` | B | forward KL(已知更差的对照) | `forward_kl_topk` | stock |
 | `c1_lsm_topk32_renorm` | C | teacher top-32 上的截断 reverse KL | `lsm_topk_renorm` | stock |

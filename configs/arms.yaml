@@ -154,8 +154,9 @@ arms:
     cohort: supplement
     desc: "AggreVaTe (2605.12913 Eq.9): student prefix 0..kappa-1, ONLINE teacher completes from kappa"
     status: needs
-    note: "ADDED 2026-08-15 (DAgger import, phase 2 -- machinery NOT landed yet;
-           this entry freezes the design). Single-switch roll-in, the exact image
+    note: "ADDED 2026-08-15 (DAgger import, phase 2); seam LANDED same day
+           (src/simopd/a5_aggrevate.py + teacher_registry.py + the sitecustomize
+           teacher_model hook; CPU battery 15/15). Single-switch roll-in, the exact image
            of STACX aggrevate_pure: kappa ~ U{0, T_max(step)} fresh per
            (prompt, step); student generates tokens 0..kappa-1, the teacher
            completes from kappa to termination. One contiguous handoff -- never
@@ -180,19 +181,29 @@ arms:
            kappa (nearest newline/step marker -- multi-turn hands off at turn
            boundaries, flat text has none) is the registered variant, launch
            only if the primary's handoff-quality confound becomes load-bearing.
-           SURGERY (why status=needs): two-stage generate inside the rollout
-           server via the in-lane teacher engine. Existing parts: h5's capped
-           student generation + gkd_mix's score-not-generate trick (student
-           logprobs over the teacher tail) + the teacher engine itself (today
-           scoring-only). Status flips when the seam lands + 3-step rehearsal
-           (must show kappa histogram, realised teacher_token_frac, and both
-           segments' logprobs flowing) + telemetry keys gkd_tmax /
-           gkd_kappa_mean / gkd_tail_token_frac added to the relay."
+           WHY still status=needs: (1) SIMOPD_A5_KEYS membership set -- CPU-only,
+           `gen_offpolicy.py --dry` emits real prefix hashes with stub responses,
+           so a5's unlock does NOT wait on the GPU cache; (2) 3-step rehearsal
+           (must show the kappa histogram, realised tail_token_frac tracking the
+           ramp, both segments' student logprobs flowing, and the teacher-side
+           sentinel strip -- the kappa=0 bare-prompt tail call is the recursion
+           trap the battery cannot reach); (3) pre-register predictions in the
+           ledger. Telemetry keys ride the generic gkd relay: gkd_tmax,
+           gkd_kappa_mean, gkd_tail_token_frac, outcome counts
+           (mixed/pure_student/full_teacher/degraded)."
+    env2_pending:
+      SIMOPD_A5_TMAX_SCHEDULE: "mode=linear,start=0,end=16384,warmup=0,decay=250"
+      SIMOPD_A5_KEYS: /mnt/workspace/simopd_data/gkd_offpolicy.parquet.dry
     env: {}
-    seam: "NOT LANDED. Rollout-server two-stage generation (student prefix ->
-           teacher online continuation -> stitched TokenOutput with full student
-           logprobs via scoring call); teacher engine gains a generation entry
-           point. Sequenced after a4's rehearsal passes."
+    seam: "LANDED 2026-08-15. Same vLLMHttpServer.generate wrap family as gkd_mix
+           (mutually exclusive with it -- install refuses SIMOPD_GKD_CACHE):
+           student prefix capped at kappa -> teacher ONLINE continuation via a
+           server actor handle resolved through the named simopd_teacher_registry
+           (published by the sitecustomize wrap of MultiTeacherModelManager;
+           verl's own load balancer is an unnamed actor) -> stitched TokenOutput
+           with full student logprobs via the score-not-generate trick. Aborted
+           tail/scoring degrades that sequence to its student prefix, counted as
+           gkd_degraded -- never silently vanilla. 3-step rehearsal after a4's."
 
   - run_id: a2_coldstart
     axis: A

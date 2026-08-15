@@ -160,13 +160,16 @@ def _gkd_relay_metrics():
     loss mode has no registered form, and would lose this panel (loudly: the
     wandb keys simply never appear).
 
-    Keys: gkd_lambda_target (the schedule/constant the coin used),
-    gkd_lambda_realized (hit / eligible, sequence-level), gkd_teacher_token_frac
-    (delivered teacher tokens / all delivered rollout tokens -- the dose that
-    actually reached the batch), raw counts, and gkd_stats_step (the server step
-    the row describes; trails the trainer step by ~1 by construction, join on it).
+    a4-shape rows (gkd_mix) get derived keys: gkd_lambda_target (the schedule/
+    constant the coin used), gkd_lambda_realized (hit / eligible, sequence-level),
+    gkd_teacher_token_frac (delivered teacher tokens / all delivered rollout
+    tokens -- the dose that actually reached the batch). Every other numeric
+    field in the row (a5's tmax / kappa_mean / tail_token_frac / outcome counts)
+    passes through as gkd_<field>. gkd_stats_step is the server step the row
+    describes; it trails the trainer step by ~1 by construction -- join on it.
     """
-    if os.environ.get("SIMOPD_GKD_CACHE", "") == "":
+    if (os.environ.get("SIMOPD_GKD_CACHE", "") == ""
+            and os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") == ""):
         return {}
     from simopd import gkd_stats
 
@@ -179,11 +182,16 @@ def _gkd_relay_metrics():
         "gkd_lambda_target": row.get("lam_target"),
         "gkd_lambda_realized": (row["hit"] / elig) if elig else None,
         "gkd_teacher_token_frac": (tt / (tt + st)) if (tt + st) else None,
-        "gkd_teacher_tokens": tt,
-        "gkd_student_tokens": st,
+        "gkd_teacher_tokens": tt if (tt or st) else None,
+        "gkd_student_tokens": st if (tt or st) else None,
         "gkd_cache_miss": row.get("miss", 0),
         "gkd_stats_step": row.get("step"),
     }
+    derived = {"hit", "decline", "miss", "teacher_tokens", "student_tokens",
+               "miss_tokens", "lam_target", "step"}
+    for k, v in row.items():
+        if k not in derived and isinstance(v, (int, float)):
+            vals.setdefault("gkd_" + k, v)
     return {"distillation/" + k: Metric(aggregation=AggregationType.MEAN, value=float(v))
             for k, v in vals.items() if v is not None}
 

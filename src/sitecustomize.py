@@ -175,7 +175,7 @@ def _after_vllm_server():
     # raise-on-failure discipline for exactly this path).
     errors = []
     for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server"),
-                    ("gkd_mix", "install")):
+                    ("gkd_mix", "install"), ("a5_aggrevate", "install")):
         try:
             m = __import__(f"simopd.{mod}", fromlist=[fn])
             getattr(m, fn)()
@@ -199,12 +199,40 @@ def _after_vllm_rollout_utils():
     zmq_lane.install_receiver_logging()
 
 
+def _after_teacher_model():
+    """a5_aggrevate's trainer-side half: wrap MultiTeacherModelManager.__init__ so
+    the teacher pool's server handles land in the named teacher_registry actor as
+    soon as they exist. verl keeps them behind an unnamed load balancer, which the
+    student's rollout server cannot look up. A publish failure raises inside
+    trainer init -- an a5 lane without a teacher route must die at bringup, not
+    discover it at the first mixed request."""
+    import os
+
+    if os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") == "":
+        return
+    mod = sys.modules["verl.experimental.teacher_loop.teacher_model"]
+    cls = mod.MultiTeacherModelManager
+    orig = cls.__init__
+    if getattr(orig, "_simopd_a5reg", False):
+        return
+
+    def __init__(self, *a, **kw):
+        orig(self, *a, **kw)
+        from simopd import teacher_registry
+
+        teacher_registry.publish(self.server_handles)
+
+    __init__._simopd_a5reg = True
+    cls.__init__ = __init__
+
+
 # What the hooks import. Declared so preflight.py can check they are importable
 # BEFORE a run starts, on the machine that will run it -- the failure this guards was
 # a module that existed on the author's box and on none of the four that needed it.
 REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch",
                     "simopd.zmq_lane", "simopd.gkd_mix", "simopd.gkd_schedule",
-                    "simopd.gkd_stats", "simopd.b3_additive")
+                    "simopd.gkd_stats", "simopd.a5_aggrevate",
+                    "simopd.teacher_registry", "simopd.b3_additive")
 
 
 # verl module -> what to run once it has finished executing
@@ -219,6 +247,10 @@ _TARGETS = {
     # Read-only: the receiver's path is already correct via the lane-stamped job id.
     # It logs so a disagreement between the two ends is a grep, not a 30-minute stall.
     "verl.workers.rollout.vllm_rollout.utils": _after_vllm_rollout_utils,
+    # a5_aggrevate only: after the trainer builds the teacher pool, publish its
+    # server handles into the named registry the student server resolves. Gated
+    # on the a5 env inside the hook, so every other arm's trainer is untouched.
+    "verl.experimental.teacher_loop.teacher_model": _after_teacher_model,
 }
 
 
