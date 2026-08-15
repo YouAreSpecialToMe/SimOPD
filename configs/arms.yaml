@@ -28,8 +28,12 @@ arms:
   - run_id: a1_gkd_mix0.5
     axis: A
     desc: "GKD lambda=0.5 on/off-policy mixing (2306.13649)"
-    status: needs
-    note: "CODE LANDED 2026-08-06 (src/simopd/gkd_mix.py + scripts/gen_offpolicy.py);
+    status: stock
+    note: "STOCK 2026-08-16 via the DLC unlock: precompute + machine-verdicted
+           3-step rehearsal enforced IN-JOB by deploy/dlc/a_axis_fleet.sh
+           (P->R->L gates; criteria unchanged, deploy/dsw/rehearse_a_axis.sh
+           exits nonzero on any miss and the job refuses to launch lanes).
+           CODE LANDED 2026-08-06 (src/simopd/gkd_mix.py + scripts/gen_offpolicy.py);
            status flips to stock after the precompute lands and a 3-step GPU rehearsal
            passes. Knobs are PARKED under env2_pending until then -- flipping status
            without renaming that key ships an arm with no env at all, i.e. a second
@@ -49,8 +53,8 @@ arms:
            reproduce GKD's objective. A faithful variant (lambda mixing on a
            distributional top-k divergence, direction fixed by D) is an amendment
            candidate, not this arm"
-    env2_pending:
-      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+    env:
+      SIMOPD_GKD_CACHE: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet
       SIMOPD_GKD_LAMBDA: "0.5"
     seam: "REVISED 2026-08-06: the i1 surgery pattern opens a cheaper path than the
            TransferQueue surgery originally feared. Rollout-server injection: patch
@@ -63,15 +67,15 @@ arms:
            is identically 1 and the gradients coincide -- estimator-note.md argument.
            Sequenced AFTER i1 (shares the injection machinery); target: ready before
            wave S/T so axis A ships complete"
-    env: {}
 
   - run_id: a3_offpolicy
     axis: A
     cohort: supplement            # 后补批(2026-08-07 起新增臂均属此批):主名册已在跑,
                                   # 本批解锁后在 DSW 单独加发,不并入首发算术。
     desc: "GKD lambda=0 endpoint: pure off-policy, fixed teacher (X,Y), teacher-scored"
-    status: needs
-    note: "ADDED 2026-08-07 (axis-A completeness analysis): the plan's own Sec 2 axis
+    status: stock
+    note: "STOCK 2026-08-16 via the DLC unlock (same in-job P->R->L gates as a1,
+           deploy/dlc/a_axis_fleet.sh). ADDED 2026-08-07 (axis-A completeness analysis): the plan's own Sec 2 axis
            text registers GKD lambda in {0, 0.5} but only 0.5 ever materialized.
            This is the missing endpoint -- the survey's 'teacher-forced' cell, the
            pre-OPD classic baseline (off-policy KD with logits), and the third
@@ -91,18 +95,20 @@ arms:
            E[k1] is minus the forward KL and the PG advantage makes the arm pure
            log-ratio-weighted cloning of teacher text. Read it as the data-source
            endpoint, never as 'supervised KD'"
-    env2_pending:
-      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+    env:
+      SIMOPD_GKD_CACHE: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet
       SIMOPD_GKD_LAMBDA: "1.0"
-    env: {}
     seam: "identical to a1_gkd_mix0.5 (shared machinery); unlock = a1's unlock"
 
   - run_id: a4_dagger_anneal
     axis: A
     cohort: supplement
     desc: "DAgger anneal (2605.12913): P(off-policy) = lambda(step), 1.0 -> 0.0, whole-response coin"
-    status: needs
-    note: "ADDED 2026-08-15 (DAgger import): gives the lambda ladder {a3, a1,
+    status: stock
+    note: "STOCK 2026-08-16 via the DLC unlock (in-job P->R->L gates,
+           deploy/dlc/a_axis_fleet.sh; rehearsal additionally machine-checks
+           lambda_target descending in the sideband).
+           ADDED 2026-08-15 (DAgger import): gives the lambda ladder {a3, a1,
            vanilla} its SCHEDULE dimension. Same gkd_mix machinery; the coin's
            dose is lambda(step) from src/simopd/gkd_schedule.py -- a verbatim
            port of STACX dagger_schedule.py::DAggerSchedule (same four modes,
@@ -138,10 +144,9 @@ arms:
            phase every sequence carries teacher EOS supervision (median 694
            tok) => no lock; whether short-form survives the lambda -> 0 handoff
            IS the gradual-vs-abrupt mechanism question vs a2."
-    env2_pending:
-      SIMOPD_GKD_CACHE: /mnt/workspace/simopd_data/gkd_offpolicy.parquet
+    env:
+      SIMOPD_GKD_CACHE: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet
       SIMOPD_GKD_SCHEDULE: "mode=linear,start=1.0,end=0.0,warmup=0,decay=250"
-    env: {}
     seam: "a1's rollout-server injection + gkd_schedule (step-dependent coin) +
            gkd_stats relay (server -> trainer wandb bridge, same-node lane
            assumption documented in the module). Unlock = a1's unlock (same
@@ -153,8 +158,12 @@ arms:
     axis: A
     cohort: supplement
     desc: "AggreVaTe (2605.12913 Eq.9): student prefix 0..kappa-1, ONLINE teacher completes from kappa"
-    status: needs
-    note: "ADDED 2026-08-15 (DAgger import, phase 2); seam LANDED same day
+    status: stock
+    note: "STOCK 2026-08-16 via the DLC unlock (in-job P->R->L gates,
+           deploy/dlc/a_axis_fleet.sh; rehearsal machine-checks the sentinel
+           strip, the outcome-sum invariant, and the duplicate-request-id
+           hazard from verification NEW-ISSUE 3).
+           ADDED 2026-08-15 (DAgger import, phase 2); seam LANDED same day
            (src/simopd/a5_aggrevate.py + teacher_registry.py + the sitecustomize
            teacher_model hook; CPU battery 15/15). Single-switch roll-in, the exact image
            of STACX aggrevate_pure: kappa ~ U{0, T_max(step)} fresh per
@@ -196,10 +205,9 @@ arms:
            Natural-stop discrimination is a kappa+1 probe: this verl maps both
            vllm finish reasons to stop_reason='completed', so <=kappa returned
            tokens is the proof of a natural stop, kappa+1 the proof of a cap."
-    env2_pending:
+    env:
       SIMOPD_A5_TMAX_SCHEDULE: "mode=linear,start=0,end=16384,warmup=0,decay=250"
-      SIMOPD_A5_KEYS: /mnt/workspace/simopd_data/gkd_offpolicy.parquet.dry
-    env: {}
+      SIMOPD_A5_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
     seam: "LANDED 2026-08-15. Same vLLMHttpServer.generate wrap family as gkd_mix
            (mutually exclusive with it -- install refuses SIMOPD_GKD_CACHE):
            student prefix capped at kappa -> teacher ONLINE continuation via a
