@@ -101,6 +101,12 @@ def main():
     if a.dry:
         responses = [[1, 2, 3]] * len(prefixes)
     else:
+        # vLLM v1 forks its EngineCore, and by this point the parent has already
+        # touched CUDA during platform probing -- a forked child then dies with
+        # "Cannot re-initialize CUDA in forked subprocess" (hit 2026-08-15 on the
+        # 8-shard run). Spawn is vLLM's documented remedy and what verl itself
+        # exports on the training path; the standalone script must carry its own.
+        os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
         from vllm import LLM, SamplingParams
         from vllm.inputs import TokensPrompt
 
