@@ -45,6 +45,12 @@ CARD
 fi
 
 # ------------------------------------------------------------------ payload --
+# 单 worker 任务:表单误填多节点时,rank!=0 的 pod 闲置守望而不是把同一组
+# lane/分片再跑一遍(ckpt 目录撞车)。rank 取值沿用 exp worker.sh 的优先序。
+_rank=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-0}}}
+if [ "${_rank}" != "0" ]; then
+    while true; do echo "rank ${_rank}: single-worker job, idling ($(date))"; sleep 600; done
+fi
 cd "$ROOT"
 LOGD=$D/a_axis
 mkdir -p "$LOGD"
