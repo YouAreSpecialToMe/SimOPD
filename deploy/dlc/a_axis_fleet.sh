@@ -117,20 +117,34 @@ echo "== Phase R done: 4/4 rehearsals OK"
 
 # -------------------------------------------------------------- Phase L 发射 --
 echo "== Phase L: 4 lanes x 250 steps (TEST/SAVE freq 25, auto-resume from ckpt)"
+# 无 wandb 凭证时降级 offline:DLC pod 的 /root 是易失的,凭证只可能来自任务
+# 环境面板或镜像;缺了它 wandb.init 会在 step 0 前杀死 lane。offline 下步级
+# 指标仍在控制台日志里(gkd_* 走同一通道),post-eval 流水线不受影响。
+[ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
+
 for i in 0 1 2 3; do
     ARM=${ARMS[$i]}
     (
-        set -e
-        _arm_env=$(python scripts/arm.py env "$ARM")   # 拒绝臂在此死,绝不静默 vanilla
-        eval "$_arm_env"
-        export EXPERIMENT_NAME="${ARM}_s0_16k"
-        export CUDA_VISIBLE_DEVICES=${PAIRS[$i]}
-        export TOTAL_TRAINING_STEPS=250
-        export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s0"
-        export WANDB_TAGS="${ARM},A,seed0,dlc_a_axis"
-        bash scripts/run_opd_baseline.sh \
-            data.seed=0 \
-            actor_rollout_ref.rollout.seed=0
+        # 有界重试:run_opd_baseline 从 checkpoint 自恢复,所以 lane 内崩溃
+        # (OOM 抖动、vLLM 偶发)重试的代价只是回到上个 SAVE_FREQ=25 存档;
+        # 三次仍死则留日志退出,不拖累其余 lane。
+        for attempt in 1 2 3; do
+            (
+                set -e
+                _arm_env=$(python scripts/arm.py env "$ARM")   # 拒绝臂在此死,绝不静默 vanilla
+                eval "$_arm_env"
+                export EXPERIMENT_NAME="${ARM}_s0_16k"
+                export CUDA_VISIBLE_DEVICES=${PAIRS[$i]}
+                export TOTAL_TRAINING_STEPS=250
+                export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s0"
+                export WANDB_TAGS="${ARM},A,seed0,dlc_a_axis"
+                bash scripts/run_opd_baseline.sh \
+                    data.seed=0 \
+                    actor_rollout_ref.rollout.seed=0
+            ) && { echo "lane ${ARM}: attempt $attempt completed"; break; }
+            echo "lane ${ARM}: attempt $attempt failed ($(date)); resume-retry"
+            sleep 30
+        done
     ) > "$LOGD/lane_${ARM}.log" 2>&1 &
     echo "lane ${ARM} -> GPUs ${PAIRS[$i]}, log $LOGD/lane_${ARM}.log"
 done
