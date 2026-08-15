@@ -59,6 +59,12 @@ echo "== a_axis_fleet on $(hostname), git $(git log --oneline -1 2>/dev/null | h
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
 nvidia-smi -L | head -8
 source simopd/bin/activate
+# 战役环境(deploy/dsw/setup.sh 生成,可重复 source):共享 HF 缓存 + 默认
+# HF_HUB_OFFLINE=1 —— 429 疫苗:全舰队共享一个出口 IP,未认证配额 500 请求
+# /300s,并发引擎各自 list 仓库树数秒耗尽配额、曾一波杀光 16 条 wave-1 lane;
+# 本任务 8+8 个引擎并发启动,同样暴露。另携 WANDB_DIR 落 /mgfs + 手工补进的
+# WANDB_API_KEY(在则 lane 直接 online;缺则文件内建 offline 降级接管)。
+[ -f "$ROOT/simopd_env.sh" ] && source "$ROOT/simopd_env.sh"
 
 export DATA_DIR=$D/simopd_math
 export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,post-eval glob 范围内
@@ -73,7 +79,9 @@ python scripts/arm_lint.py || { echo "ARM_LINT FAILED -- refusing to proceed"; e
 # ------------------------------------------------------------ Phase P 预计算 --
 if [ ! -f "$D/gkd_offpolicy.parquet" ]; then
     echo "== Phase P: teacher precompute (8-way shard)"
-    python - <<'PY'
+    # 预取是唯一允许打 hub 的时刻(setup.sh: "Unset it only when fetching");
+    # HF_HOME 已指向 /mgfs 共享缓存,战役资产大概率在,此步多为免费校验。
+    HF_HUB_OFFLINE=0 python - <<'PY'
 from huggingface_hub import snapshot_download
 for m in ("Qwen/Qwen3-4B-Instruct-2507", "Qwen/Qwen3-1.7B-Base"):
     print("cached:", snapshot_download(m))

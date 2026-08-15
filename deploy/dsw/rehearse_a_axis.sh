@@ -24,6 +24,8 @@ LOGD=$D/a_axis
 mkdir -p "$LOGD"
 cd "$ROOT"
 source simopd/bin/activate
+# 共享 HF 缓存 + HF_HUB_OFFLINE=1(429 疫苗)+ WANDB 凭证;详见 a_axis_fleet.sh 同款注释。
+[ -f "$ROOT/simopd_env.sh" ] && source "$ROOT/simopd_env.sh"
 
 _arm_env=$(python scripts/arm.py env "$ARM")
 eval "$_arm_env"
