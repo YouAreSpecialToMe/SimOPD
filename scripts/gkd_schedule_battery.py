@@ -70,14 +70,19 @@ ok(st.value_at(124) == 1.0 and st.value_at(125) == 0.0, "step flips at midpoint"
 r = gkd_schedule.parse("mode=linear,start=0,end=16384,decay=250")
 ok(abs(r.value_at(125) - 8192.0) < 1e-9 and r.value_at(250) == 16384.0, "ascending ramp")
 
-# 8. parse refusals: every malformation is loud.
+# 8. parse refusals: every malformation is loud. nan/inf pass float() happily
+#    and would lose every coin toss under a green banner (review #3), so
+#    finiteness is parse-level.
 for bad in ("mode=linear,start=1.0,end=0.0",            # missing decay
             "mode=warp,start=1,end=0,decay=250",         # unknown mode
             "mode=linear,start=1,end=0,decay=250,k=1",   # unknown key
             "start=1,start=0.5,end=0,decay=250",         # duplicate key
             "start=one,end=0,decay=250",                 # non-numeric
             "start=1,end=0,decay=0",                     # decay < 1
-            "start=1 end=0 decay=250"):                  # not k=v
+            "start=1 end=0 decay=250",                   # not k=v
+            "start=nan,end=0.0,decay=250",               # non-finite
+            "start=inf,end=0.0,decay=250",
+            "start=1.0,end=nan,decay=250"):
     try:
         gkd_schedule.parse(bad)
         ok(False, f"parse accepted malformed spec {bad!r}")
@@ -100,15 +105,59 @@ with tempfile.TemporaryDirectory() as d:
     ok(gkd_stats.latest()["step"] == 3, "completed line picked up incrementally")
     del os.environ["SIMOPD_GKD_STATS"]
 
-# 10. end-to-end dose: coin() realised frequency tracks lambda(step) from the a4
-#     primary schedule, and the coin stays deterministic per (key, step).
+# 10. end-to-end dose THROUGH _lam_at (review gap: the old battery parsed its own
+#     schedule and never exercised the env read / cache / fallback). Constant
+#     fallback first, then the schedule override, then the coin tracking the
+#     _lam_at-provided dose.
 from simopd import gkd_mix  # noqa: E402  (pure imports only on this path)
+
+os.environ.pop("SIMOPD_GKD_SCHEDULE", None)
+os.environ["SIMOPD_GKD_LAMBDA"] = "0.25"
+gkd_mix._sched = None
+ok(gkd_mix._lam_at(0) == 0.25 and gkd_mix._lam_at(999) == 0.25,
+   "_lam_at falls back to the constant (a1/a3 path)")
+os.environ.pop("SIMOPD_GKD_LAMBDA", None)
+os.environ["SIMOPD_GKD_SCHEDULE"] = "mode=linear,start=1.0,end=0.0,warmup=0,decay=250"
+gkd_mix._sched = None
+ok(abs(gkd_mix._lam_at(125) - 0.5) < 1e-12 and gkd_mix._lam_at(250) == 0.0,
+   "_lam_at reads the schedule env (a4 path)")
 
 keys = [gkd_mix.prompt_key([i, i + 1, i + 2]) for i in range(20000)]
 for step, lo, hi in ((0, 0.995, 1.0), (125, 0.49, 0.51), (200, 0.19, 0.21), (250, 0.0, 0.005)):
-    lam = s.value_at(step)
+    lam = gkd_mix._lam_at(step)
     freq = sum(gkd_mix.coin(k, step, lam) for k in keys) / len(keys)
     ok(lo <= freq <= hi, f"coin freq {freq:.4f} tracks lambda {lam:.2f} at step {step}")
 ok(gkd_mix.coin(keys[0], 42, 0.5) == gkd_mix.coin(keys[0], 42, 0.5), "coin deterministic")
+
+# 11. install refusals (review gap: the dual-knob guard had zero coverage; all
+#     three fire before any sys.modules lookup, so they are CPU-testable).
+os.environ["SIMOPD_GKD_CACHE"] = "/tmp/x.parquet"
+os.environ["SIMOPD_GKD_LAMBDA"] = "0.5"      # schedule still set above -> both
+gkd_mix._sched = None
+try:
+    gkd_mix.install()
+    ok(False, "install accepted schedule + constant together")
+except RuntimeError:
+    ok(True, "")
+os.environ.pop("SIMOPD_GKD_LAMBDA", None)
+os.environ["SIMOPD_GKD_SCHEDULE"] = "mode=linear,start=10,end=0.0,decay=250"
+gkd_mix._sched = None
+try:
+    gkd_mix.install()
+    ok(False, "install accepted schedule endpoints outside [0,1]")
+except RuntimeError:
+    ok(True, "")
+os.environ.pop("SIMOPD_GKD_SCHEDULE", None)
+os.environ["SIMOPD_GKD_LAMBDA"] = "1.5"
+try:
+    gkd_mix.install()
+    ok(False, "install accepted constant lambda outside [0,1]")
+except RuntimeError:
+    ok(True, "")
+os.environ["SIMOPD_GKD_LAMBDA"] = "0.5"
+gkd_mix.install()   # clean constant install, no verl in sys.modules -> silent no-op
+ok(True, "clean install no-ops without verl")
+for v in ("SIMOPD_GKD_CACHE", "SIMOPD_GKD_LAMBDA"):
+    os.environ.pop(v, None)
 
 print(f"gkd_schedule battery {PASS}/{PASS} pass")

@@ -10,32 +10,55 @@ no re-tokenization boundary. Guards, in order:
   scoring passthrough   prompt_logprobs requests untouched (gkd_mix's guard).
   tail sentinel         sampling_params carrying _TAIL_SENTINEL are OUR OWN
                         continuation calls arriving at the TEACHER server, whose
-                        wrapper (sitecustomize installs everywhere) must strip the
-                        sentinel and generate normally. Without this, a kappa=0
-                        tail call -- whose prompt is a bare training prompt, hence
-                        key-eligible -- would recurse into the teacher's own
-                        wrapper forever.
+                        wrapper (sitecustomize installs everywhere in the lane's
+                        shared env) strips the sentinel and generates normally.
+                        Without this, a kappa=0 tail call -- whose prompt is a
+                        bare training prompt, hence key-eligible -- would recurse
+                        into the teacher's own wrapper forever.
   membership gate       prefix-hash keys from SIMOPD_A5_KEYS (any parquet with a
                         prefix_hash column; `gen_offpolicy.py --dry` emits one
                         CPU-only, so a5's unlock does NOT need the GPU cache).
                         Validation prompts miss and generate normally.
+
+Natural-stop discrimination (review 2026-08-15 #6): this verl maps BOTH vllm
+finish reasons ("stop", "length") to stop_reason="completed", so the cap and a
+natural stop are indistinguishable after the fact. The wrapper therefore probes
+with max_tokens = kappa+1: a return of <= kappa tokens PROVES the student
+stopped on its own (delivered as-is); kappa+1 tokens proves it wanted to
+continue, so the prefix is cut at kappa and the teacher takes over. Exact
+discrimination for one token of budget, which kappa+1 <= cap always affords.
+
+Window discipline (review #4, audit F5's twin): every generation and scoring
+budget is clamped against the engine window (max_model_len - len(prompt) - 1)
+and any caller-supplied max_tokens, mirroring gkd_mix. The teacher's own window
+is not knowable from here; an over-window tail call fails per-request and lands
+in the degraded path rather than killing the lane.
 
 Mixed-sequence bookkeeping: the student must report log_probs over the WHOLE
 stitched response (verl's behavior-policy term), so after stitching we reuse
 gkd_mix's score-not-generate trick over prompt+prefix+tail. Loss needs no
 surgery: the protocol estimator follows the executor per token (audit r6).
 
-Failure posture: teacher unreachable at install/first-mix -> RuntimeError (an a5
-that cannot mix must die, not train as vanilla); a single aborted tail or
-scoring call degrades THAT sequence to its student prefix and counts it, so one
-flaky request does not kill a lane.
+Outcome accounting (review #8/#10): every key-eligible request increments
+EXACTLY ONE of {mixed, pure_student, full_teacher, cap_full, degraded, aborted},
+so their sum equals n_seen -- the lost-sequence detector.
+
+  mixed         student prefix + teacher tail delivered
+  pure_student  natural stop within the kappa budget (the Eq.9 overshoot case)
+  full_teacher  kappa == 0: teacher writes everything (cold-start end)
+  cap_full      kappa consumed the whole window: no room for a tail
+  degraded      teacher tail or scoring failed; the student prefix was delivered
+  aborted       nothing usable delivered (abort surfaced to the caller)
+
+Failure posture: teacher unreachable at first mix -> RuntimeError (an a5 that
+cannot mix must die, not train as vanilla); a single failed tail degrades THAT
+sequence and is counted, never silent.
 """
 
 import atexit
 import hashlib
 import os
 import sys
-import uuid
 
 from simopd import gkd_schedule, gkd_stats, teacher_registry
 from simopd.gkd_mix import prompt_key, tail_logprobs
@@ -46,10 +69,11 @@ _TAIL_SENTINEL = "simopd_a5_tail"
 _keys = None
 _sched = None
 _handles = None
-_stats = {"mixed": 0, "pure_student": 0, "full_teacher": 0, "miss": 0, "degraded": 0}
+_stats = {"mixed": 0, "pure_student": 0, "full_teacher": 0, "cap_full": 0,
+          "degraded": 0, "aborted": 0, "miss": 0}
 _bucket = {"step": None, "tmax": 0, "kappa_sum": 0, "n_seen": 0, "mixed": 0,
-           "pure_student": 0, "full_teacher": 0, "prefix_tokens": 0, "tail_tokens": 0,
-           "miss": 0, "degraded": 0}
+           "pure_student": 0, "full_teacher": 0, "cap_full": 0, "degraded": 0,
+           "aborted": 0, "prefix_tokens": 0, "tail_tokens": 0, "miss": 0}
 
 
 def _load_keys():
@@ -82,7 +106,8 @@ def kappa(key, step, tmax):
 
 def _flush_bucket():
     b = _bucket
-    if b["step"] is None or b["n_seen"] == 0:
+    # miss-only steps (val sweeps) still flush, matching gkd_mix (review #7).
+    if b["step"] is None or (b["n_seen"] + b["miss"]) == 0:
         return
     row = dict(b)
     row["kappa_mean"] = (b["kappa_sum"] / b["n_seen"]) if b["n_seen"] else 0.0
@@ -94,11 +119,22 @@ def _flush_bucket():
 
 
 def _roll_bucket(step, tmax):
+    # Synchronous check-flush-reset (no awaits): two rollovers cannot interleave.
+    # Requests that awaited across a step boundary credit the NEW bucket --
+    # misattribution only, tolerated; the sync loop's generate->train barrier
+    # keeps it rare (same argument as gkd_mix's bucket).
     if step != _bucket["step"]:
         _flush_bucket()
         _bucket.update(step=step, tmax=tmax, kappa_sum=0, n_seen=0, mixed=0,
-                       pure_student=0, full_teacher=0, prefix_tokens=0,
-                       tail_tokens=0, miss=0, degraded=0)
+                       pure_student=0, full_teacher=0, cap_full=0, degraded=0,
+                       aborted=0, prefix_tokens=0, tail_tokens=0, miss=0)
+
+
+def _outcome(name, ntok=0, where=None):
+    _stats[name] += 1
+    _bucket[name] += 1
+    if where and ntok:
+        _bucket[where] += ntok
 
 
 async def _teacher_generate(prompt_ids, budget, request_id):
@@ -108,9 +144,11 @@ async def _teacher_generate(prompt_ids, budget, request_id):
     pick = _handles[int(hashlib.sha1(str(request_id).encode()).hexdigest()[:8], 16) % len(_handles)]
     # Protocol rollout params, pinned explicitly (gen_offpolicy's discipline,
     # applied live): the tail stands in for training-regime teacher samples.
+    # The incoming request_id is reused for traceability (review #9); the
+    # teacher engine has its own id space, so no collision with the student.
     params = {"temperature": 1.0, "top_p": 1.0, "max_tokens": int(budget),
               "n": 1, "logprobs": None, _TAIL_SENTINEL: 1}
-    return await pick.generate.remote(request_id=f"{uuid.uuid4().hex}-a5t",
+    return await pick.generate.remote(request_id=request_id,
                                       prompt_ids=list(prompt_ids),
                                       sampling_params=params)
 
@@ -136,6 +174,7 @@ def install():
                                "moved it; the arm cannot mix and would train as vanilla")
         return
     atexit.register(_flush_bucket)
+    gkd_stats.reset_file()
 
     async def generate(self, prompt_ids, sampling_params, request_id, *a, **kw):
         params_is_dict = isinstance(sampling_params, dict)
@@ -143,6 +182,8 @@ def install():
             return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
         if params_is_dict and sampling_params.get(_TAIL_SENTINEL) is not None:
             # Our own continuation call, now on the TEACHER server: strip and run.
+            # (Assumes the lane-shared env armed this wrapper on the teacher too;
+            # the 3-step rehearsal checks exactly this before any real launch.)
             clean = {k: v for k, v in sampling_params.items() if k != _TAIL_SENTINEL}
             return await fn(self, prompt_ids, clean, request_id, *a, **kw)
         key = prompt_key(prompt_ids)
@@ -154,49 +195,72 @@ def install():
             _bucket["miss"] += 1
             return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
 
+        # The window discipline: never ask either engine to overflow. cap is the
+        # largest response this request may deliver (audit F5's clamp, plus the
+        # caller's own max_tokens where one arrives).
         cfg = getattr(self, "config", None)
         rl = int(getattr(cfg, "response_length", 0) or 0) or 16384
-        k = min(kappa(key, step, tmax), rl)
+        cap = rl
+        mml = getattr(cfg, "max_model_len", None)
+        if mml:
+            cap = min(cap, int(mml) - len(prompt_ids) - 1)
+        mt_in = sampling_params.get("max_tokens") if params_is_dict else None
+        if mt_in:
+            cap = min(cap, int(mt_in))
+        k = min(kappa(key, step, tmax), max(cap, 0))
         _bucket["n_seen"] += 1
         _bucket["kappa_sum"] += k
+        sp = dict(sampling_params) if params_is_dict else {}
+
+        seen = sum(_stats.values())
+        if seen % 500 == 1:
+            print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
+                  file=sys.stderr, flush=True)
+
+        if cap <= 0 or k >= cap:
+            # kappa consumed the whole window (or there is none): the student
+            # keeps the entire budget, a teacher tail cannot fit.
+            if cap > 0:
+                sp["max_tokens"] = cap
+                out = await fn(self, prompt_ids, sp, request_id, *a, **kw)
+            else:
+                out = await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
+            tok = list(getattr(out, "token_ids", None) or [])
+            if getattr(out, "stop_reason", None) == "aborted":
+                _outcome("aborted")
+                return out
+            _outcome("cap_full" if (cap <= 0 or len(tok) >= cap) else "pure_student",
+                     len(tok), "prefix_tokens")
+            return out
 
         prefix = []
         prefix_out = None
         if k > 0:
-            sp = dict(sampling_params) if params_is_dict else {}
-            sp["max_tokens"] = k
+            # kappa+1 probe: <= k tokens proves a natural stop, k+1 proves the
+            # student wanted more. k < cap guarantees the probe fits the window.
+            sp["max_tokens"] = k + 1
             out = await fn(self, prompt_ids, sp, request_id, *a, **kw)
             if getattr(out, "stop_reason", None) == "aborted":
+                _outcome("aborted")
                 return out
-            prefix = list(out.token_ids or [])
-            # Finished under the kappa budget = the student stopped on its own:
-            # a pure-student sequence, exactly Eq.9's "kappa past termination".
-            if len(prefix) < k:
-                _stats["pure_student"] += 1
-                _bucket["pure_student"] += 1
-                _bucket["prefix_tokens"] += len(prefix)
+            got = list(out.token_ids or [])
+            if len(got) <= k:
+                # Natural stop within budget: the genuine Eq.9 overshoot case.
+                _outcome("pure_student", len(got), "prefix_tokens")
                 return out
+            prefix = got[:k]
             prefix_out = out
 
-        budget = rl - len(prefix)
-        if budget <= 0:
-            _stats["pure_student"] += 1
-            _bucket["pure_student"] += 1
-            _bucket["prefix_tokens"] += len(prefix)
-            return prefix_out
-
+        budget = cap - len(prefix)   # >= 1 because len(prefix) == k < cap
         tail = await _teacher_generate(list(prompt_ids) + prefix, budget, request_id)
         tail_ids = list(getattr(tail, "token_ids", None) or [])
         if getattr(tail, "stop_reason", None) == "aborted" or not tail_ids:
-            if k == 0:
-                # No prefix to fall back to; surface the abort as-is.
-                _stats["degraded"] += 1
-                _bucket["degraded"] += 1
+            if prefix_out is None:
+                _outcome("aborted")
                 return tail
-            _stats["degraded"] += 1
-            _bucket["degraded"] += 1
-            _bucket["pure_student"] += 1
-            _bucket["prefix_tokens"] += len(prefix)
+            # The k+1-token student output is a valid capped on-policy sample;
+            # deliver it rather than fail the request (counted, never silent).
+            _outcome("degraded", len(prefix_out.token_ids or []), "prefix_tokens")
             return prefix_out
 
         stitched = prefix + tail_ids
@@ -204,30 +268,21 @@ def install():
         score_params.update({"max_tokens": 1, "prompt_logprobs": 0, "logprobs": None,
                              "temperature": 0.0, "n": 1})
         scored = await fn(self, list(prompt_ids) + stitched, score_params,
-                          f"{uuid.uuid4().hex}-a5s", *a, **kw)
+                          request_id, *a, **kw)
         extra = dict(getattr(scored, "extra_fields", None) or {})
         if getattr(scored, "stop_reason", None) == "aborted" or "prompt_logprobs" not in extra:
-            if k == 0:
-                _stats["degraded"] += 1
-                _bucket["degraded"] += 1
+            if prefix_out is None:
+                _outcome("aborted")
                 return scored
-            _stats["degraded"] += 1
-            _bucket["degraded"] += 1
-            _bucket["pure_student"] += 1
-            _bucket["prefix_tokens"] += len(prefix)
+            _outcome("degraded", len(prefix_out.token_ids or []), "prefix_tokens")
             return prefix_out
 
         lps = tail_logprobs(extra, len(stitched))
         extra.pop("prompt_logprobs", None)
         extra.pop("prompt_ids", None)
-        _stats["mixed" if k > 0 else "full_teacher"] += 1
-        _bucket["mixed" if k > 0 else "full_teacher"] += 1
+        _outcome("mixed" if prefix else "full_teacher")
         _bucket["prefix_tokens"] += len(prefix)
         _bucket["tail_tokens"] += len(tail_ids)
-        seen = sum(_stats.values())
-        if seen % 500 == 1:
-            print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
-                  file=sys.stderr, flush=True)
         from verl.workers.rollout.replica import TokenOutput
 
         return TokenOutput(token_ids=[int(t) for t in stitched], log_probs=lps,

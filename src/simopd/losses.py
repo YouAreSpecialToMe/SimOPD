@@ -160,40 +160,61 @@ def _gkd_relay_metrics():
     loss mode has no registered form, and would lose this panel (loudly: the
     wandb keys simply never appear).
 
-    a4-shape rows (gkd_mix) get derived keys: gkd_lambda_target (the schedule/
-    constant the coin used), gkd_lambda_realized (hit / eligible, sequence-level),
-    gkd_teacher_token_frac (delivered teacher tokens / all delivered rollout
-    tokens -- the dose that actually reached the batch). Every other numeric
-    field in the row (a5's tmax / kappa_mean / tail_token_frac / outcome counts)
-    passes through as gkd_<field>. gkd_stats_step is the server step the row
-    describes; it trails the trainer step by ~1 by construction -- join on it.
+    KEY-SET CONTRACT (review 2026-08-15 #1, same failure class as the d3 quads'
+    `must have the same number of values: [5, 4]` crash, campaign report S5):
+    verl's DP aggregation requires every rank to emit the SAME metric keys every
+    step, and ranks tail the sideband file at independent offsets -- so the key
+    set must depend only on the launch env (constant for the run), never on the
+    row's content or presence. Missing fields zero-fill; no key is ever dropped.
+
+    a4/a1/a3 rows (gkd_mix): gkd_lambda_target (the schedule/constant the coin
+    used), gkd_lambda_realized (hit/eligible), gkd_teacher_token_frac (delivered
+    teacher tokens over delivered train-eligible tokens -- the dose that reached
+    the batch), raw counts. a5 rows: ramp + kappa + outcome counters (their sum
+    check against gkd_n_seen is the lost-sequence detector). gkd_stats_step is
+    the server step the row describes; it trails the trainer step by ~1 by
+    construction -- offline joins use it, not the trainer step.
     """
-    if (os.environ.get("SIMOPD_GKD_CACHE", "") == ""
-            and os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") == ""):
+    mix_armed = os.environ.get("SIMOPD_GKD_CACHE", "") != ""
+    a5_armed = os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""
+    if not (mix_armed or a5_armed):
         return {}
     from simopd import gkd_stats
 
-    row = gkd_stats.latest()
-    if not row:
-        return {}
-    elig = row.get("hit", 0) + row.get("decline", 0)
-    tt, st = row.get("teacher_tokens", 0), row.get("student_tokens", 0)
-    vals = {
-        "gkd_lambda_target": row.get("lam_target"),
-        "gkd_lambda_realized": (row["hit"] / elig) if elig else None,
-        "gkd_teacher_token_frac": (tt / (tt + st)) if (tt + st) else None,
-        "gkd_teacher_tokens": tt if (tt or st) else None,
-        "gkd_student_tokens": st if (tt or st) else None,
-        "gkd_cache_miss": row.get("miss", 0),
-        "gkd_stats_step": row.get("step"),
-    }
-    derived = {"hit", "decline", "miss", "teacher_tokens", "student_tokens",
-               "miss_tokens", "lam_target", "step"}
-    for k, v in row.items():
-        if k not in derived and isinstance(v, (int, float)):
-            vals.setdefault("gkd_" + k, v)
-    return {"distillation/" + k: Metric(aggregation=AggregationType.MEAN, value=float(v))
-            for k, v in vals.items() if v is not None}
+    row = gkd_stats.latest() or {}
+    g = lambda k: float(row.get(k, 0) or 0)
+    if mix_armed:
+        elig = g("hit") + g("decline")
+        tok = g("teacher_tokens") + g("student_tokens")
+        vals = {
+            "gkd_lambda_target": g("lam_target"),
+            "gkd_lambda_realized": (g("hit") / elig) if elig else 0.0,
+            "gkd_teacher_token_frac": (g("teacher_tokens") / tok) if tok else 0.0,
+            "gkd_teacher_tokens": g("teacher_tokens"),
+            "gkd_student_tokens": g("student_tokens"),
+            "gkd_cache_miss": g("miss"),
+            "gkd_miss_tokens": g("miss_tokens"),
+            "gkd_stats_step": g("step"),
+        }
+    else:
+        vals = {
+            "gkd_tmax": g("tmax"),
+            "gkd_kappa_mean": g("kappa_mean"),
+            "gkd_tail_token_frac": g("tail_token_frac"),
+            "gkd_n_seen": g("n_seen"),
+            "gkd_mixed": g("mixed"),
+            "gkd_pure_student": g("pure_student"),
+            "gkd_full_teacher": g("full_teacher"),
+            "gkd_cap_full": g("cap_full"),
+            "gkd_degraded": g("degraded"),
+            "gkd_aborted": g("aborted"),
+            "gkd_miss": g("miss"),
+            "gkd_prefix_tokens": g("prefix_tokens"),
+            "gkd_tail_tokens": g("tail_tokens"),
+            "gkd_stats_step": g("step"),
+        }
+    return {"distillation/" + k: Metric(aggregation=AggregationType.MEAN, value=v)
+            for k, v in vals.items()}
 
 
 @register_distillation_loss(

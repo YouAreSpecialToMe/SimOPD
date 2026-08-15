@@ -188,9 +188,14 @@ arms:
            ramp, both segments' student logprobs flowing, and the teacher-side
            sentinel strip -- the kappa=0 bare-prompt tail call is the recursion
            trap the battery cannot reach); (3) pre-register predictions in the
-           ledger. Telemetry keys ride the generic gkd relay: gkd_tmax,
-           gkd_kappa_mean, gkd_tail_token_frac, outcome counts
-           (mixed/pure_student/full_teacher/degraded)."
+           ledger. Telemetry (fixed key set, zero-filled -- the d3-quads
+           same-key-count discipline): gkd_tmax, gkd_kappa_mean,
+           gkd_tail_token_frac, and six outcome counters
+           (mixed / pure_student / full_teacher / cap_full / degraded /
+           aborted) whose sum equals gkd_n_seen -- the lost-sequence check.
+           Natural-stop discrimination is a kappa+1 probe: this verl maps both
+           vllm finish reasons to stop_reason='completed', so <=kappa returned
+           tokens is the proof of a natural stop, kappa+1 the proof of a cap."
     env2_pending:
       SIMOPD_A5_TMAX_SCHEDULE: "mode=linear,start=0,end=16384,warmup=0,decay=250"
       SIMOPD_A5_KEYS: /mnt/workspace/simopd_data/gkd_offpolicy.parquet.dry

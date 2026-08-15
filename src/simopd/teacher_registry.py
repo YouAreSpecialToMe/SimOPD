@@ -55,12 +55,14 @@ def _registry_cls():
 
 
 def publish(handles_by_key):
-    """Trainer side: create the named actor (idempotent) and store the handles."""
+    """Trainer side: create the named actor (idempotent) and store the handles.
+
+    get_if_exists closes the create/create race two concurrent publishers would
+    hit in the get_actor-then-create window (review 2026-08-15): whichever
+    creation lands second attaches to the first's actor instead of raising.
+    """
     ray = _ray()
-    try:
-        reg = ray.get_actor(REGISTRY_NAME)
-    except ValueError:
-        reg = _registry_cls().options(name=REGISTRY_NAME).remote()
+    reg = _registry_cls().options(name=REGISTRY_NAME, get_if_exists=True).remote()
     keys = ray.get(reg.put.remote(handles_by_key))
     print(f"[simopd] teacher_registry: published teacher handles for {keys}",
           file=sys.stderr, flush=True)

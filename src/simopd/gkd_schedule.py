@@ -95,6 +95,13 @@ def parse(spec):
                          warmup=int(kv.get("warmup", "0")), decay=int(kv["decay"]))
     except (TypeError, ValueError) as e:
         raise ValueError(f"gkd_schedule: non-numeric field in {spec!r}: {e}")
+    # float() happily accepts "nan"/"inf", and a NaN start would sail through
+    # install, print an armed banner, and lose every coin toss -- the silent
+    # wrong-arm failure this parser exists to prevent (review 2026-08-15 #3).
+    # Range bounds live with the CONSUMER (the coin needs [0,1], a T_max ramp
+    # does not), but finiteness is unconditional.
+    if not (math.isfinite(sched.start) and math.isfinite(sched.end)):
+        raise ValueError(f"gkd_schedule: non-finite start/end in {spec!r}")
     if sched.decay < 1:
         raise ValueError(f"gkd_schedule: decay must be >= 1 (spec {spec!r})")
     if sched.warmup < 0:

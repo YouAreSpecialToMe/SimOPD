@@ -158,11 +158,20 @@ def install():
             "gkd_mix: both SIMOPD_GKD_SCHEDULE and SIMOPD_GKD_LAMBDA are set -- two knobs "
             "claiming one dose. An arm registers exactly one curve (a1/a3: constant LAMBDA; "
             "a4: SCHEDULE); unset the other.")
+    # Parse and bound eagerly: a typo'd knob must kill the run here, not at step
+    # 0's first coin inside the server actor where the traceback is three layers
+    # deep. The coin computes (h % 10000) < lam * 10000, so any lam outside
+    # [0, 1] silently pins the mix to all-on or all-off under the arm's name --
+    # start=10 (fat-fingered 1.0) would be 100% off-policy with a green banner
+    # (review 2026-08-15 #3). gkd_schedule checks finiteness; the [0,1] range is
+    # THIS consumer's contract (a5's T_max ramp legitimately runs to 16384).
     if os.environ.get("SIMOPD_GKD_SCHEDULE", ""):
-        # Parse eagerly: a typo'd schedule must kill the run here, not at step 0's
-        # first coin inside the server actor where the traceback is three layers deep.
-        gkd_schedule.parse(os.environ["SIMOPD_GKD_SCHEDULE"])
-    atexit.register(_flush_bucket)
+        s = gkd_schedule.parse(os.environ["SIMOPD_GKD_SCHEDULE"])
+        if not (0.0 <= s.start <= 1.0 and 0.0 <= s.end <= 1.0):
+            raise RuntimeError(f"gkd_mix: schedule endpoints ({s.start}, {s.end}) outside "
+                               f"[0, 1] -- the coin's probability cannot leave the unit interval")
+    elif not (0.0 <= _lam() <= 1.0):
+        raise RuntimeError(f"gkd_mix: SIMOPD_GKD_LAMBDA={_lam()} outside [0, 1]")
     mod = sys.modules.get("verl.workers.rollout.vllm_rollout.vllm_async_server")
     if mod is None:
         return
@@ -173,6 +182,10 @@ def install():
             raise RuntimeError("gkd_mix: vLLMHttpServer.generate not found -- verl moved it; "
                                "the a1 arm cannot mix and would silently train as vanilla")
         return
+    # After the double-wrap guard on purpose: a second install() must not queue a
+    # second atexit flush of the same final bucket (review 2026-08-15 #11).
+    atexit.register(_flush_bucket)
+    gkd_stats.reset_file()
 
     async def generate(self, prompt_ids, sampling_params, request_id, *a, **kw):
         # Teacher-side scoring calls pass through untouched.
