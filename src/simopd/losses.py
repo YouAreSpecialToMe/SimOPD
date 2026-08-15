@@ -217,6 +217,19 @@ def _gkd_relay_metrics():
             for k, v in vals.items()}
 
 
+# Verification NEW-ISSUE 1: the sideband path must be resolvable at BRINGUP on
+# the trainer too. The server side dies in install(); without this, the
+# trainer's first path() evaluation would happen inside the loss on micro-batch
+# one, three layers deep -- the exact failure shape gkd_mix.install()'s eager
+# parse exists to avoid. Import time runs in every process (sitecustomize),
+# gated so vanilla and non-A arms never need the env.
+if (os.environ.get("SIMOPD_GKD_CACHE", "") != ""
+        or os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""):
+    from simopd import gkd_stats as _gkd_stats_bringup
+
+    _gkd_stats_bringup.path()
+
+
 @register_distillation_loss(
     DistillationLossSettings(names=["k1_rec"], use_estimator=True)
 )  # type: ignore[arg-type]

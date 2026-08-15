@@ -103,7 +103,7 @@ TEACHER = {"behavior": None, "calls": []}
 
 
 async def _orig(self, prompt_ids, sampling_params, request_id, *a, **kw):
-    CALLS.append((list(prompt_ids), dict(sampling_params)))
+    CALLS.append((list(prompt_ids), dict(sampling_params), request_id))
     return SCRIPT.pop(0)(list(prompt_ids), dict(sampling_params))
 
 
@@ -203,6 +203,8 @@ ok(tp == P1 + [1, 2, 3, 4, 5] and tsp["max_tokens"] == 95 and trid == "req1",
 ok(a5._TAIL_SENTINEL in tsp, "teacher call carries the sentinel")
 ok(CALLS[-1][1]["prompt_logprobs"] == 0 and CALLS[-1][0] == P1 + [1, 2, 3, 4, 5, 7, 8, 9],
    "scoring call covers prompt+stitched")
+ok(CALLS[-2][2] == "req1" and CALLS[-1][2] == "req1-a5s",
+   "probe keeps the original id, scoring is suffixed (NEW-ISSUE 3)")
 ok(a5._bucket["mixed"] == 1 and a5._bucket["prefix_tokens"] >= 5
    and a5._bucket["tail_tokens"] == 3, "mixed outcome + token provenance")
 
@@ -243,10 +245,30 @@ SCRIPT.append(lambda p, sp: TokenOutput(token_ids=[], stop_reason="aborted"))
 out = run(P1)
 ok(out.stop_reason == "aborted" and a5._bucket["aborted"] == 1, "prefix abort counted")
 
+
+# teacher RAISING (over-window / transport) degrades instead of killing the
+# request (verification NEW-ISSUE 2).
+def _boom(p, sp):
+    raise ValueError("prompt > teacher max_model_len")
+
+
+force_kappa(5)
+SCRIPT.append(lambda p, sp: TokenOutput(token_ids=[1, 2, 3, 4, 5, 6], stop_reason="completed"))
+TEACHER["behavior"] = _boom
+out = run(P1)
+ok(out.token_ids == [1, 2, 3, 4, 5, 6] and a5._bucket["degraded"] == 3,
+   "teacher exception -> deliver student prefix, counted degraded")
+
+# ... and with no prefix to fall back to, a synthetic abort -- never None.
+force_kappa(0)
+out = run(P1)
+ok(out is not None and out.stop_reason == "aborted" and a5._bucket["aborted"] == 2,
+   "teacher exception at kappa=0 -> synthetic aborted TokenOutput, not None")
+
 # outcome-sum invariant: every eligible request lands in exactly one bucket.
 b = a5._bucket
 outcomes = b["mixed"] + b["pure_student"] + b["full_teacher"] + b["cap_full"] + b["degraded"] + b["aborted"]
-ok(outcomes == b["n_seen"] == 8, f"outcome sum {outcomes} == n_seen {b['n_seen']}")
+ok(outcomes == b["n_seen"] == 10, f"outcome sum {outcomes} == n_seen {b['n_seen']}")
 
 # miss-only step still flushes (review #7), and rows carry derived fields + pid.
 server.global_steps = 11

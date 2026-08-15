@@ -173,6 +173,9 @@ def install():
             raise RuntimeError("a5_aggrevate: vLLMHttpServer.generate not found -- verl "
                                "moved it; the arm cannot mix and would train as vanilla")
         return
+    # Config errors (unresolvable sideband path) die HERE at bringup; the IO
+    # helpers below swallow everything (verification NEW-ISSUE 1).
+    gkd_stats.path()
     atexit.register(_flush_bucket)
     gkd_stats.reset_file()
 
@@ -252,11 +255,27 @@ def install():
             prefix_out = out
 
         budget = cap - len(prefix)   # >= 1 because len(prefix) == k < cap
-        tail = await _teacher_generate(list(prompt_ids) + prefix, budget, request_id)
+        # The teacher is a DIFFERENT model with its own window, unknowable from
+        # here; a tail call it rejects (over-window prompt, transport error) must
+        # land in the degrade path, not kill the rollout request (verification
+        # NEW-ISSUE 2 -- the docstring promised this, now the code delivers it).
+        try:
+            tail = await _teacher_generate(list(prompt_ids) + prefix, budget, request_id)
+        except Exception as e:
+            if _stats["degraded"] == 0:
+                print(f"[simopd] a5_aggrevate: teacher call failed ({e!r}); degrading "
+                      f"this and any further failures to the student prefix",
+                      file=sys.stderr, flush=True)
+            tail = None
         tail_ids = list(getattr(tail, "token_ids", None) or [])
-        if getattr(tail, "stop_reason", None) == "aborted" or not tail_ids:
+        if tail is None or getattr(tail, "stop_reason", None) == "aborted" or not tail_ids:
             if prefix_out is None:
                 _outcome("aborted")
+                if tail is None:
+                    from verl.workers.rollout.replica import TokenOutput
+
+                    tail = TokenOutput(token_ids=[], log_probs=[], routed_experts=None,
+                                       stop_reason="aborted", extra_fields={})
                 return tail
             # The k+1-token student output is a valid capped on-policy sample;
             # deliver it rather than fail the request (counted, never silent).
@@ -267,8 +286,13 @@ def install():
         score_params = dict(sampling_params) if params_is_dict else {}
         score_params.update({"max_tokens": 1, "prompt_logprobs": 0, "logprobs": None,
                              "temperature": 0.0, "n": 1})
+        # Suffixed id: the probe already used request_id on THIS engine, and vLLM
+        # rejects an id it still tracks -- sequential-and-awaited should have
+        # released it, but "should" is not a contract (verification NEW-ISSUE 3).
+        # Abort reachability stays where it matters: the probe and the 16k teacher
+        # tail keep the original id; this scoring call is max_tokens=1.
         scored = await fn(self, list(prompt_ids) + stitched, score_params,
-                          request_id, *a, **kw)
+                          f"{request_id}-a5s", *a, **kw)
         extra = dict(getattr(scored, "extra_fields", None) or {})
         if getattr(scored, "stop_reason", None) == "aborted" or "prompt_logprobs" not in extra:
             if prefix_out is None:

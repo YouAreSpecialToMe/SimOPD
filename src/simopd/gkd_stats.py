@@ -55,22 +55,28 @@ def path():
 def reset_file():
     """Truncate at arm install (both server processes run it at bringup, before
     any row exists): a resumed lane must not serve the previous run's final row
-    as its step-0 telemetry, and install-time is earlier than any reader."""
+    as its step-0 telemetry, and install-time is earlier than any reader.
+
+    Never raises (verification NEW-ISSUE 1: path()'s RuntimeError escaped the
+    OSError guard). CONFIG validation is not this function's job -- installs and
+    the losses import-gate call path() directly, where a raise IS bringup-fatal
+    by design; here in the IO layer, degraded telemetry beats a dead request."""
     try:
         open(path(), "wb").close()
-    except OSError as e:
+    except Exception as e:
         print(f"[simopd] gkd_stats: reset failed ({e!r}); stale rows may lead the file",
               file=sys.stderr, flush=True)
 
 
 def append(row):
     """Writer side (rollout server): one line per flushed step. Never raises --
-    the writer sits inline in the wrapped generate(), and a full /tmp must not
-    fail a rollout request."""
+    the writer sits inline in the wrapped generate(), and neither a full /tmp
+    nor a config error may fail a rollout request (the config case has already
+    passed the install-time path() check by the time any row flushes)."""
     try:
         with open(path(), "ab") as f:
             f.write((json.dumps(dict(row, pid=os.getpid())) + "\n").encode())
-    except OSError as e:
+    except Exception as e:
         if not _write["warned"]:
             _write["warned"] = True
             print(f"[simopd] gkd_stats: telemetry write failed ({e!r}); "

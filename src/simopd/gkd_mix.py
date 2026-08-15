@@ -184,6 +184,10 @@ def install():
         return
     # After the double-wrap guard on purpose: a second install() must not queue a
     # second atexit flush of the same final bucket (review 2026-08-15 #11).
+    # path() first and OUTSIDE the IO helpers: an unresolvable sideband path is a
+    # config error and must kill the lane HERE at bringup -- the IO layer below
+    # deliberately swallows everything (verification NEW-ISSUE 1).
+    gkd_stats.path()
     atexit.register(_flush_bucket)
     gkd_stats.reset_file()
 
