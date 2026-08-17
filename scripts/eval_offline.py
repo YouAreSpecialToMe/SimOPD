@@ -68,6 +68,44 @@ BENCHMARKS = {
 }
 SUBSET_FILE = "data/math500_subset100.json"
 
+# Local-parquet benchmarks: a domain campaign's own held-out split, read off the
+# shared disk rather than the hub. This is deliberately the SAME file the training
+# run validates against every 25 steps, so the offline column is comparable to the
+# in-loop curve problem-for-problem, and adds the two things in-loop cannot give:
+# avg@k and a frozen per-checkpoint artifact. Value is (path, data_source); the
+# data_source is the row's own, so scoring lands on the identical verl scorer the
+# training reward uses -- METRICS.md's no-second-implementation rule.
+LOCAL_BENCHMARKS = {
+    "codeval": (os.path.join(os.environ.get("SIMOPD_CODE_DIR",
+                             "/mgfs/shared/Group_GY/changhao/simopd_data/simopd_code"),
+                             "val_holdout.parquet"), "codecontests"),
+}
+
+
+def load_local_benchmark(name):
+    """(prompts, ground_truths, ids, data_source) from a domain campaign's parquet.
+
+    The prompt column already carries that domain's full instruction -- the prep
+    script built it and the training loop feeds it verbatim -- so the caller must
+    NOT append the math INSTRUCTION here. Doing so would ask a coding model for a
+    \\boxed{} answer and the column would measure our prompt, not the model.
+
+    Ids come from extra_info.index, the prep script's own row key, so an artifact
+    keeps pairing with the right problem even if the file is ever rewritten in a
+    different order (the positional fallback is the audit-2026-08-07 S2 hazard).
+    """
+    path, data_source = LOCAL_BENCHMARKS[name]
+    df = pd.read_parquet(path)
+    prompts, golds, ids = [], [], []
+    for i, row in enumerate(df.itertuples(index=False)):
+        p = row.prompt
+        prompts.append(p[0]["content"] if len(p) and isinstance(p[0], dict) else str(p))
+        golds.append(row.reward_model["ground_truth"])
+        ei = getattr(row, "extra_info", None)
+        idx = ei.get("index", i) if isinstance(ei, dict) else i
+        ids.append(f"{name}/{idx}")
+    return prompts, golds, ids, data_source
+
 
 def _derived_max_len(model_path):
     """The model's own max context (config.json), so vLLM never gets asked past it."""
@@ -217,8 +255,24 @@ def main():
     for bench in args.benchmarks.split(","):
         bench = bench.strip()
         is_transfer = bench in transfer_eval.TRANSFER
+        is_local = bench in LOCAL_BENCHMARKS
+        local_source = None
 
-        if is_transfer:
+        if is_local:
+            problems, golds, pids, local_source = load_local_benchmark(bench)
+            metas = [{"answer": g} for g in golds]
+            # Prompt verbatim from the parquet -- see load_local_benchmark. Chat
+            # template and enable_thinking still match training, same as below.
+            prompts = [
+                tok.apply_chat_template(
+                    [{"role": "user", "content": q}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=args.think,
+                )
+                for q in problems
+            ]
+        elif is_transfer:
             raws, metas, pids = transfer_eval.load(bench)
             prompts = [
                 transfer_eval.build_prompt(bench, raw, meta, tok)
@@ -251,6 +305,23 @@ def main():
                 stamp=f"{args.run_id}__step{args.step}__seed{args.seed}__{stamp}",
                 parallel=args.parallel,
             )
+        elif is_local:
+            # verl routes codecontests to prime_code with continuous=True, so the
+            # scorer returns the FRACTION of unit tests passed -- which is the right
+            # shape for a training reward and the wrong shape for a pass@1 column.
+            # `correct` is therefore all-tests-pass, the field convention; the raw
+            # fraction rides along as pass_frac so the softer reading stays available
+            # without a second scoring run.
+            extras = []
+            for meta, per_problem in zip(metas, completions, strict=True):
+                per = []
+                for text in per_problem:
+                    score = default_compute_score(local_source, text, meta["answer"])
+                    if isinstance(score, dict):
+                        score = score.get("score", 0.0)
+                    frac = float(score)
+                    per.append({"correct": int(frac >= 1.0), "pass_frac": frac})
+                extras.append(per)
         else:
             extras = []
             for meta, per_problem in zip(metas, completions, strict=True):
