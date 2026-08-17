@@ -80,22 +80,24 @@ source simopd/bin/activate
 
 export DATA_DIR=$D/simopd_math
 export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,post-eval glob 范围内
-# NCCL bootstrap 接口(bug 11,2026-08-18 首个 DLC 训练作业):FSDP 初始化死于
-# "Bootstrap : no socket interface found"——pod 明明有可路由网卡(Ray 正用着
-# 10.240.0.42),但 NCCL 默认接口发现拒绝了此镜像的接口命名。DLC pod 上此前
-# 从未跑过 NCCL 训练(eval 舰队单卡 vLLM 无 NCCL,训练战役在 DSW 节点),无
-# 先例可抄。我们所有 lane 都是单节点(nnodes=1),bootstrap 有个接口就行:按
-# 前缀优先真网卡,loopback 兜底(lo 只有显式点名才会被 NCCL 考虑);节点内
-# 数据面走 SHM/P2P,与此无关。DSW 冒烟测不到这一类(DSW pod 有标准 eth0)。
-# lo 独占而非"真网卡优先":本工作负载所有 lane 单节点、FSDP/vLLM 世界大小
-# 全为 1,NCCL 只用到 bootstrap 阶段(无跨卡通信环),loopback 必然存在且与
-# CNI 命名/标志位怪癖完全解耦。若前缀列表优先真网卡,而原故障属"名字匹配但
-# 枚举仍拒"类,会原地再死——lo 独占把这一类也覆盖。日后若真有多节点 lane,
-# 用环境覆写(此处 :- 语义)。
-export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-lo}
-# WARN 级 NCCL 日志:成功时几乎零输出;若接口修复在某种 pod 上仍不奏效,
-# lane 日志会直接列出 NCCL 枚举/拒绝的接口,下一轮免猜。
+# NCCL/GLOO 接口按 pod 形态自选(bug 11 终版):首个 DLC 训练作业死于 FSDP 初
+# 始化 "Bootstrap : no socket interface found"——MDC pod 的网卡是绑定接口
+# bond0,NCCL 默认发现在此镜像上枚举不到它。实证配置来自 tools/dlc/exp*.sh
+# (在这批 pod 上真实跑通过多卡训练的前辈脚本):NCCL/GLOO 双 pin bond0 +
+# NET_PLUGIN=none(镜像自带网络插件是枚举失败的另一嫌疑;我们的单节点 lane
+# 也用不上任何 fabric 插件)。DSW pod 无 bond0 → lo(单节点 bootstrap 足够,
+# 数据面走 SHM/P2P)。eval 舰队从未撞上是因为单卡 vLLM 不碰 NCCL。全部可
+# 环境覆写;NCCL_DEBUG=WARN 常开,若仍有意外,日志直接列出枚举结果。
+if [ -z "${NCCL_SOCKET_IFNAME:-}" ]; then
+    if [ -e /sys/class/net/bond0 ]; then
+        export NCCL_SOCKET_IFNAME=bond0 GLOO_SOCKET_IFNAME=bond0
+    else
+        export NCCL_SOCKET_IFNAME=lo GLOO_SOCKET_IFNAME=lo
+    fi
+fi
+export NCCL_NET_PLUGIN=${NCCL_NET_PLUGIN:-none}
 export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
+echo "== net ifaces: NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-unset} NCCL_NET_PLUGIN=$NCCL_NET_PLUGIN"
 export MAX_RESPONSE_LENGTH=16384
 export ROLLOUT_GPU_MEM_UTIL=0.45         # campaign 钉值(见 deploy/campaign.sh 的论证)
 export PYTHONUNBUFFERED=1
