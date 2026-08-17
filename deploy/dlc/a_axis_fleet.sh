@@ -37,6 +37,17 @@ ARMS=(a1_gkd_mix0.5 a3_offpolicy a4_dagger_anneal a5_aggrevate)
 PAIRS=(0,1 2,3 4,5 6,7)
 SEED=${SEED:-0}
 
+# 远程中止开关(bug 11 运维产物):所有挂起/等待循环每轮检查此标记,存在即
+# exit 17 → AIMaster 重启 → 新 pod 从 /mgfs 重读脚本,自动拾取修复——挂死的
+# 作业从此不必进控制台手停。用法:touch $D/a_axis/fleet_abort_s<N>;用后必删,
+# 否则重启风暴。
+_abort_check() {
+    if [ -f "$D/a_axis/fleet_abort_s${SEED}" ]; then
+        echo "abort marker $D/a_axis/fleet_abort_s${SEED} found; exiting 17 for AIMaster restart"
+        exit 17
+    fi
+}
+
 # ---------------------------------------------------------------- submitter --
 if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; then
     cat <<CARD
@@ -61,7 +72,7 @@ fi
 # lane/分片再跑一遍(ckpt 目录撞车)。rank 取值沿用 exp worker.sh 的优先序。
 _rank=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-0}}}
 if [ "${_rank}" != "0" ]; then
-    while true; do echo "rank ${_rank}: single-worker job, idling ($(date))"; sleep 600; done
+    while true; do _abort_check; echo "rank ${_rank}: single-worker job, idling ($(date))"; sleep 600; done
 fi
 cd "$ROOT"
 LOGD=$D/a_axis
@@ -117,6 +128,7 @@ BAD=$(grep 'PROBLEM' "$LINT_LOG" \
       | grep -vE 'campaign\.tsv row|verdict\.py ARMS' || true)
 if [ -n "$BAD" ]; then
     while true; do
+        _abort_check
         echo "ARM_LINT (scoped) FAILED -- lanes NOT launched ($(date)):"
         echo "$BAD"
         sleep 600
@@ -174,6 +186,7 @@ if [ "$SEED" != 0 ]; then
     # seed-0 作业或手工彩排(gpu193 实践)落盘,seed 无关可复用。
     until [ -f "$LOGD/rehearsal_${ARMS[0]}.OK" ] && [ -f "$LOGD/rehearsal_${ARMS[1]}.OK" ] \
        && [ -f "$LOGD/rehearsal_${ARMS[2]}.OK" ] && [ -f "$LOGD/rehearsal_${ARMS[3]}.OK" ]; do
+        _abort_check
         echo "seed $SEED: waiting for 4/4 rehearsal .OK markers in $LOGD ($(date))"
         sleep 600
     done
@@ -199,6 +212,7 @@ done
 if [ -n "$FAILED" ]; then
     # 挂起待查而非退出:DLC 对非零退出可能重启风暴,而彩排失败需要人看日志。
     while true; do
+        _abort_check
         echo "REHEARSAL FAILED:$FAILED -- lanes NOT launched. logs: $LOGD/rehearsal_*.log ($(date))"
         sleep 600
     done
@@ -255,6 +269,7 @@ done
 # 修不了环境错;挂起让失败可见、不烧重启配额)。
 if [ "$ok" -eq 0 ]; then
     while true; do
+        _abort_check
         echo "ALL LANES DEAD, zero checkpoints banked -- NOT declaring success; inspect $LOGD/lane_*_s${SEED}.log ($(date))"
         sleep 600
     done
