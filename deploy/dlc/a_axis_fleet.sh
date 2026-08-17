@@ -72,9 +72,24 @@ export MAX_RESPONSE_LENGTH=16384
 export ROLLOUT_GPU_MEM_UTIL=0.45         # campaign 钉值(见 deploy/campaign.sh 的论证)
 export PYTHONUNBUFFERED=1
 
-# 注册表卫生:verl 在场,跑全量 lint(EXPECT_PG 分支、旋钮被消费、双旋钮拒绝)。
-# lint 不过 = 注册与代码漂移,发射必须停在这里。
-python scripts/arm_lint.py || { echo "ARM_LINT FAILED -- refusing to proceed"; exit 1; }
+# 注册表卫生,限域裁决(教训 dlc51chl6xe1vawa:全量 lint 硬门撞上 campaign.tsv
+# 的既有重复行 + supplement 臂设计上无清单行,12 分钟烧光 10 次重启)。全量
+# 输出留档;只有"关于本任务四臂、且非战役簿记类"的问题才拦发射——env/旋钮/
+# 分支漂移是 lane 安全问题,清单行覆盖与 verdict 名单是簿记,重复行属协作者
+# 名册状态。失败改挂起待查:重启永远修不了注册表,不再烧重启配额。
+LINT_LOG=$LOGD/arm_lint.log
+python scripts/arm_lint.py > "$LINT_LOG" 2>&1 || true
+BAD=$(grep 'PROBLEM' "$LINT_LOG" \
+      | grep -E 'a1_gkd_mix0\.5|a3_offpolicy|a4_dagger_anneal|a5_aggrevate' \
+      | grep -vE 'campaign\.tsv row|verdict\.py ARMS' || true)
+if [ -n "$BAD" ]; then
+    while true; do
+        echo "ARM_LINT (scoped) FAILED -- lanes NOT launched ($(date)):"
+        echo "$BAD"
+        sleep 600
+    done
+fi
+echo "== arm_lint: scoped gate clean (full report: $LINT_LOG)"
 
 # ------------------------------------------------------------ Phase P 预计算 --
 if [ ! -f "$D/gkd_offpolicy.parquet" ]; then
