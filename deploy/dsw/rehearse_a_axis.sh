@@ -47,18 +47,37 @@ export PYTHONUNBUFFERED=1
 
 LOG=$LOGD/rehearsal_${ARM}.log
 SIDEBAND=/tmp/simopd_gkd_stats_rehearsal_${ARM}.jsonl
-rm -f "$SIDEBAND"
-echo "rehearsal $ARM on GPUs $GPUS -> $LOG"
-rc=0
-bash scripts/run_opd_baseline.sh \
-    data.seed=0 \
-    actor_rollout_ref.rollout.seed=0 \
-    > "$LOG" 2>&1 || rc=$?
+# VERDICT_ONLY=1 重判既有产物(日志+侧带),不重跑 3 步——判据代码修订后
+# 对已完成的运行复核用(2026-08-18:wandb offline 拆除段 traceback 曾误伤
+# 两个实际全程健康的彩排)。
+if [ "${VERDICT_ONLY:-0}" != 1 ]; then
+    rm -f "$SIDEBAND"
+    echo "rehearsal $ARM on GPUs $GPUS -> $LOG"
+    rc=0
+    bash scripts/run_opd_baseline.sh \
+        data.seed=0 \
+        actor_rollout_ref.rollout.seed=0 \
+        > "$LOG" 2>&1 || rc=$?
+else
+    echo "verdict-only re-judge of $LOG"
+    rc=0
+fi
 
 fail() { echo "REHEARSAL FAIL [$ARM]: $1"; tail -5 "$LOG" | sed 's/^/    /'; exit 1; }
 
 [ "$rc" -eq 0 ] || fail "run exited $rc"
-! grep -q 'Traceback (most recent call last)' "$LOG" || fail "Traceback in log"
+# 主判据:三个协议步真的都跑了。Traceback 只在训练段内(最后一个 step 行
+# 之前)出现才致命;之后的属拆除噪音(wandb offline teardown 实测会吐
+# traceback 而 run 退出 0),记 note 放行。
+steps=$(grep -c "step:" "$LOG" || true)
+[ "${steps:-0}" -ge 3 ] || fail "only ${steps:-0}/3 training steps in log"
+last_step=$(grep -n "step:" "$LOG" | tail -1 | cut -d: -f1)
+first_tb=$(grep -n "Traceback (most recent call last)" "$LOG" | head -1 | cut -d: -f1 || true)
+if [ -n "$first_tb" ] && [ "$first_tb" -lt "$last_step" ]; then
+    fail "Traceback during training (line $first_tb < last step line $last_step)"
+elif [ -n "$first_tb" ]; then
+    echo "note [$ARM]: teardown-phase traceback tolerated (line $first_tb > last step $last_step, exit 0)"
+fi
 
 case "$ARM" in
   a5_aggrevate)
