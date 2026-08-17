@@ -80,24 +80,27 @@ source simopd/bin/activate
 
 export DATA_DIR=$D/simopd_math
 export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,post-eval glob 范围内
-# NCCL/GLOO 接口按 pod 形态自选(bug 11 终版):首个 DLC 训练作业死于 FSDP 初
-# 始化 "Bootstrap : no socket interface found"——MDC pod 的网卡是绑定接口
-# bond0,NCCL 默认发现在此镜像上枚举不到它。实证配置来自 tools/dlc/exp*.sh
-# (在这批 pod 上真实跑通过多卡训练的前辈脚本):NCCL/GLOO 双 pin bond0 +
-# NET_PLUGIN=none(镜像自带网络插件是枚举失败的另一嫌疑;我们的单节点 lane
-# 也用不上任何 fabric 插件)。DSW pod 无 bond0 → lo(单节点 bootstrap 足够,
-# 数据面走 SHM/P2P)。eval 舰队从未撞上是因为单卡 vLLM 不碰 NCCL。全部可
-# 环境覆写;NCCL_DEBUG=WARN 常开,若仍有意外,日志直接列出枚举结果。
-if [ -z "${NCCL_SOCKET_IFNAME:-}" ]; then
-    if [ -e /sys/class/net/bond0 ]; then
-        export NCCL_SOCKET_IFNAME=bond0 GLOO_SOCKET_IFNAME=bond0
-    else
-        export NCCL_SOCKET_IFNAME=lo GLOO_SOCKET_IFNAME=lo
-    fi
+# NCCL/GLOO 接口选择(bug 11 真终版):首个 DLC 作业死于 "Bootstrap : no socket
+# interface found",第二次开机回显暴露真根因——**DLC 平台在容器里预注入
+# NCCL_SOCKET_IFNAME=bond1**,把 NCCL 钉死在本 pod 不存在的接口上;此前的
+# "尊重已有环境"(:-)恰好让位给了这个坏注入。tools/dlc/exp*.sh 无条件强写
+# bond0 正是前辈踩过同一坑的痕迹。所以:绝不信任容器预注入,按存在性在
+# {bond0,bond1,eth0} 里选第一个真实接口,全无则 lo(所有 lane 单节点、世界
+# 大小 1,bootstrap 有接口即可,数据面走 SHM/P2P);NCCL/GLOO 双 pin、
+# NET_PLUGIN=none 一律无条件覆盖。手工指定走 SIMOPD_NET_IFACE(专用变量,
+# 不与平台注入同名)。开机回显 /sys/class/net 全量,任何意外一眼可诊。
+_ifs=$(ls /sys/class/net 2>/dev/null | tr "\n" " ")
+_pick=${SIMOPD_NET_IFACE:-}
+if [ -z "$_pick" ]; then
+    for _c in bond0 bond1 eth0; do
+        [ -e "/sys/class/net/$_c" ] && { _pick=$_c; break; }
+    done
+    [ -n "$_pick" ] || _pick=lo
 fi
-export NCCL_NET_PLUGIN=${NCCL_NET_PLUGIN:-none}
+export NCCL_SOCKET_IFNAME=$_pick GLOO_SOCKET_IFNAME=$_pick
+export NCCL_NET_PLUGIN=none
 export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
-echo "== net ifaces: NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-unset} NCCL_NET_PLUGIN=$NCCL_NET_PLUGIN"
+echo "== net ifaces: picked $_pick (pod has: $_ifs) NCCL_NET_PLUGIN=none"
 export MAX_RESPONSE_LENGTH=16384
 export ROLLOUT_GPU_MEM_UTIL=0.45         # campaign 钉值(见 deploy/campaign.sh 的论证)
 export PYTHONUNBUFFERED=1
