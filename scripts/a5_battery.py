@@ -259,11 +259,14 @@ out = run(P1)
 ok(out.token_ids == [1, 2, 3, 4, 5, 6] and a5._bucket["degraded"] == 3,
    "teacher exception -> deliver student prefix, counted degraded")
 
-# ... and with no prefix to fall back to, a synthetic abort -- never None.
+# ... and with no prefix (kappa=0): a COUNTED student-fallback generation --
+# an empty/aborted output would crash verl's as_dict (rm_scores[-1] on size 0,
+# measured 2026-08-18, 110x, killed the first a5 rehearsal batch).
 force_kappa(0)
+SCRIPT.append(lambda p, sp: TokenOutput(token_ids=[42, 43], stop_reason="completed"))
 out = run(P1)
-ok(out is not None and out.stop_reason == "aborted" and a5._bucket["aborted"] == 2,
-   "teacher exception at kappa=0 -> synthetic aborted TokenOutput, not None")
+ok(out.token_ids == [42, 43] and a5._bucket["degraded"] == 4,
+   "teacher exception at kappa=0 -> counted student generation, never empty")
 
 # outcome-sum invariant: every eligible request lands in exactly one bucket.
 b = a5._bucket

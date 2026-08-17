@@ -87,7 +87,17 @@ async def resolve(key=None, timeout_s=60.0):
             handles = await reg.get.remote(key)
             if handles:
                 return handles
-            last = f"registry up but no handles under key {key!r} yet"
+            # Single-teacher lane: the dict key is verl's naming (measured
+            # 2026-08-18: this verl normalizes to 'default', not the hydra
+            # entry name 'teacher_model'), but with exactly ONE teacher there
+            # is no ambiguity -- take it and say so. Multiple keys stay a
+            # loud failure: guessing among teachers would be silent-wrong.
+            ks = await reg.keys.remote()
+            if len(ks) == 1:
+                print(f"[simopd] teacher_registry: key {key!r} absent; single "
+                      f"teacher {ks[0]!r} resolved instead", file=sys.stderr, flush=True)
+                return await reg.get.remote(ks[0])
+            last = f"registry up but no handles under key {key!r} (have {ks})"
         except ValueError:
             last = "registry actor not found"
         await asyncio.sleep(2.0)

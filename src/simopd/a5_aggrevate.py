@@ -220,6 +220,23 @@ def install():
             print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
                   file=sys.stderr, flush=True)
 
+        async def _student_fallback(reason):
+            # kappa=0 infra failure has no student prefix to deliver, and an
+            # EMPTY output crashes verl's as_dict (rm_scores[-1] on a size-0
+            # response -- measured 2026-08-18, 110x, killed the first a5
+            # rehearsal batch). The honest degrade is a COUNTED on-policy
+            # student generation: this sequence trains as vanilla, the
+            # telemetry says so, and the lane lives.
+            if _stats["degraded"] == 0:
+                print(f"[simopd] a5_aggrevate: {reason}; delivering a counted "
+                      f"student generation instead", file=sys.stderr, flush=True)
+            _outcome("degraded")
+            fb = await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
+            ftok = getattr(fb, "token_ids", None)
+            if ftok:
+                _bucket["prefix_tokens"] += len(ftok)
+            return fb
+
         if cap <= 0 or k >= cap:
             # kappa consumed the whole window (or there is none): the student
             # keeps the entire budget, a teacher tail cannot fit.
@@ -270,13 +287,7 @@ def install():
         tail_ids = list(getattr(tail, "token_ids", None) or [])
         if tail is None or getattr(tail, "stop_reason", None) == "aborted" or not tail_ids:
             if prefix_out is None:
-                _outcome("aborted")
-                if tail is None:
-                    from verl.workers.rollout.replica import TokenOutput
-
-                    tail = TokenOutput(token_ids=[], log_probs=[], routed_experts=None,
-                                       stop_reason="aborted", extra_fields={})
-                return tail
+                return await _student_fallback("teacher tail unavailable at kappa=0")
             # The k+1-token student output is a valid capped on-policy sample;
             # deliver it rather than fail the request (counted, never silent).
             _outcome("degraded", len(prefix_out.token_ids or []), "prefix_tokens")
@@ -296,8 +307,7 @@ def install():
         extra = dict(getattr(scored, "extra_fields", None) or {})
         if getattr(scored, "stop_reason", None) == "aborted" or "prompt_logprobs" not in extra:
             if prefix_out is None:
-                _outcome("aborted")
-                return scored
+                return await _student_fallback("scoring unavailable at kappa=0")
             _outcome("degraded", len(prefix_out.token_ids or []), "prefix_tokens")
             return prefix_out
 
