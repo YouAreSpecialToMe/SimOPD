@@ -80,6 +80,14 @@ source simopd/bin/activate
 
 export DATA_DIR=$D/simopd_math
 export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,post-eval glob 范围内
+# NCCL bootstrap 接口(bug 11,2026-08-18 首个 DLC 训练作业):FSDP 初始化死于
+# "Bootstrap : no socket interface found"——pod 明明有可路由网卡(Ray 正用着
+# 10.240.0.42),但 NCCL 默认接口发现拒绝了此镜像的接口命名。DLC pod 上此前
+# 从未跑过 NCCL 训练(eval 舰队单卡 vLLM 无 NCCL,训练战役在 DSW 节点),无
+# 先例可抄。我们所有 lane 都是单节点(nnodes=1),bootstrap 有个接口就行:按
+# 前缀优先真网卡,loopback 兜底(lo 只有显式点名才会被 NCCL 考虑);节点内
+# 数据面走 SHM/P2P,与此无关。DSW 冒烟测不到这一类(DSW pod 有标准 eth0)。
+export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-eth,en,bond,net,lo}
 export MAX_RESPONSE_LENGTH=16384
 export ROLLOUT_GPU_MEM_UTIL=0.45         # campaign 钉值(见 deploy/campaign.sh 的论证)
 export PYTHONUNBUFFERED=1
@@ -223,8 +231,19 @@ done
 # 同 Phase R:显式 pid,绝不裸 wait(tee 进程替换死锁)。
 wait "${_lpids[@]}"
 echo "== Phase L done"
+ok=0
 for ARM in "${ARMS[@]}"; do
     ck=$(ls -d "$D/ckpt/simopd/${ARM}_s${SEED}_16k/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
     echo "  ${ARM}_s${SEED}_16k: last checkpoint step ${ck:-NONE}"
+    [ -n "$ck" ] && ok=$((ok+1))
 done
+# 全灭防假成功(bug 11 连带发现):四 lane 重试烧光后脚本曾照常打 DONE 退出 0,
+# DLC 记"成功"且不再重启,8 卡任务零产出静默终结。零存档一律挂起待查(重启
+# 修不了环境错;挂起让失败可见、不烧重启配额)。
+if [ "$ok" -eq 0 ]; then
+    while true; do
+        echo "ALL LANES DEAD, zero checkpoints banked -- NOT declaring success; inspect $LOGD/lane_*_s${SEED}.log ($(date))"
+        sleep 600
+    done
+fi
 echo "A_AXIS_FLEET_DONE"
