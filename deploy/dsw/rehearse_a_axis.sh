@@ -10,8 +10,11 @@
 #   a1/a3/a4   gkd_mix armed + cache loaded 横幅;侧带 jsonl 出行,lam_target
 #              合法([0,1],a1≈0.5 a3≈1.0);a4 额外要求 lam_target 随步下降
 #   a5         a5_aggrevate armed + keys loaded + teacher_registry published
-#              横幅;无重复 request id 报错(复核 NEW-ISSUE 3);侧带行满足
-#              六计数器和==n_seen(丢序列检测)
+#              横幅;无重复 request id 报错(复核 NEW-ISSUE 3);侧带按步折叠后:
+#              闭步末行六计数器和==n_seen(丢序列检测;末步容忍步中快照),
+#              sum>n_seen 恒致命;教师参与度硬闸——mixed+full_teacher+tail_tokens
+#              全零即 FAIL(第四轮实测:注册表被 Ray GC 后 331/331 静默降级成
+#              香草训练还绿灯退出),degraded>10% 亦 FAIL
 #
 # 走 _lane.sh 同款 arm.py env 纪律:赋值后 eval,拒绝臂在此死掉,绝不 eval
 # 空串跑成 vanilla。
@@ -108,11 +111,37 @@ except OSError:
 if not rows:
     sys.exit(f"REHEARSAL FAIL [{arm}]: sideband empty")
 if arm == "a5_aggrevate":
+    # 30s 完成时 flush 带会在步中途拍累积快照(n_seen 提交时计数、结局完成时
+    # 落账,快照天然 sum<n_seen)——按步折叠取末行再判:闭步末行必须精确平衡
+    # (步界 flush 发生在同步屏障之后),末步容忍快照;sum>n_seen 任何行恒致命。
+    by_step = {}
     for r in rows:
-        s = sum(r.get(k, 0) for k in
-                ("mixed", "pure_student", "full_teacher", "cap_full", "degraded", "aborted"))
-        if s != r.get("n_seen", -1):
-            sys.exit(f"REHEARSAL FAIL [{arm}]: outcome sum {s} != n_seen {r.get('n_seen')} @step {r.get('step')}")
+        if "n_seen" in r:
+            by_step[r.get("step")] = r
+    if not by_step:
+        sys.exit(f"REHEARSAL FAIL [{arm}]: no a5 rows in sideband")
+    OUT = ("mixed", "pure_student", "full_teacher", "cap_full", "degraded", "aborted")
+    last = max(by_step)
+    seen = deg = teach = 0
+    for s in sorted(by_step):
+        r = by_step[s]
+        tot = sum(r.get(k, 0) for k in OUT)
+        ns = r.get("n_seen", -1)
+        if tot > ns:
+            sys.exit(f"REHEARSAL FAIL [{arm}]: outcome sum {tot} EXCEEDS n_seen {ns} @step {s}")
+        if s != last and tot != ns:
+            sys.exit(f"REHEARSAL FAIL [{arm}]: outcome sum {tot} != n_seen {ns} @step {s} (closed step must balance)")
+        if s == last and tot != ns:
+            print(f"note [{arm}]: final step {s} row is a mid-step snapshot ({tot}/{ns}), tolerated")
+        seen += r.get("n_seen", 0)
+        deg += r.get("degraded", 0)
+        teach += r.get("mixed", 0) + r.get("full_teacher", 0) + r.get("tail_tokens", 0)
+    # 教师参与度硬闸:全程零教师交付 == 挂着 a5 名字的香草臂(两香草同名事故类)。
+    if teach == 0:
+        sys.exit(f"REHEARSAL FAIL [{arm}]: teacher route delivered NOTHING "
+                 f"(mixed+full_teacher+tail_tokens all zero) -- a5 would train as vanilla")
+    if seen and deg / seen > 0.10:
+        sys.exit(f"REHEARSAL FAIL [{arm}]: degraded {deg}/{seen} > 10% of eligible -- teacher route unhealthy")
 else:
     lams = [r["lam_target"] for r in rows if "lam_target" in r]
     if not lams or not all(0.0 <= x <= 1.0 for x in lams):

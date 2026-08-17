@@ -50,9 +50,11 @@ so their sum equals n_seen -- the lost-sequence detector.
   degraded      teacher tail or scoring failed; the student prefix was delivered
   aborted       nothing usable delivered (abort surfaced to the caller)
 
-Failure posture: teacher unreachable at first mix -> RuntimeError (an a5 that
-cannot mix must die, not train as vanilla); a single failed tail degrades THAT
-sequence and is counted, never silent.
+Failure posture: teacher route DEAD (registry unresolvable after full retry)
+-> TeacherRouteDead raised out of the rollout request, the lane dies -- round 4
+measured the alternative (331/331 sequences silently degraded to student-only,
+tail_token_frac 0, exit 0: a vanilla arm under a green banner). A single failed
+tail degrades THAT sequence and is counted, never silent.
 """
 
 import atexit
@@ -328,6 +330,11 @@ def install():
         # NEW-ISSUE 2 -- the docstring promised this, now the code delivers it).
         try:
             tail = await _teacher_generate(list(prompt_ids) + prefix, budget, request_id)
+        except teacher_registry.TeacherRouteDead:
+            # Route dead (resolve exhausted its retry): die loudly, never train
+            # as vanilla -- kappa=0's student fallback is for transient infra,
+            # not for a run whose teacher can never arrive.
+            raise
         except Exception as e:
             if not _degraded_seen():
                 print(f"[simopd] a5_aggrevate: teacher call failed ({e!r}); degrading "

@@ -12,12 +12,29 @@ it up by name from inside the same lane-local Ray cluster.
 Lifetime: NOT detached on purpose -- the registry dies with the lane's Ray
 cluster, so a relaunched lane can never resolve a stale registry pointing at
 dead teacher actors (each lane is its own Ray cluster; no cross-lane collision).
+Two hard-won amendments (round 4, 2026-08-18) keep that intent while making the
+actor actually FINDABLE:
+
+  handle retention   a non-detached NAMED actor is still ref-counted; dropping
+                     the only handle right after publish() let Ray GC the
+                     registry within seconds, so resolve() saw "actor not
+                     found" forever under a green publish banner (round-4
+                     sideband: 331/331 sequences degraded, tail_token_frac 0).
+                     _published pins the handle for the publisher process's
+                     lifetime -- the TaskRunner lives exactly as long as the
+                     lane, so die-with-the-lane is preserved.
+  explicit namespace both sides name the namespace: ray.get_actor(name) without
+                     one only searches the CALLER's job namespace, and verl
+                     gives us no contract about which job its server actors
+                     land in. An explicit namespace makes the lookup
+                     job-agnostic.
 
 publish() is called by the sitecustomize wrap; resolve() by a5_aggrevate on its
 first mixed request, with a short retry because rollout workers and the teacher
 pool initialize concurrently. Both fail LOUD: an a5 arm that cannot reach a
 teacher must die, not degrade into vanilla (the two-vanillas-under-one-name
-failure class, audit r6).
+failure class, audit r6). resolve() raises TeacherRouteDead so the wrapper can
+distinguish "route dead, kill the lane" from per-request transport hiccups.
 """
 
 import os
@@ -25,6 +42,15 @@ import sys
 import time
 
 REGISTRY_NAME = "simopd_teacher_registry"
+NAMESPACE = "simopd"
+
+_published = {"reg": None}
+
+
+class TeacherRouteDead(RuntimeError):
+    """The teacher route is unresolvable (registry absent after full retry).
+    a5_aggrevate re-raises this out of the rollout request instead of
+    degrading: a lane that cannot reach its teacher must die loudly."""
 
 
 def _ray():
@@ -62,8 +88,12 @@ def publish(handles_by_key):
     creation lands second attaches to the first's actor instead of raising.
     """
     ray = _ray()
-    reg = _registry_cls().options(name=REGISTRY_NAME, get_if_exists=True).remote()
+    reg = _registry_cls().options(name=REGISTRY_NAME, namespace=NAMESPACE,
+                                  get_if_exists=True).remote()
     keys = ray.get(reg.put.remote(handles_by_key))
+    # Retention IS the fix (see module docstring): without it the named actor
+    # is GC'd the moment this local goes out of scope.
+    _published["reg"] = reg
     print(f"[simopd] teacher_registry: published teacher handles for {keys}",
           file=sys.stderr, flush=True)
 
@@ -83,7 +113,7 @@ async def resolve(key=None, timeout_s=60.0):
     last = "registry actor not found"
     while time.monotonic() < deadline:
         try:
-            reg = ray.get_actor(REGISTRY_NAME)
+            reg = ray.get_actor(REGISTRY_NAME, namespace=NAMESPACE)
             handles = await reg.get.remote(key)
             if handles:
                 return handles
@@ -101,6 +131,6 @@ async def resolve(key=None, timeout_s=60.0):
         except ValueError:
             last = "registry actor not found"
         await asyncio.sleep(2.0)
-    raise RuntimeError(
+    raise TeacherRouteDead(
         f"teacher_registry: could not resolve teacher handles ({last}); a5 cannot mix "
         f"without a teacher route and refuses to train as vanilla")

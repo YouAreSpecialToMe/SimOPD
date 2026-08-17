@@ -289,6 +289,35 @@ ok(abs(rows[-2]["tail_token_frac"] - (rows[-2]["tail_tokens"] /
        (rows[-2]["tail_tokens"] + rows[-2]["prefix_tokens"]))) < 1e-12
    and "pid" in rows[-1], "derived fields + writer pid present")
 
+# TeacherRouteDead pass-through (round 4, 2026-08-18): a DEAD route (registry
+# unresolvable) must kill the request, not degrade -- the measured alternative
+# was 331/331 sequences silently training as vanilla under a green exit.
+# Transient per-request failures keep the degrade path (tested above).
+_saved_handles, _real_resolve = a5._handles, a5.teacher_registry.resolve
+a5._handles = None
+
+
+async def _dead_resolve(*a, **kw):
+    raise a5.teacher_registry.TeacherRouteDead("route dead (battery)")
+
+
+a5.teacher_registry.resolve = _dead_resolve
+force_kappa(2)
+SCRIPT.append(lambda p, sp: TokenOutput(token_ids=[1, 2, 3], stop_reason="completed"))
+try:
+    run(P1)
+    ok(False, "dead teacher route degraded instead of dying (kappa>0)")
+except a5.teacher_registry.TeacherRouteDead:
+    ok(True, "")
+force_kappa(0)
+try:
+    run(P1)
+    ok(False, "dead route at kappa=0 fell back to student instead of dying")
+except a5.teacher_registry.TeacherRouteDead:
+    ok(True, "")
+a5.teacher_registry.resolve = _real_resolve
+a5._handles = _saved_handles
+
 a5.kappa = _real_kappa
 
 # Structural guard (2026-08-18 zero-row sideband incident; twin of the gkd_mix
