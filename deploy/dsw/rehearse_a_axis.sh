@@ -111,8 +111,14 @@ else:
     lams = [r["lam_target"] for r in rows if "lam_target" in r]
     if not lams or not all(0.0 <= x <= 1.0 for x in lams):
         sys.exit(f"REHEARSAL FAIL [{arm}]: lam_target illegal: {lams}")
-    if arm == "a4_dagger_anneal" and len(lams) >= 2 and not all(b < a for a, b in zip(lams, lams[1:])):
-        sys.exit(f"REHEARSAL FAIL [{arm}]: schedule not descending: {lams}")
+    # 120s 快照会让同一步产生多行(同 lam)——按步折叠取末行后再验单调。
+    by_step = {}
+    for r in rows:
+        if "lam_target" in r:
+            by_step[r.get("step")] = r["lam_target"]
+    slams = [by_step[k] for k in sorted(by_step)]
+    if arm == "a4_dagger_anneal" and len(slams) >= 2 and not all(b < a for a, b in zip(slams, slams[1:])):
+        sys.exit(f"REHEARSAL FAIL [{arm}]: schedule not descending across steps: {slams}")
     if arm == "a1_gkd_mix0.5" and abs(lams[-1] - 0.5) > 1e-9:
         sys.exit(f"REHEARSAL FAIL [{arm}]: constant lambda drifted: {lams}")
     if arm == "a3_offpolicy" and abs(lams[-1] - 1.0) > 1e-9:

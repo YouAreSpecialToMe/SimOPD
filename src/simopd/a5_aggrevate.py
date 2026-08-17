@@ -104,6 +104,9 @@ def kappa(key, step, tmax):
     return int(h[:12], 16) % (tmax + 1)
 
 
+_flush_state = {"at": 0.0}
+
+
 def _flush_bucket():
     b = _bucket
     # miss-only steps (val sweeps) still flush, matching gkd_mix (review #7).
@@ -123,11 +126,21 @@ def _roll_bucket(step, tmax):
     # Requests that awaited across a step boundary credit the NEW bucket --
     # misattribution only, tolerated; the sync loop's generate->train barrier
     # keeps it rare (same argument as gkd_mix's bucket).
+    # SNAPSHOT BELT: same as gkd_mix (2026-08-18 empty-sideband incident) --
+    # Ray SIGKILLs actors, the atexit flush is not guaranteed, so every 120s a
+    # cumulative snapshot of the live bucket lands; the reader takes the last.
+    import time
+
+    now = time.monotonic()
     if step != _bucket["step"]:
         _flush_bucket()
         _bucket.update(step=step, tmax=tmax, kappa_sum=0, n_seen=0, mixed=0,
                        pure_student=0, full_teacher=0, cap_full=0, degraded=0,
                        aborted=0, prefix_tokens=0, tail_tokens=0, miss=0)
+        _flush_state["at"] = now
+    elif now - _flush_state["at"] > 120.0:
+        _flush_bucket()
+        _flush_state["at"] = now
 
 
 def _outcome(name, ntok=0, where=None):
@@ -174,10 +187,12 @@ def install():
                                "moved it; the arm cannot mix and would train as vanilla")
         return
     # Config errors (unresolvable sideband path) die HERE at bringup; the IO
-    # helpers below swallow everything (verification NEW-ISSUE 1).
+    # helpers below swallow everything (verification NEW-ISSUE 1). NO
+    # reset_file() (2026-08-18): late-spawning armed processes were truncating
+    # the serving process's rows -- the sideband is append-only, launchers
+    # delete it before a fresh run.
     gkd_stats.path()
     atexit.register(_flush_bucket)
-    gkd_stats.reset_file()
 
     async def generate(self, prompt_ids, sampling_params, request_id, *a, **kw):
         params_is_dict = isinstance(sampling_params, dict)

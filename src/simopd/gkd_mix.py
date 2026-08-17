@@ -81,6 +81,9 @@ _bucket = {"step": None, "lam_target": 0.0, "hit": 0, "decline": 0, "miss": 0,
            "teacher_tokens": 0, "student_tokens": 0, "miss_tokens": 0}
 
 
+_flush_state = {"at": 0.0}
+
+
 def _flush_bucket():
     if _bucket["step"] is None or (_bucket["hit"] + _bucket["decline"] + _bucket["miss"]) == 0:
         return
@@ -92,10 +95,24 @@ def _roll_bucket(step, lam):
     # first request of a new step flushes the finished one; a straggler landing
     # after the roll would leak into the next bucket -- tolerated, this is a
     # monitoring channel and the sync loop does not pipeline steps.
+    #
+    # SNAPSHOT BELT (2026-08-18, empty-sideband incident): Ray SIGKILLs actors at
+    # teardown, so the final bucket's atexit flush is not guaranteed -- a short
+    # run whose steps never rolled over (or whose last rows died with the actor)
+    # leaves an empty file. Every 120s inside a step, append a CUMULATIVE
+    # snapshot of the live bucket: rows within one step are monotone supersets,
+    # the reader takes the last one, nothing downstream changes.
+    import time
+
+    now = time.monotonic()
     if step != _bucket["step"]:
         _flush_bucket()
         _bucket.update(step=step, lam_target=lam, hit=0, decline=0, miss=0,
                        teacher_tokens=0, student_tokens=0, miss_tokens=0)
+        _flush_state["at"] = now
+    elif now - _flush_state["at"] > 120.0:
+        _flush_bucket()
+        _flush_state["at"] = now
 
 
 def _load_cache():
@@ -187,9 +204,13 @@ def install():
     # path() first and OUTSIDE the IO helpers: an unresolvable sideband path is a
     # config error and must kill the lane HERE at bringup -- the IO layer below
     # deliberately swallows everything (verification NEW-ISSUE 1).
+    # NO reset_file() here (2026-08-18 empty-sideband incident): sitecustomize
+    # arms this module in EVERY process that imports the server module, and
+    # late-spawning actors (agent-loop workers) were truncating the rows the
+    # actual serving process had already flushed. The sideband is append-only;
+    # launchers wanting a fresh file delete it before the run (rehearse does).
     gkd_stats.path()
     atexit.register(_flush_bucket)
-    gkd_stats.reset_file()
 
     async def generate(self, prompt_ids, sampling_params, request_id, *a, **kw):
         # Teacher-side scoring calls pass through untouched.

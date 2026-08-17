@@ -17,10 +17,12 @@ Failure posture (review 2026-08-15 #2/#5/#12):
   * append() never propagates: the telemetry writer sits inline in the wrapped
     generate(), and a full /tmp must not fail a rollout request. First failure
     warns once, rows drop.
-  * reset_file() at arm install truncates: the file outlives runs that share an
-    EXPERIMENT_NAME, and a resumed lane must not serve the previous run's final
-    row as its step-0 telemetry. Install happens in every lane server process at
-    bringup, strictly before any writer's first flush or any reader's first tail.
+  * APPEND-ONLY (2026-08-18, empty-sideband incident): sitecustomize arms the
+    writer modules in EVERY process importing the server module, and an earlier
+    truncate-at-install let late-spawning actors wipe the serving process's
+    rows. Nothing here truncates; launchers wanting a fresh file delete it
+    before the run (rehearse does), and a resumed same-name lane appends -- the
+    reader takes the newest row, gkd_stats_step keeps staleness visible.
   * latest() rewinds when the file shrinks (truncation/recreation), instead of
     holding a stale offset past EOF forever.
 
@@ -50,22 +52,6 @@ def path():
             "refusing a shared default path that would mix lanes' telemetry; "
             "export EXPERIMENT_NAME (the lane scripts do) or set SIMOPD_GKD_STATS")
     return os.path.join("/tmp", "simopd_gkd_stats_%s.jsonl" % name)
-
-
-def reset_file():
-    """Truncate at arm install (both server processes run it at bringup, before
-    any row exists): a resumed lane must not serve the previous run's final row
-    as its step-0 telemetry, and install-time is earlier than any reader.
-
-    Never raises (verification NEW-ISSUE 1: path()'s RuntimeError escaped the
-    OSError guard). CONFIG validation is not this function's job -- installs and
-    the losses import-gate call path() directly, where a raise IS bringup-fatal
-    by design; here in the IO layer, degraded telemetry beats a dead request."""
-    try:
-        open(path(), "wb").close()
-    except Exception as e:
-        print(f"[simopd] gkd_stats: reset failed ({e!r}); stale rows may lead the file",
-              file=sys.stderr, flush=True)
 
 
 def append(row):
