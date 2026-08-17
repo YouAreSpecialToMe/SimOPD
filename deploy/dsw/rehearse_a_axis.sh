@@ -52,11 +52,17 @@ SIDEBAND=/tmp/simopd_gkd_stats_rehearsal_${ARM}.jsonl
 # 两个实际全程健康的彩排)。
 if [ "${VERDICT_ONLY:-0}" != 1 ]; then
     rm -f "$SIDEBAND"
+    # 彩排必须从零开始(2026-08-18 实测):verl 完训即存终局 checkpoint,上一轮
+    # 3 步彩排留下的 global_step_3 会让 resume_mode=auto 瞬间"完训"退出——
+    # 0 步、exit 0 的假绿灯。清掉彩排自己的 ckpt 命名空间(只动 rehearsal_*,
+    # 永不触碰真实 run),再显式关闭 resume,双保险。
+    rm -rf "$CKPT_ROOT/simopd/rehearsal_${ARM}"
     echo "rehearsal $ARM on GPUs $GPUS -> $LOG"
     rc=0
     bash scripts/run_opd_baseline.sh \
         data.seed=0 \
         actor_rollout_ref.rollout.seed=0 \
+        trainer.resume_mode=disable \
         > "$LOG" 2>&1 || rc=$?
 else
     echo "verdict-only re-judge of $LOG"
