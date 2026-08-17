@@ -121,6 +121,11 @@ export PYTHONUNBUFFERED=1
 # 输出留档;只有"关于本任务四臂、且非战役簿记类"的问题才拦发射——env/旋钮/
 # 分支漂移是 lane 安全问题,清单行覆盖与 verdict 名单是簿记,重复行属协作者
 # 名册状态。失败改挂起待查:重启永远修不了注册表,不再烧重启配额。
+# 只有 seed-0 作业跑 lint(2026-08-18 实测):注册表由 git 钉死、三 seed 同码,
+# seed 作业重复 lint 零收益;且 s1/s2 与 s0 训练流量同抢 /mgfs 时,lint 的
+# venv 导入(数千次 NFS stat)曾把两个作业钉死在开机 20 分钟+。lint 日志也
+# 因此不再三作业互相截断。
+if [ "$SEED" = 0 ]; then
 LINT_LOG=$LOGD/arm_lint.log
 python scripts/arm_lint.py > "$LINT_LOG" 2>&1 || true
 BAD=$(grep 'PROBLEM' "$LINT_LOG" \
@@ -135,6 +140,9 @@ if [ -n "$BAD" ]; then
     done
 fi
 echo "== arm_lint: scoped gate clean (full report: $LINT_LOG)"
+else
+echo "== arm_lint: skipped for seed ${SEED} (registry git-pinned; seed-0 gates for the fleet)"
+fi
 
 # ------------------------------------------------------------ Phase P 预计算 --
 if [ ! -f "$D/gkd_offpolicy.parquet" ]; then
