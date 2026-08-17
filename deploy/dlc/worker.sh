@@ -215,7 +215,18 @@ upsert_map() {  # $1 = claim dir
             rmdir "$MAP.lock" 2>/dev/null || true
         fi
         if mkdir "$MAP.lock" 2>/dev/null; then
-            grep -vP "\t${MACHINE}\t" "$MAP" 2>/dev/null > "$MAP.tmp" || true
+            # Drop this worker's rows by BOTH keys before appending. Dropping only
+            # the label is what broke the 2026-08-18 j4d relaunch: DLC reshuffles
+            # rank across jobs, so one pod was j4d6 in the first launch and j4d0 in
+            # the second; the map then held BOTH rows for that host, and campaign.sh
+            # resolves a host with `$1==h {print $2; exit}` -- the FIRST match, i.e.
+            # the stale one. Every training row on those boxes was refused with
+            # "registered as j4d6 but MACHINE=j4d0 was given" while eval backfill
+            # carried on, so the job looked alive and trained nothing.
+            # awk with exact field compares rather than grep -P: a hostname is data,
+            # and any regex metacharacter in it would otherwise be read as syntax.
+            awk -F'\t' -v h="$(hostname)" -v m="$MACHINE" \
+                '$1 != h && $2 != m' "$MAP" 2>/dev/null > "$MAP.tmp" || true
             printf '%s\t%s\t%s\n' "$(hostname)" "$MACHINE" "$(date -u +%FT%TZ)" >> "$MAP.tmp"
             mv "$MAP.tmp" "$MAP"
             rmdir "$MAP.lock"
