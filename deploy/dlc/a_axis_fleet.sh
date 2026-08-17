@@ -67,7 +67,7 @@ cd "$ROOT"
 LOGD=$D/a_axis
 mkdir -p "$LOGD"
 exec > >(tee -a "$LOGD/fleet_$(date +%Y%m%d_%H%M%S).log") 2>&1
-echo "== a_axis_fleet on $(hostname), git $(git log --oneline -1 2>/dev/null | head -1)"
+echo "== a_axis_fleet on $(hostname), seed ${SEED}, git $(git log --oneline -1 2>/dev/null | head -1)"
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
 nvidia-smi -L | head -8
 source simopd/bin/activate
@@ -158,13 +158,19 @@ if [ "$SEED" != 0 ]; then
     done
     echo "== Phase R done (markers found; rehearsed elsewhere)"
 else
+_rpids=()
 for i in 0 1 2 3; do
     ARM=${ARMS[$i]}
     [ -f "$LOGD/rehearsal_${ARM}.OK" ] && { echo "rehearsal $ARM already OK, skip"; continue; }
     ( bash deploy/dsw/rehearse_a_axis.sh "$ARM" "${PAIRS[$i]}" \
         && touch "$LOGD/rehearsal_${ARM}.OK" ) &
+    _rpids+=($!)
 done
-wait
+# 裸 wait 是禁忌(2026-08-18 实测:四臂全跳过后任务在此无限挂死):此 bash 的
+# 无参 wait 连 exec 的 tee 进程替换一起等,而 tee 到脚本终结才退——08-17 的
+# "Phase P wait 挂死"同根因,当时的文件屏障恰好绕开。显式 pid 数组只等真子
+# 任务;空数组必须整个跳过(wait 空参数又退化成裸 wait)。
+[ ${#_rpids[@]} -gt 0 ] && wait "${_rpids[@]}"
 FAILED=""
 for ARM in "${ARMS[@]}"; do
     [ -f "$LOGD/rehearsal_${ARM}.OK" ] || FAILED="$FAILED $ARM"
@@ -186,6 +192,7 @@ echo "== Phase L: 4 lanes x 250 steps, seed ${SEED} (TEST/SAVE freq 25, auto-res
 # 指标仍在控制台日志里(gkd_* 走同一通道),post-eval 流水线不受影响。
 [ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
 
+_lpids=()
 for i in 0 1 2 3; do
     ARM=${ARMS[$i]}
     (
@@ -210,9 +217,11 @@ for i in 0 1 2 3; do
             sleep 30
         done
     ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 &
+    _lpids+=($!)
     echo "lane ${ARM} (seed ${SEED}) -> GPUs ${PAIRS[$i]}, log $LOGD/lane_${ARM}_s${SEED}.log"
 done
-wait
+# 同 Phase R:显式 pid,绝不裸 wait(tee 进程替换死锁)。
+wait "${_lpids[@]}"
 echo "== Phase L done"
 for ARM in "${ARMS[@]}"; do
     ck=$(ls -d "$D/ckpt/simopd/${ARM}_s${SEED}_16k/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
