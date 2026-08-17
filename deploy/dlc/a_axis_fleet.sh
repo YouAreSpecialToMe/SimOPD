@@ -87,7 +87,12 @@ export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,p
 # 先例可抄。我们所有 lane 都是单节点(nnodes=1),bootstrap 有个接口就行:按
 # 前缀优先真网卡,loopback 兜底(lo 只有显式点名才会被 NCCL 考虑);节点内
 # 数据面走 SHM/P2P,与此无关。DSW 冒烟测不到这一类(DSW pod 有标准 eth0)。
-export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-eth,en,bond,net,lo}
+# lo 独占而非"真网卡优先":本工作负载所有 lane 单节点、FSDP/vLLM 世界大小
+# 全为 1,NCCL 只用到 bootstrap 阶段(无跨卡通信环),loopback 必然存在且与
+# CNI 命名/标志位怪癖完全解耦。若前缀列表优先真网卡,而原故障属"名字匹配但
+# 枚举仍拒"类,会原地再死——lo 独占把这一类也覆盖。日后若真有多节点 lane,
+# 用环境覆写(此处 :- 语义)。
+export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-lo}
 # WARN 级 NCCL 日志:成功时几乎零输出;若接口修复在某种 pod 上仍不奏效,
 # lane 日志会直接列出 NCCL 枚举/拒绝的接口,下一轮免猜。
 export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
