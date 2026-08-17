@@ -31,6 +31,11 @@ _arm_env=$(python scripts/arm.py env "$ARM")
 eval "$_arm_env"
 
 export EXPERIMENT_NAME="rehearsal_${ARM}"
+# run_opd_baseline 的短跑防呆闸(假绿灯事故的产物)拦一切 <250 步的未标记
+# 运行;彩排的合法通行证正是 REHEARSAL=1 —— 闸的注释原文:"rehearsals all
+# carry a TAG or REHEARSAL, and that is exactly the discriminator"。
+# (2026-08-17 实测:缺它则四臂彩排在 step 0 前齐灭。)
+export REHEARSAL=1
 export CUDA_VISIBLE_DEVICES="$GPUS"
 export WANDB_MODE=offline                 # 彩排不进仪表板,指标看控制台/侧带
 export DATA_DIR=$D/simopd_math
