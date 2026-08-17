@@ -107,7 +107,25 @@ PY
             --train-parquet "$D/simopd_math/train.parquet" \
             --out "$D/gkd_offpolicy.parquet" > "$LOGD/shard$g.log" 2>&1 &
     done
-    wait
+    # 屏障以产物文件为准,不 wait 进程:实测(本任务首跑,2026-08-17)vLLM 引擎
+    # 拆除会挂死已完成的主进程,8/8 parquet 落盘 + 完成行打印后 wait 十分钟不
+    # 返回,8 卡空烧。文件齐 → 60s 体面退出期 → 按 GPU 占用收割残留进程(僵死
+    # 引擎占显存,不清彩排必 OOM)→ 合并。90 分钟仍不齐才判真失败。
+    n=0
+    for t in $(seq 1 90); do
+        n=$(ls "$D"/gkd_offpolicy.parquet.shard*of8 2>/dev/null | wc -l)
+        [ "$n" -ge 8 ] && break
+        sleep 60
+    done
+    if [ "$n" -lt 8 ]; then
+        echo "PRECOMPUTE STALLED at $n/8 after 90min"; tail -3 "$LOGD"/shard*.log; exit 1
+    fi
+    echo "== all shards on disk; grace 60s, then reaping stragglers"
+    sleep 60
+    pkill -f "[g]en_offpolicy.py --shard" 2>/dev/null || true
+    sleep 10
+    pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | tr -d ' ')
+    [ -n "$pids" ] && { echo "killing GPU holdouts: $pids"; echo "$pids" | xargs -r kill -9; sleep 5; }
     python scripts/gen_offpolicy.py --merge 8 \
         --train-parquet "$D/simopd_math/train.parquet" \
         --out "$D/gkd_offpolicy.parquet" || { echo "MERGE FAILED"; tail -3 "$LOGD"/shard*.log; exit 1; }
