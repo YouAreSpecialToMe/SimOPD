@@ -123,8 +123,9 @@ fi
 # the only record of what the running cards are doing. Eval results survive --
 # claims are atomic mkdir on (run, step) and artifacts carry their own names --
 # but the fleet becomes unmonitorable, which is how a dead half-fleet went
-# unnoticed for hours on 2026-08-17. Give every additional job its own prefix:
-#   MACHINE_PREFIX=j2 in the job's environment panel -> j2d0, j2d1, ...
+# unnoticed for hours on 2026-08-17. Give every additional job its own prefix;
+# the prefix REPLACES the default "d", so keep the d if you want it back:
+#   MACHINE_PREFIX=j2d  in the job's environment panel -> j2d0, j2d1, ...
 # Default stays "d" so the running job's paths are unchanged.
 MACHINE="${MACHINE_PREFIX:-d}${RANK}"
 # ---- shared-fs preflight: BEFORE any /mgfs write and BEFORE the log tee, so
