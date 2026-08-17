@@ -117,7 +117,16 @@ if [ -z "$RANK" ]; then
     echo "       job's environment panel; manual boot: MLP_ROLE_INDEX=<n> bash worker.sh" >&2
     exit 1
 fi
-MACHINE="d${RANK}"
+# Log/identity namespace. RANK restarts at 0 in every DLC job, so a SECOND job
+# added alongside a running one reuses d0, d1, ... and its workers truncate the
+# live job's logs (the eval-worker redirect below is a single ">"), destroying
+# the only record of what the running cards are doing. Eval results survive --
+# claims are atomic mkdir on (run, step) and artifacts carry their own names --
+# but the fleet becomes unmonitorable, which is how a dead half-fleet went
+# unnoticed for hours on 2026-08-17. Give every additional job its own prefix:
+#   MACHINE_PREFIX=j2 in the job's environment panel -> j2d0, j2d1, ...
+# Default stays "d" so the running job's paths are unchanged.
+MACHINE="${MACHINE_PREFIX:-d}${RANK}"
 # ---- shared-fs preflight: BEFORE any /mgfs write and BEFORE the log tee, so
 # the verdict always reaches the DLC console. Without -e (deliberate: the
 # supervisor loop must outlive transient failures) a missing mount would
@@ -404,8 +413,13 @@ while :; do
             echo "DRY: would start eval worker on gpu $g"
             continue
         fi
+        # Append, never truncate: a pod restart (or a name collision that slips
+        # past MACHINE_PREFIX) then costs history rather than erasing it, and the
+        # banner makes the seam obvious when reading the tail.
+        echo "=== boot $MACHINE gpu$g $(date +%FT%T) pid=$$ ===" \
+            >> "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log"
         nohup bash "$DATA/eval_worker_exp.sh" "$g" "$EVALQ" \
-            > "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log" 2>&1 &
+            >> "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log" 2>&1 &
         echo "eval backfill: worker on gpu $g"
     done
 
