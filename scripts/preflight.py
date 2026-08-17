@@ -82,7 +82,19 @@ def main():
         if not os.path.isfile(path):
             fail.append(f"{label} parquet missing: {path}")
             continue
-        df = pd.read_parquet(path)
+        # Only `prompt` is used below (row count + the overlong sample), but on the
+        # code parquet reward_model.ground_truth -- the embedded CodeContests test
+        # cases -- is 212 of its 238 MB. Reading the whole file made every code lane
+        # pull 238 MB off the shared disk at bringup; on 2026-08-18, with 27 boxes
+        # doing that at once next to 216 vLLM engines loading checkpoints, code
+        # preflight wedged for 30+ minutes while math (a 6.8 MB parquet) walked
+        # straight past. Column-selective read: 238 MB -> 24 MB, 0.33s -> 0.06s
+        # measured. Fall back to the whole file for any dataset without the column,
+        # so this can only ever read less, never fail where the old form worked.
+        try:
+            df = pd.read_parquet(path, columns=["prompt"])
+        except Exception:
+            df = pd.read_parquet(path)
         if not len(df):
             fail.append(f"{label} parquet is empty: {path}")
             continue
