@@ -143,11 +143,53 @@ def _roll_bucket(step, tmax):
         _flush_state["at"] = now
 
 
+def _flush_if_stale(limit=30.0):
+    # Completion-time belt (see gkd_mix._flush_if_stale): the final step's
+    # bucket must reach disk while requests are still completing, because Ray
+    # SIGKILLs the actor at teardown and atexit never runs there.
+    import time
+
+    now = time.monotonic()
+    if now - _flush_state["at"] > limit:
+        _flush_bucket()
+        _flush_state["at"] = now
+
+
+# CLOSURE/STATE SEAM: same law as gkd_mix (2026-08-18 zero-row sideband
+# incident) -- the wrapper closure is cloudpickled BY VALUE into the serving
+# actor, so bare-dict globals it touches directly are private copies invisible
+# to the real module. All state mutation routes through module-level functions
+# (pickled by reference); the battery pins this shape (co_names guard).
+def _mark_miss():
+    _stats["miss"] += 1
+    _bucket["miss"] += 1
+
+
+def _mark_seen(k, step, tmax):
+    _bucket["n_seen"] += 1
+    _bucket["kappa_sum"] += k
+    seen = sum(_stats.values())
+    if seen % 500 == 1:
+        print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
+              file=sys.stderr, flush=True)
+
+
+def _add_tokens(where, n):
+    if n:
+        _bucket[where] += n
+    _flush_if_stale()
+
+
+def _degraded_seen():
+    return _stats["degraded"] > 0
+
+
 def _outcome(name, ntok=0, where=None):
     _stats[name] += 1
     _bucket[name] += 1
     if where and ntok:
         _bucket[where] += ntok
+    _flush_if_stale()
 
 
 async def _teacher_generate(prompt_ids, budget, request_id):
@@ -209,8 +251,7 @@ def install():
         tmax = _tmax_at(step)
         _roll_bucket(step, tmax)
         if key not in _load_keys():
-            _stats["miss"] += 1
-            _bucket["miss"] += 1
+            _mark_miss()
             return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
 
         # The window discipline: never ask either engine to overflow. cap is the
@@ -226,14 +267,8 @@ def install():
         if mt_in:
             cap = min(cap, int(mt_in))
         k = min(kappa(key, step, tmax), max(cap, 0))
-        _bucket["n_seen"] += 1
-        _bucket["kappa_sum"] += k
+        _mark_seen(k, step, tmax)
         sp = dict(sampling_params) if params_is_dict else {}
-
-        seen = sum(_stats.values())
-        if seen % 500 == 1:
-            print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
-                  file=sys.stderr, flush=True)
 
         async def _student_fallback(reason):
             # kappa=0 infra failure has no student prefix to deliver, and an
@@ -242,14 +277,14 @@ def install():
             # rehearsal batch). The honest degrade is a COUNTED on-policy
             # student generation: this sequence trains as vanilla, the
             # telemetry says so, and the lane lives.
-            if _stats["degraded"] == 0:
+            if not _degraded_seen():
                 print(f"[simopd] a5_aggrevate: {reason}; delivering a counted "
                       f"student generation instead", file=sys.stderr, flush=True)
             _outcome("degraded")
             fb = await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
             ftok = getattr(fb, "token_ids", None)
             if ftok:
-                _bucket["prefix_tokens"] += len(ftok)
+                _add_tokens("prefix_tokens", len(ftok))
             return fb
 
         if cap <= 0 or k >= cap:
@@ -294,7 +329,7 @@ def install():
         try:
             tail = await _teacher_generate(list(prompt_ids) + prefix, budget, request_id)
         except Exception as e:
-            if _stats["degraded"] == 0:
+            if not _degraded_seen():
                 print(f"[simopd] a5_aggrevate: teacher call failed ({e!r}); degrading "
                       f"this and any further failures to the student prefix",
                       file=sys.stderr, flush=True)
@@ -330,8 +365,8 @@ def install():
         extra.pop("prompt_logprobs", None)
         extra.pop("prompt_ids", None)
         _outcome("mixed" if prefix else "full_teacher")
-        _bucket["prefix_tokens"] += len(prefix)
-        _bucket["tail_tokens"] += len(tail_ids)
+        _add_tokens("prefix_tokens", len(prefix))
+        _add_tokens("tail_tokens", len(tail_ids))
         from verl.workers.rollout.replica import TokenOutput
 
         return TokenOutput(token_ids=[int(t) for t in stitched], log_probs=lps,

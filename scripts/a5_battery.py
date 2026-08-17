@@ -290,4 +290,23 @@ ok(abs(rows[-2]["tail_token_frac"] - (rows[-2]["tail_tokens"] /
    and "pid" in rows[-1], "derived fields + writer pid present")
 
 a5.kappa = _real_kappa
+
+# Structural guard (2026-08-18 zero-row sideband incident; twin of the gkd_mix
+# battery's): the closure is cloudpickled BY VALUE into the actor, bare-dict
+# globals become private copies -- all state mutations must route through
+# module-level functions (pickled by reference). Recurses into nested code
+# objects, so _student_fallback is covered too.
+def _code_names(code):
+    names = set(code.co_names)
+    for c in code.co_consts:
+        if hasattr(c, "co_names"):
+            names |= _code_names(c)
+    return names
+
+
+_gen = next(c for c in a5.install.__code__.co_consts
+            if getattr(c, "co_name", "") == "generate")
+_bad = {"_bucket", "_stats", "_flush_state"} & _code_names(_gen)
+ok(not _bad, f"a5 closure touches bare state globals directly: {_bad}")
+
 print(f"a5 battery {PASS}/{PASS} pass")
