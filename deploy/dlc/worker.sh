@@ -42,6 +42,43 @@ EVALQ=${EVALQ:-$DATA/evalq_exp}
 # (caught live-firing real rows, 2026-08-13). Data lives on the shared disk.
 export NLTK_DATA=${NLTK_DATA:-$DATA/nltk_data}
 LOOP_SEC=${LOOP_SEC:-900}
+# GPUs handed to a lane stay reserved this long even while the lane holds no GPU
+# memory. A lane spends minutes in preflight/snapshot/weight-load before it
+# allocates, and `free_gpus` only knows about memory, so without a reservation
+# that outlives the pass the NEXT pass reads the card as idle. 30 min is well
+# past a healthy bringup and short enough that a wedged lane's card returns.
+LANE_RESERVE_SEC=${LANE_RESERVE_SEC:-1800}
+# Cap eval backfill per box. Unlimited (0) is right for an EVAL_ONLY job, where
+# filling all eight cards IS the job. It is wrong for a training job: on
+# 2026-08-18 twenty-seven code boxes each opened eight vLLM engines the moment
+# they booted, every one of them pulling a checkpoint off the shared disk, and
+# the training lanes' preflight then hung on that same disk for 30+ minutes
+# without ever reaching a training step. Training jobs should pass a small
+# number here; the backfill is a utilisation bonus, not the mission.
+EVAL_BACKFILL_MAX=${EVAL_BACKFILL_MAX:-0}
+
+# The DLC platform injects NCCL_SOCKET_IFNAME per hall -- DH1W pods get bond0,
+# DH1E pods get bond1 -- but the DH1E image only exposes eth0, so on 2026-08-18
+# every 2-GPU lane on a DH1E box died in FSDP init with
+#   NCCL WARN Bootstrap : no socket interface found
+# while the DH1W boxes ran fine. Repair only a value that names an interface
+# this host does not have, and leave a correct one alone so DH1W keeps the NIC
+# it is meant to use. '^lo' is NCCL's exclusion form: anything but loopback.
+if [ -n "${NCCL_SOCKET_IFNAME:-}" ]; then
+    case "$NCCL_SOCKET_IFNAME" in
+        ^*) : ;;                                  # already an exclusion list
+        *)  _nic=${NCCL_SOCKET_IFNAME%%,*}
+            # -d guard first: where /sys/class/net does not exist at all we
+            # cannot tell a bad NIC from an unreadable one, and clobbering a
+            # correct value would be the worse error. Only repair what we can
+            # prove wrong.
+            if [ -d /sys/class/net ] && [ ! -e "/sys/class/net/$_nic" ]; then
+                echo "worker: NCCL_SOCKET_IFNAME=$NCCL_SOCKET_IFNAME names no interface on \
+$(hostname) (have: $(ls /sys/class/net 2>/dev/null | tr '\n' ' ')) -- using ^lo"
+                export NCCL_SOCKET_IFNAME='^lo'
+            fi ;;
+    esac
+fi
 # Test seams, both default-off. WORKER_DRY=1 makes every pass observational:
 # training uses campaign.sh --dry (claims nothing), eviction logs its decision
 # instead of killing, backfill echoes instead of spawning. WORKER_PASSES=N exits
@@ -402,10 +439,37 @@ while :; do
     #    in-loop (val every 25 steps), transfer probes are D6/final-ckpt work.
     feed_evalq
 
+    # Reservations outlive the pass. launched_gpus is rebuilt every pass, so it
+    # only ever protected lanes started in THIS pass; a lane still in bringup a
+    # pass later was unprotected, and on 2026-08-18 j5d0 duly backfilled eval
+    # engines onto gpu 0-5 while its own three lanes sat in preflight on exactly
+    # those cards. Record with a timestamp, expire on read.
+    RESERVE_FILE="$LOG_DIR/${MACHINE}.lane_gpus"
+    _now=$(date +%s)
+    for _g in $launched_gpus; do echo "$_now $_g" >> "$RESERVE_FILE"; done
+    reserved_gpus=" "
+    if [ -s "$RESERVE_FILE" ]; then
+        _keep=$(mktemp) || _keep=""
+        while read -r _ts _g; do
+            case "$_ts" in ''|*[!0-9]*) continue ;; esac
+            [ $((_now - _ts)) -lt "$LANE_RESERVE_SEC" ] || continue
+            [ -n "$_keep" ] && echo "$_ts $_g" >> "$_keep"
+            reserved_gpus+="$_g "
+        done < "$RESERVE_FILE"
+        [ -n "$_keep" ] && mv "$_keep" "$RESERVE_FILE"
+    fi
+    [ "$reserved_gpus" != " " ] && echo "lane-reserved gpus:$reserved_gpus"
+
     # -- 2. eval backfill on whatever is still idle
     [ "$WORKER_DRY" = "1" ] && sleep 1 || sleep 60   # settle; launched_gpus is the real guard
+    _backfilled=0
     for g in $(free_gpus); do
         case "$launched_gpus" in *" $g "*) continue ;; esac
+        case "$reserved_gpus" in *" $g "*) echo "backfill skip gpu $g: reserved for a booting lane"; continue ;; esac
+        if [ "$EVAL_BACKFILL_MAX" -gt 0 ] && [ "$_backfilled" -ge "$EVAL_BACKFILL_MAX" ]; then
+            echo "backfill capped at EVAL_BACKFILL_MAX=$EVAL_BACKFILL_MAX"
+            break
+        fi
         # trailing space, not \b: pgrep -f is POSIX ERE and \b silently matches a
         # literal b, so "gpu 1" would collide with "gpu 10" AND every duplicate
         # check would fail -- one extra eval worker per GPU per pass
@@ -421,6 +485,7 @@ while :; do
             >> "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log"
         nohup bash "$DATA/eval_worker_exp.sh" "$g" "$EVALQ" \
             >> "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log" 2>&1 &
+        _backfilled=$((_backfilled + 1))
         echo "eval backfill: worker on gpu $g"
     done
 

@@ -6,9 +6,9 @@
 # Columns: wave machine arm seed [note] -- same schema as campaign.tsv.
 
 # -- wave 1: the noise floor, one box on purpose ------------------------------
-1	d0	vanilla	0
-1	d0	vanilla	1
-1	d0	vanilla	2	the three seeds ARE this domain's noise floor
+1	j5d0	vanilla	0
+1	j5d0	vanilla	1
+1	j5d0	vanilla	2	the three seeds ARE this domain's noise floor
 
 # -- wave 1 pool: every other stock arm x 3 seeds -----------------------------
 1	any	a2_coldstart	0	needs=/nonexistent/per-domain-sft-stage1 -- math SFT init on a domain stream answers no registered question; unlock = build the domain's own stage-1 and repoint arms.yaml, a pin move
@@ -20,9 +20,9 @@
 1	any	b2_forward_kl	0
 1	any	b2_forward_kl	1
 1	any	b2_forward_kl	2
-1	d2	b3_eopd_gate	0	4-GPU family; box width seeded by the worker
-1	d3	b3_eopd_gate	1	4-GPU family; box width seeded by the worker
-1	d4	b3_eopd_gate	2	4-GPU family; box width seeded by the worker
+1	j5d2	b3_eopd_gate	0	4-GPU family; box width seeded by the worker
+1	j5d3	b3_eopd_gate	1	4-GPU family; box width seeded by the worker
+1	j5d4	b3_eopd_gate	2	4-GPU family; box width seeded by the worker
 1	any	b4_jsd	0
 1	any	b4_jsd	1
 1	any	b4_jsd	2
@@ -59,15 +59,15 @@
 1	any	c4_pi_tail_budget	0
 1	any	c4_pi_tail_budget	1
 1	any	c4_pi_tail_budget	2
-1	d2	d1_tip	0	4-GPU family; box width seeded by the worker
-1	d3	d1_tip	1	4-GPU family; box width seeded by the worker
-1	d4	d1_tip	2	4-GPU family; box width seeded by the worker
-1	d2	d2_selectkd	0	4-GPU family; box width seeded by the worker
-1	d3	d2_selectkd	1	4-GPU family; box width seeded by the worker
-1	d4	d2_selectkd	2	4-GPU family; box width seeded by the worker
-1	d2	d3_teachability	0	4-GPU family; box width seeded by the worker
-1	d3	d3_teachability	1	4-GPU family; box width seeded by the worker
-1	d4	d3_teachability	2	4-GPU family; box width seeded by the worker
+1	j5d2	d1_tip	0	4-GPU family; box width seeded by the worker
+1	j5d3	d1_tip	1	4-GPU family; box width seeded by the worker
+1	j5d4	d1_tip	2	4-GPU family; box width seeded by the worker
+1	j5d2	d2_selectkd	0	4-GPU family; box width seeded by the worker
+1	j5d3	d2_selectkd	1	4-GPU family; box width seeded by the worker
+1	j5d4	d2_selectkd	2	4-GPU family; box width seeded by the worker
+1	j5d2	d3_teachability	0	4-GPU family; box width seeded by the worker
+1	j5d3	d3_teachability	1	4-GPU family; box width seeded by the worker
+1	j5d4	d3_teachability	2	4-GPU family; box width seeded by the worker
 1	any	e1_pl_rank	0
 1	any	e1_pl_rank	1
 1	any	e1_pl_rank	2
@@ -104,15 +104,15 @@
 1	any	g1_verified_only	0
 1	any	g1_verified_only	1
 1	any	g1_verified_only	2
-1	d2	vanilla_n8	0	4-GPU family; box width seeded by the worker
-1	d3	vanilla_n8	1	4-GPU family; box width seeded by the worker
-1	d4	vanilla_n8	2	4-GPU family; box width seeded by the worker
-1	d2	j1_kdrl	0	4-GPU family; box width seeded by the worker
-1	d3	j1_kdrl	1	4-GPU family; box width seeded by the worker
-1	d4	j1_kdrl	2	4-GPU family; box width seeded by the worker
-1	d2	g2_fire_likelihood	0	4-GPU family; box width seeded by the worker
-1	d3	g2_fire_likelihood	1	4-GPU family; box width seeded by the worker
-1	d4	g2_fire_likelihood	2	4-GPU family; box width seeded by the worker
+1	j5d2	vanilla_n8	0	4-GPU family; box width seeded by the worker
+1	j5d3	vanilla_n8	1	4-GPU family; box width seeded by the worker
+1	j5d4	vanilla_n8	2	4-GPU family; box width seeded by the worker
+1	j5d2	j1_kdrl	0	4-GPU family; box width seeded by the worker
+1	j5d3	j1_kdrl	1	4-GPU family; box width seeded by the worker
+1	j5d4	j1_kdrl	2	4-GPU family; box width seeded by the worker
+1	j5d2	g2_fire_likelihood	0	4-GPU family; box width seeded by the worker
+1	j5d3	g2_fire_likelihood	1	4-GPU family; box width seeded by the worker
+1	j5d4	g2_fire_likelihood	2	4-GPU family; box width seeded by the worker
 1	any	g4_failure_only	0
 1	any	g4_failure_only	1
 1	any	g4_failure_only	2
@@ -134,3 +134,6 @@
 1	any	h3_random_segment	0
 1	any	h3_random_segment	1
 1	any	h3_random_segment	2
+1	any	g6_seqmean	0	enlisted after this manifest was generated; pooled like the rest. code4k caps responses at 4096 vs math's 16384, so this is the second length scale for the w-vs-T_i question
+1	any	g6_seqmean	1
+1	any	g6_seqmean	2
