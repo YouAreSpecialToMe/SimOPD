@@ -88,6 +88,9 @@ export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,p
 # 前缀优先真网卡,loopback 兜底(lo 只有显式点名才会被 NCCL 考虑);节点内
 # 数据面走 SHM/P2P,与此无关。DSW 冒烟测不到这一类(DSW pod 有标准 eth0)。
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-eth,en,bond,net,lo}
+# WARN 级 NCCL 日志:成功时几乎零输出;若接口修复在某种 pod 上仍不奏效,
+# lane 日志会直接列出 NCCL 枚举/拒绝的接口,下一轮免猜。
+export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
 export MAX_RESPONSE_LENGTH=16384
 export ROLLOUT_GPU_MEM_UTIL=0.45         # campaign 钉值(见 deploy/campaign.sh 的论证)
 export PYTHONUNBUFFERED=1
