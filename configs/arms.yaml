@@ -1342,3 +1342,40 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_randseg
       SIMOPD_FIRST_SEGMENT_K: "100"
+
+  - run_id: g6_seqmean
+    axis: G
+    cohort: supplement
+    desc: "[OURS] vanilla with per-sequence loss normalisation: w_i = 1 instead of w_i ∝ T_i"
+    status: stock
+    note: "ENLISTED 2026-08-18. Zero new kernel code: verl already implements the
+           mode (core_algos.py:1187 seq-mean-token-mean) and the distillation path
+           forwards config.loss_agg_mode into BOTH branches -- PG via
+           compute_policy_loss_vanilla -> agg_loss (core_algos.py:1273) and direct
+           via agg_loss. vanilla is PG, so it takes effect. The launch script
+           hard-coded token-mean until today.
+           WHY: G owns the trajectory weight w, but every G arm so far varies WHICH
+           trajectories (verified-only, failure-only, FIRE likelihood, RGOPD gate).
+           Nothing on the roster has ever varied w's LENGTH-PROPORTIONALITY, so the
+           coordinate is untested in the one respect that interacts with collapse.
+           Under token-mean a collapsed 16,384-token rollout enters the batch with
+           ~40x the weight of a healthy 410-token one, and the 2026-08-18 textdump
+           measurement puts 81.3% of those tokens in repeated 8-grams whose delta_ell
+           median is 0.000 -- the batch is dominated by sequences that are both
+           longest and emptiest. This is also the third of Finding 1's positive
+           feedback loops and the only one a single config value can cut.
+           NOTE it is not really a new method: UNIFIED-LOSS §1 states the shipped
+           selection layer AS the nested double mean, which IS seq-mean-token-mean.
+           That claim holds only where every sequence keeps the same token count
+           (the H/G masked arms, kept = K); for every m=1 arm the code ships
+           token-mean instead. This arm makes the framework's own estimator real.
+           PREREGISTERED READ: seq-mean scales G_late and R_stop within a sequence
+           by the same 1/T_i, so the within-sequence force ratio is UNCHANGED and
+           only between-sequence weight moves. Still collapses => Finding 1's
+           within-sequence two-force account survives its only competing mechanism
+           (batch composition), which strengthens the claim. Does not collapse =>
+           loop three is load-bearing, Finding 1 needs a batch term, and a one-knob
+           collapse prophylactic falls out. Judged against vanilla x3 (30/30 cells,
+           complete), same everything, this one env var the only knob"
+    env:
+      SIMOPD_LOSS_AGG_MODE: seq-mean-token-mean

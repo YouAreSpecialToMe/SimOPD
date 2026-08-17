@@ -75,6 +75,18 @@ TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}
 distillation_loss_mode=${DISTILLATION_LOSS_MODE:-k1_rec}
 use_policy_gradient=${USE_POLICY_GRADIENT:-True}
 distillation_topk=${DISTILLATION_TOPK:-32}
+# g6_seqmean (2026-08-18): the batch estimator's trajectory weight. token-mean --
+# the campaign-wide default, and what every arm through wave 15 ran -- divides one
+# sum by the batch's total token count, so sequence i enters with weight ∝ T_i: a
+# collapsed 16,384-token rollout carries 40x the weight of a healthy 410-token one,
+# and 81% of those tokens are repeated n-grams carrying ~zero signal. seq-mean-
+# token-mean is verl's nested double mean (core_algos.py:1187), i.e. w_i ≡ 1, and
+# it is exactly the estimator UNIFIED-LOSS §1 already claims ships. SIMOPD_ prefix
+# is load-bearing: the run fingerprint sweeps `env | grep ^SIMOPD_`, and this knob
+# is NOT in the fingerprint's explicit list -- a plain name would give vanilla and
+# g6_seqmean the same fingerprint. Unset for every other arm, so their fingerprints
+# and their hydra override are byte-identical to what they already ran.
+loss_agg_mode=${SIMOPD_LOSS_AGG_MODE:-token-mean}
 
 # Arm knobs that are absent from the vanilla protocol: only pass them when set,
 # so a run's config hash records exactly the one deviation that defines its arm.
@@ -390,7 +402,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \
-    actor_rollout_ref.actor.loss_agg_mode=token-mean \
+    actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_mem_util} \

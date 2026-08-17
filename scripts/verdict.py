@@ -60,6 +60,7 @@ ARMS = [  # ledger order: axis order from the plan
     "f1_soft_log", "f2_hard_clip", "f3_power",
     "f2_clip2.3", "f4_posclip", "f5_tanh", "g1_verified_only",
     "g1_quota", "g2_fire_likelihood", "g4_failure_only", "g4_quota", "g5_rgopd_gate",
+    "g6_seqmean",
     "h1_first_segment", "h2_last_segment", "h3_random_segment",
     "h4_random_scatter", "h5_gen100",
     "vanilla_n8", "j1_kdrl",
