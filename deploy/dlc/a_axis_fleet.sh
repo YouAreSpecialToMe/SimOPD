@@ -5,8 +5,16 @@
 #             per-request seed ⇒ 重跑逐 token 一致;分片各自幂等跳过)
 #   彩排  R  每臂 3 步 rehearse_a_axis.sh,机器判据自动裁定(判据见该脚本头);
 #             任一臂 FAIL → 挂起待查,绝不带病发射
-#   发射  L  a1/a3/a4/a5 × s0,每臂 2 卡一条 lane,250 步,ckpt 落
-#             $D/ckpt/simopd/{arm}_s0_16k → post-eval 流水线的 *_16k glob 自动接管
+#   发射  L  a1/a3/a4/a5 × s${SEED},每臂 2 卡一条 lane,250 步,ckpt 落
+#             $D/ckpt/simopd/{arm}_s${SEED}_16k → post-eval 流水线的 *_16k glob 自动接管
+#
+# SEED 参数化(2026-08-18,全量 4 臂 × 3 seed):一个 seed 一个 DLC 作业(各
+# 1 worker × 8 GPU),三次提交 —— 故障域隔离(单作业 AIMaster 重启不殃及别的
+# seed),排 8 卡也比一次排 24 卡容易。SEED 从执行命令环境进载荷,缺省 0 时与
+# 旧单 seed 行为逐字节一致。Phase P/R 皆 seed 无关:P 的教师缓存全 seed 共享
+# (混合币本就按 (prompt,step) 确定),R 彩排验证机制不验证 seed —— seed!=0
+# 的作业只等 .OK 标记,绝不自己彩排(两作业并发彩排会撞 rehearsal_* 日志与
+# ckpt 命名空间)。
 #
 # 为什么走 DLC:DSW pod 说没就没(2026-08-15 gpu141 死于预计算 20 分钟处),
 # DLC 任务被回收会重启 → 本脚本重入:P 见 parquet 即跳,R 见 .OK 标记即跳,
@@ -27,18 +35,22 @@ ROOT=/mgfs/shared/Group_GY/changhao/SimOPD
 D=/mgfs/shared/Group_GY/changhao/simopd_data
 ARMS=(a1_gkd_mix0.5 a3_offpolicy a4_dagger_anneal a5_aggrevate)
 PAIRS=(0,1 2,3 4,5 6,7)
+SEED=${SEED:-0}
 
 # ---------------------------------------------------------------- submitter --
 if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; then
     cat <<CARD
-================ DLC 控制台表单(1 worker × 8 GPU) ================
-  任务名称   simopd-a-axis-4lane
+======== DLC 控制台表单(每个 seed 一个作业,各 1 worker × 8 GPU) ========
+  任务名称   simopd-a-axis-4lane-s<N>      (N = 0 / 1 / 2,共三次提交)
   节点数量   1
   单节点GPU  8      CPU 64      内存 512Gi(照 eval 舰队成功任务的规格填)
   镜像/资源组/数据集挂载:照抄上一个成功的 EVAL_ONLY 任务表单(挂载须含 /mgfs)
-  执行命令:
-    bash $ROOT/deploy/dlc/a_axis_fleet.sh
-====================================================================
+  执行命令(三个作业各填一条):
+    SEED=0 bash $ROOT/deploy/dlc/a_axis_fleet.sh
+    SEED=1 bash $ROOT/deploy/dlc/a_axis_fleet.sh
+    SEED=2 bash $ROOT/deploy/dlc/a_axis_fleet.sh
+  前置:$D/a_axis/ 下须已有四个 rehearsal_*.OK(seed!=0 只等标记,不自彩排)
+==========================================================================
 本机不是 DLC 容器(无 rank env),以上为提交卡片;容器内执行同一脚本即运行载荷。
 CARD
     exit 0
@@ -136,6 +148,16 @@ echo "== Phase P done: $(ls -la "$D/gkd_offpolicy.parquet" | awk '{print $5}') b
 
 # -------------------------------------------------------------- Phase R 彩排 --
 echo "== Phase R: 3-step rehearsals (4 arms parallel, one 2-GPU pair each)"
+if [ "$SEED" != 0 ]; then
+    # seed!=0 只等标记:并发彩排会互撞日志与 rehearsal ckpt 命名空间。标记由
+    # seed-0 作业或手工彩排(gpu193 实践)落盘,seed 无关可复用。
+    until [ -f "$LOGD/rehearsal_${ARMS[0]}.OK" ] && [ -f "$LOGD/rehearsal_${ARMS[1]}.OK" ] \
+       && [ -f "$LOGD/rehearsal_${ARMS[2]}.OK" ] && [ -f "$LOGD/rehearsal_${ARMS[3]}.OK" ]; do
+        echo "seed $SEED: waiting for 4/4 rehearsal .OK markers in $LOGD ($(date))"
+        sleep 600
+    done
+    echo "== Phase R done (markers found; rehearsed elsewhere)"
+else
 for i in 0 1 2 3; do
     ARM=${ARMS[$i]}
     [ -f "$LOGD/rehearsal_${ARM}.OK" ] && { echo "rehearsal $ARM already OK, skip"; continue; }
@@ -155,9 +177,10 @@ if [ -n "$FAILED" ]; then
     done
 fi
 echo "== Phase R done: 4/4 rehearsals OK"
+fi
 
 # -------------------------------------------------------------- Phase L 发射 --
-echo "== Phase L: 4 lanes x 250 steps (TEST/SAVE freq 25, auto-resume from ckpt)"
+echo "== Phase L: 4 lanes x 250 steps, seed ${SEED} (TEST/SAVE freq 25, auto-resume from ckpt)"
 # 无 wandb 凭证时降级 offline:DLC pod 的 /root 是易失的,凭证只可能来自任务
 # 环境面板或镜像;缺了它 wandb.init 会在 step 0 前杀死 lane。offline 下步级
 # 指标仍在控制台日志里(gkd_* 走同一通道),post-eval 流水线不受影响。
@@ -174,25 +197,25 @@ for i in 0 1 2 3; do
                 set -e
                 _arm_env=$(python scripts/arm.py env "$ARM")   # 拒绝臂在此死,绝不静默 vanilla
                 eval "$_arm_env"
-                export EXPERIMENT_NAME="${ARM}_s0_16k"
+                export EXPERIMENT_NAME="${ARM}_s${SEED}_16k"
                 export CUDA_VISIBLE_DEVICES=${PAIRS[$i]}
                 export TOTAL_TRAINING_STEPS=250
-                export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s0"
-                export WANDB_TAGS="${ARM},A,seed0,dlc_a_axis"
+                export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s${SEED}"
+                export WANDB_TAGS="${ARM},A,seed${SEED},dlc_a_axis"
                 bash scripts/run_opd_baseline.sh \
-                    data.seed=0 \
-                    actor_rollout_ref.rollout.seed=0
+                    data.seed="$SEED" \
+                    actor_rollout_ref.rollout.seed="$SEED"
             ) && { echo "lane ${ARM}: attempt $attempt completed"; break; }
             echo "lane ${ARM}: attempt $attempt failed ($(date)); resume-retry"
             sleep 30
         done
-    ) > "$LOGD/lane_${ARM}.log" 2>&1 &
-    echo "lane ${ARM} -> GPUs ${PAIRS[$i]}, log $LOGD/lane_${ARM}.log"
+    ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 &
+    echo "lane ${ARM} (seed ${SEED}) -> GPUs ${PAIRS[$i]}, log $LOGD/lane_${ARM}_s${SEED}.log"
 done
 wait
 echo "== Phase L done"
 for ARM in "${ARMS[@]}"; do
-    ck=$(ls -d "$D/ckpt/simopd/${ARM}_s0_16k/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
-    echo "  ${ARM}_s0_16k: last checkpoint step ${ck:-NONE}"
+    ck=$(ls -d "$D/ckpt/simopd/${ARM}_s${SEED}_16k/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
+    echo "  ${ARM}_s${SEED}_16k: last checkpoint step ${ck:-NONE}"
 done
 echo "A_AXIS_FLEET_DONE"
