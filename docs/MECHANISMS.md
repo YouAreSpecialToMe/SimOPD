@@ -47,8 +47,30 @@ effects; the eval protocol is M-IV.
 - The magnitude-unification hypothesis (registered): the only two capped top-k
   arms (e2, b2) are exactly the unbounded losses.
 - Termination pressure: b5↔j1 controlled pair (verifier zeroes a capped rollout).
-- Initialization: a2's SFT stage delivers a termination-broken init (capped from
-  step 31; teacher median 694 tokens — the length is trained, not imitated).
+- Initialization: a2's SFT stage delivers a termination-broken init — 65% of
+  training rollouts capped at step 1 (mean 14.4k tokens), 100% from step 35.
+  **Corrected reading (2026-08-19 CPU audit, `scripts/analysis/a2_coldstart_probe.py`,
+  `docs/data/a2_coldstart_probe.txt`): the terminator, not the length.** The
+  SFT target is the student-template render, so its supervised span ends
+  `…$$<|im_end|>\n` — the TEACHER's terminator — and never contains
+  `<|endoftext|>` (0 of 6,358 rows; `<|endoftext|>` appears only as pad with
+  loss_mask 0). After 98 SFT steps the model has p(`<|im_end|>`) ≈ 1e-3 at the
+  end of a teacher-CoT answer (from 1e-11 — one target token per ~2.3k), has
+  crushed the base's own stop p(`<|endoftext|>`) 0.98 → 1e-3 (never a target,
+  the main competitor at exactly those positions under CE), and puts the mass on
+  continuation (`\n\n` 0.52 → "This is the smallest…", "---\n\n**Answer:**
+  $\boxed{}$…" — the teacher's closing template, which the SFT data legitimately
+  contains as mid-response restatements: this is the terminal loop's origin).
+  And even a perfect SFT would not have produced a stopping student: the
+  rollout honors only `<|endoftext|>` (the SFT export's generation_config eos is
+  151643), whereas Rethinking's own recipe runs LlamaFactory's `qwen3` template
+  with `replace_eos=True` (`stop_words=["<|im_end|>"]`), so THEIR SFT'd student's
+  eos becomes `<|im_end|>` and their OPD rollouts stop on it. Our port (verl
+  sft_trainer, Base tokenizer untouched) lost that; a2 as run tests nothing about
+  the cold-start recipe — it tests an init that cannot terminate by construction.
+  Corrected cell: terminate the SFT target as `…<|im_end|><|endoftext|>` (both
+  models put their next-token mass on `<|endoftext|>` after `<|im_end|>`: teacher
+  1.0, base 0.59), keep everything else, rerun (RESULTS-GAPS A1').
 - **The position dose line** (registered, D×H cross-reading): where the
   supervised span sits controls termination; how much is supervised does not.
   Front window (h1, trunc 0.151) < random contiguous window (h3, 0.182) <

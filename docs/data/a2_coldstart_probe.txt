@@ -1,0 +1,35 @@
+=== 1. the SFT data (coldstart_sft.parquet)
+rows: 6358 cols: ['messages']
+roles: ['user', 'assistant']
+assistant content tails (3): ["' is minute 89**.\\n\\n---\\n\\n### ✅ Final Answer:\\n\\n$$\\n\\\\boxed{89}\\n$$'", "'est such integer.\\n\\n---\\n\\n### ✅ Final Answer:\\n$$\\n\\\\boxed{89}\\n$$'", "'$$\\n\\\\boxed{89}\\n$$\\n\\n---\\n\\n✅ **Final Answer:**\\n\\n$$\\n\\\\boxed{89}\\n$$'"]
+contents containing literal '<|im_end|>': 0 | '<|endoftext|>': 0 | '<think>': 0
+full render last 6 ids: [23, 24, 532, 14085, 151645, 198] ['8', '9', '}\n', '$$', '<|im_end|>', '\n']
+prefix (generation prompt) last 6 ids: [77091, 198, 151667, 271, 151668, 271] ['assistant', '\n', '<think>', '\n\n', '</think>', '\n\n']
+supervised span = full[len(prefix):] -> ends with: ['$$', '<|im_end|>', '\n'] | contains 151643 (<|endoftext|>)? False
+teacher-CoT target length (tokens) median over 200 rows: 2286
+
+=== 2. the SFT model (coldstart_sft/hf) at the end of a teacher-CoT answer
+
+hf generation_config eos: 151643
+  row 0: END OF ANSWER    p(im_end)=0.000686 p(eot)=0.00155 p(\n)=0.00611 p(im_start)=0.000209 | top: '\n\n':0.517, ' �':0.0242, '\n':0.00611, ' \n\n':0.00574, '保驾护':0.00211, '  \n':0.00186
+         after <|im_end|>   p(im_end)=7.09e-10 p(eot)=5.12e-05 p(\n)=0.996 p(im_start)=4.44e-10 | top: '\n':0.996, '  \n':0.0017, '\n\n':0.00132, ' \n':0.000179, '\t\n':0.000123, '   \n':6.58e-05
+         after <|im_end|>\n p(im_end)=0.000453 p(eot)=4.92e-07 p(\n)=3.4e-06 p(im_start)=0.000161 | top: 'أفل':0.0145, 'أسل':0.0106, '結':0.00881, '��':0.00778, '続きを読':0.00645, 'aklı':0.00645
+         greedy continuation: ['\n\n', 'This', ' is', ' the', ' smallest', ' $', 'n', '$', ' such', ' that', ' both', ' boxes', ' ', '9']
+  row 1: END OF ANSWER    p(im_end)=0.0014 p(eot)=0.000961 p(\n)=0.00488 p(im_start)=0.000426 | top: '\n\n':0.0594, ' �':0.0281, '保驾护':0.00488, '\n':0.00488, '席执行':0.00458, '反腐倡':0.00335
+         after <|im_end|>   p(im_end)=7.55e-10 p(eot)=5.12e-05 p(\n)=0.996 p(im_start)=4.87e-10 | top: '\n':0.996, '  \n':0.00247, '\n\n':0.00103, '\t\n':0.000139, ' \n':0.000139, '   \n':7.45e-05
+         after <|im_end|>\n p(im_end)=0.000559 p(eot)=6.94e-07 p(\n)=1.02e-06 p(im_start)=0.000199 | top: '続きを読':0.012, 'أفل':0.00681, '结束':0.00601, 'とりあえ':0.00601, 'أسل':0.00531, '結':0.00413
+         greedy continuation: ['\n\n', '---', ' \n\n', '**', 'Answer', ':**', ' $\\', 'boxed', '{', '8', '9', '}$', ' �', '�']
+  row 2: END OF ANSWER    p(im_end)=0.00109 p(eot)=0.00116 p(\n)=0.00405 p(im_start)=0.000354 | top: ' �':0.0814, '\n\n':0.0765, '保驾护':0.00489, ' دمش':0.00432, '\n':0.00405, '�':0.00336
+         after <|im_end|>   p(im_end)=6.67e-10 p(eot)=2.74e-05 p(\n)=0.996 p(im_start)=4.3e-10 | top: '\n':0.996, '  \n':0.0017, '\n\n':0.00117, '\t\n':0.000179, ' \n':9.57e-05, '  ':6.58e-05
+         after <|im_end|>\n p(im_end)=0.000591 p(eot)=1.12e-06 p(\n)=2.02e-06 p(im_start)=0.000211 | top: '続きを読':0.00897, 'とりあえ':0.00656, 'أسل':0.00423, 'أفل':0.00351, '结束':0.00351, ' consistent':0.00291
+         greedy continuation: [' �', '�', '\n\n', '---', ' \n\n', '**', 'Answer', ':**', ' $\\', 'boxed', '{', '8', '9', '}$']
+  sampled path 0 (tau .7): ['\n\n', 'This', ' is', ' the', ' smallest', ' positive', ' integer', ' $', 'n', '$', ' such', ' that', ' both', ' boxes', ' ', '9', ' and', ' ', '1', '0', ' have', ' at', ' least', ' one']
+  sampled path 1 (tau .7): ['\n\n', 'This', ' is', ' the', ' smallest', ' $', 'n', '$', ' such', ' that', ' both', ' boxes', ' ', '9', ' and', ' ', '1', '0', ' have', ' at', ' least', ' one', ' ball', '.']
+  sampled path 2 (tau .7): ['\n\n', '---', ' \n\n', '✅', ' Verified', ' through', ' pattern', ' recognition', ' (', 'F', 'ib', 'onacci', ' sequence', ')', ' and', ' understanding', ' of', ' removal', 's', '.', '全过程', '逻辑', '清晰', '，']
+
+=== 3. a2's eval responses (text): what is inside the truncated ones
+a2_coldstart_s0_16k__math500__step150__seed0__20260817T022853Z.parquet n= 1500 stop/length: 2 1498
+   truncated: delta(#special tokens inside) hist: {-7: 1, -1: 1, 0: 1334, 1: 126, 2: 24, 3: 6, 4: 1, 5: 1, 6: 1, 7: 1, 10: 2} | fake-turn markers: 0.0
+   example around first fake turn: 'We are given the point $(0, 3)$ in rectangular (Cartesian) coordinates and we are to convert it to polar coordinates of the form $(r, \\theta)$, where $r > 0$ and $0 \\le \\theta < 2\\pi$.\n\n---\n\n### Step 1: Recall the conversion formulas\n\nThe conversion from rectangular coordinates $(x, y)$ to polar coo'
+   stopped: delta hist: {1: 1, 7: 1} | mean len 9131
+DONE
