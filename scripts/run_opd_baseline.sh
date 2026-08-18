@@ -350,7 +350,11 @@ fi
 mkdir -p "$ckpt_dir" && printf '%s\n' "$fingerprint" > "$fp_file"
 
 # The gate val_before_train used to be, without the 75 minutes of generation.
-python3 "$(dirname "$0")/preflight.py" \
+# timeout 1800(2026-08-18,DLC pod GPU-012 事故):正常 ~20s 的 preflight 在一块
+# 挂载点病态的 pod 上无限僵死,四 lane 齐冻 18 分钟+且无任何错误输出——上层
+# 重试循环包着的是个永不返回的调用,整作业变哑。30 分钟上限只把真病态转成
+# 响亮失败(exit 124 → lane 重试 → 全灭时挂起可见),健康路径不受影响。
+timeout 1800 python3 "$(dirname "$0")/preflight.py" \
     --student "$STUDENT_MODEL" --teacher "$TEACHER_MODEL" \
     --data "$data_dir/${TRAIN_FILE_BASENAME:-train.parquet}" \
     --val "$data_dir/${VAL_FILE_BASENAME:-math500.parquet}" \
