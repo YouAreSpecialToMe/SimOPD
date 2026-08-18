@@ -1290,7 +1290,10 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     if (~finite).sum() > 0:
         sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
 
-    stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
+    # N0 + g2 (SIMOPD_TERM_EVENT=1): the sampled column -- FiRe's Eq.4 trajectory
+    # statistic AND the k1 base -- reads the event-level values at the student's stop
+    # tokens; the entropy weights and the top-k panels are untouched. Flag off: no-op.
+    stu_sampled, sampled_lp, _is_stop = _term_event_fix_sampled(student_logits, lse, t_lp, sampled_lp, sampled_id, "k1_fire_gate")
     raw = _weighted_sampled_token_loss(
         stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
     )
@@ -1306,6 +1309,17 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     out["fire_s_ent"] = s_ent
     out["fire_tch_lp"] = sampled_lp
     out["fire_missing"] = (~finite).float()
+    if TERM_EVENT:
+        L = _term_event_fix_sampled.last
+        out["tf_stu_lp"] = stu_sampled
+        out["tf_tch_lp"] = sampled_lp
+        out["eos_sampled_is_stop"] = _is_stop.float()
+        out["eos_q"] = L["log_q"].exp().detach()
+        out["eos_p"] = L["log_p"].exp().detach()
+        out["eos_dstop"] = (L["log_q"].exp() - L["log_p"].exp()).detach()
+        out["eos_missing"] = torch.zeros_like(raw)
+        out["eos_dl_raw"] = (L["raw_tch"] - L["raw_stu"]).detach()      # vanilla's token-level Delta-ell
+        out["d_raw_k1"] = raw
     return out
 
 
@@ -1316,6 +1330,18 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
 # student's stop margin to the teacher's TRUE full-softmax stop mass. Design
 # review 2026-08-19; payload contract in simopd.eos_gather.
 EOS_AUX_COEF = float(os.environ.get("SIMOPD_EOS_AUX_COEF", "1.0"))
+# Terminal-token identity fix as an ORTHOGONAL knob (2026-08-19, corrected-rerun wave):
+# SIMOPD_TERM_EVENT=1 moves the whole sampled-k1 family (vanilla and its F/G/H/B1/J
+# descendants) onto the N0 carrier -- the top-k payload with the gathered terminators --
+# and hands every registry function the EVENT-level sampled log-probs at the student's
+# stop tokens (log q_T(E_T), log p_S(E_S)) in place of the token-level ones. Everything
+# else in each arm (its transform, mask, gate, aggregation) is untouched, so
+# "N0 + f1" is literally f1's registry function reading corrected inputs.
+TERM_EVENT = os.environ.get("SIMOPD_TERM_EVENT", "0") == "1"
+# The estimator-family loss modes that ride the carrier under TERM_EVENT=1.
+TERM_EVENT_FAMILY = ("k1_rec", "k1_softlog", "k1_power", "k1_posclip", "k1_tanh",
+                     "k1_verified_only", "k1_failure_only", "k1_firstseg", "k1_lastseg",
+                     "k1_randseg", "k1_randscatter", "skew_kl_a0.1", "k2_kdrl", "k1_rgopd_gate")
 
 
 def _log1mexp(x):
@@ -1431,11 +1457,17 @@ def compute_termcal_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     q = P["log_q"].exp().clamp(0.0, 1.0)
     m = stop_margin(P["log_p"])
     term = F.binary_cross_entropy_with_logits(m, q, reduction="none")
-    raw = _weighted_sampled_token_loss(
+    raw_token = _weighted_sampled_token_loss(
         P["stu_sampled"], P["sampled_lp"], torch.ones_like(P["sampled_lp"]), config.distillation_loss
     )
+    if TERM_EVENT:                                   # N0 + N2: the calibration channel on the corrected base
+        stu, tch = _term_event_values(P)
+        raw = _weighted_sampled_token_loss(stu, tch, torch.ones_like(tch), config.distillation_loss)
+    else:                                            # N2 alone: vanilla's raw base, bit-identical
+        raw = raw_token
     out = _term_common_out(P, student_logits, raw)
     out["eos_term"] = term
+    out["eos_dl_raw"] = (-raw_token).detach()
     return out
 
 
@@ -1457,16 +1489,54 @@ def compute_termfix_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     positions where nothing was sampled -- that is N2's question.
     """
     P = _term_payload(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, "k1_termfix")
-    is_stop = torch.isin(P["sampled_id"], P["stop_idx"])
-    tch = torch.where(is_stop, P["log_q"].to(P["sampled_lp"].dtype), P["sampled_lp"])
-    stu = torch.where(is_stop, P["log_p"].to(P["stu_sampled"].dtype), P["stu_sampled"])
+    stu, tch = _term_event_values(P)
     raw = _weighted_sampled_token_loss(stu, tch, torch.ones_like(tch), config.distillation_loss)
     raw_token = _weighted_sampled_token_loss(
         P["stu_sampled"], P["sampled_lp"], torch.ones_like(P["sampled_lp"]), config.distillation_loss
     )
     out = _term_common_out(P, student_logits, raw)
     out["eos_dl_raw"] = (-raw_token).detach()      # vanilla's token-level Delta-ell (the receipt)
+    out["tf_stu_lp"] = stu                          # event-fixed sampled log-probs: what _unpack hands the
+    out["tf_tch_lp"] = tch                          # family's registry functions under SIMOPD_TERM_EVENT=1
     return out
+
+
+def _term_event_fix_sampled(student_logits, lse, t_all, sampled_lp, sampled_id, name):
+    """For a top-k kernel riding the N0 carrier under SIMOPD_TERM_EVENT=1: return the
+    sampled column (student, teacher) with the terminal-token identity fix applied, using
+    the gathered block at the end of `t_all` (layout [top-(K-n) | E_S, E_T\\E_S, diag]).
+    Returns (stu_sampled, sampled_lp, is_stop). No-op when the flag is off (the caller's own
+    values are returned unchanged)."""
+    stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
+    if not TERM_EVENT:
+        return stu_sampled, sampled_lp, torch.zeros_like(sampled_id, dtype=torch.bool)
+    from simopd import eos_gather as EG
+    if not EG.enabled():
+        raise RuntimeError(f"{name}: SIMOPD_TERM_EVENT=1 needs the N0 carrier (SIMOPD_GATHER_EOS=1)")
+    n = EG.n_extra()
+    K = t_all.shape[-1]
+    extra_lp = t_all[..., K - n:]
+    if not bool(torch.isfinite(extra_lp).all()):
+        raise RuntimeError(f"{name}: -inf in the gathered block -- refusing a fabricated q=0")
+    t_cols = torch.tensor(EG.teacher_cols(), device=extra_lp.device, dtype=torch.long)
+    log_q = torch.logsumexp(torch.index_select(extra_lp, -1, t_cols).float(), dim=-1).clamp(max=0.0)
+    stop_idx = torch.tensor(EG.stop_ids(), device=student_logits.device, dtype=torch.long)
+    log_p = torch.logsumexp(torch.index_select(student_logits, -1, stop_idx).float(), dim=-1) - lse
+    is_stop = torch.isin(sampled_id, stop_idx)
+    tch = torch.where(is_stop, log_q.to(sampled_lp.dtype), sampled_lp)
+    stu = torch.where(is_stop, log_p.to(stu_sampled.dtype), stu_sampled)
+    _term_event_fix_sampled.last = dict(log_q=log_q, log_p=log_p, raw_stu=stu_sampled, raw_tch=sampled_lp)
+    return stu, tch, is_stop
+
+
+def _term_event_values(P):
+    """(student, teacher) sampled log-probs with the terminal-token identity fix: at
+    positions where the sampled token is in E_S, the EVENT-level values
+    log p_S(E_S) / log q_T(E_T); elsewhere the token-level ones, untouched."""
+    is_stop = torch.isin(P["sampled_id"], P["stop_idx"])
+    tch = torch.where(is_stop, P["log_q"].to(P["sampled_lp"].dtype), P["sampled_lp"])
+    stu = torch.where(is_stop, P["log_p"].to(P["stu_sampled"].dtype), P["stu_sampled"])
+    return stu, tch
 
 
 compute_eos_aux_topk = compute_termcal_topk   # pre-rename alias (battery, docs)
@@ -1490,3 +1560,9 @@ TOPK_DISPATCH.update(
         "teachability_select": _d_axis_kernel(_teachability_score),
     }
 )
+
+if TERM_EVENT:
+    # The corrected-rerun carrier: the sampled-k1 family's own mode names route to the
+    # termfix kernel; losses.py registers those modes with use_topk under the same flag.
+    for _name in TERM_EVENT_FAMILY:
+        TOPK_DISPATCH.setdefault(_name, compute_termfix_topk)

@@ -33,6 +33,13 @@ from simopd import topk_losses
 # Adds the loss_mode dispatch that verl's top-k path lacks (see topk_losses).
 topk_losses.install()
 
+# SIMOPD_TERM_EVENT=1 (corrected-rerun wave, 2026-08-19): the sampled-k1 family rides the
+# N0 carrier -- registered with use_topk so verl ships the gathered-terminator payload,
+# dispatched to compute_termfix_topk in topk_losses, and _unpack below hands each registry
+# function the event-fixed sampled log-probs. The arms' own math is untouched.
+_TERM_EVENT = topk_losses.TERM_EVENT
+_EST = dict(use_estimator=not _TERM_EVENT, use_topk=_TERM_EVENT)
+
 _QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
 # Tail extension (M1 first harvest, 2026-08-11): the discriminating region for
 # the length runaway sits beyond ~p99.7 (f2's clip_hit_rate 0.3%), which the
@@ -71,11 +78,20 @@ _FIRE_WINDOW = _deque(maxlen=256)
 
 
 def _unpack(model_output, data):
-    """Student/teacher sampled-token logprobs and the response mask, padded & aligned."""
-    student_log_probs = no_padding_2_padding(model_output["log_probs"], data)
-    teacher_log_probs = no_padding_2_padding(data["teacher_logprobs"], data).squeeze(-1)
+    """Student/teacher sampled-token logprobs and the response mask, padded & aligned.
+
+    Under SIMOPD_TERM_EVENT=1 the termfix kernel has already run (top-k carrier) and left
+    the EVENT-fixed sampled log-probs in model_output (tf_stu_lp / tf_tch_lp): token-level
+    everywhere except at the student's own stop tokens, where they read log p_S(E_S) and
+    log q_T(E_T). Every estimator-family arm then does its own math on corrected inputs."""
     mask = data["response_mask"]
     mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+    if "tf_stu_lp" in model_output and "tf_tch_lp" in model_output:
+        student_log_probs = no_padding_2_padding(model_output["tf_stu_lp"], data)
+        teacher_log_probs = no_padding_2_padding(model_output["tf_tch_lp"], data)
+    else:
+        student_log_probs = no_padding_2_padding(model_output["log_probs"], data)
+        teacher_log_probs = no_padding_2_padding(data["teacher_logprobs"], data).squeeze(-1)
     assert teacher_log_probs.shape == student_log_probs.shape == mask.shape
     return student_log_probs, teacher_log_probs, mask
 
@@ -285,7 +301,7 @@ def _h9_observe(teacher, mask):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_rec"], use_estimator=True)
+    DistillationLossSettings(names=["k1_rec"], **_EST)
 )  # type: ignore[arg-type]
 def k1_with_recorder(config, distillation_config, model_output, data):
     """Vanilla k1, bit-identical to verl's, plus the Delta-ell distribution panel.
@@ -304,7 +320,7 @@ def k1_with_recorder(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["skew_kl_a0.1"], use_estimator=True)
+    DistillationLossSettings(names=["skew_kl_a0.1"], **_EST)
 )  # type: ignore[arg-type]
 def skew_kl(config, distillation_config, model_output, data):
     """B axis: DistiLLM's skew REVERSE KL, their default alpha=0.1 (2402.03898).
@@ -343,7 +359,7 @@ def skew_kl(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k2_kdrl"], use_estimator=True)
+    DistillationLossSettings(names=["k2_kdrl"], **_EST)
 )  # type: ignore[arg-type]
 def k2_kdrl(config, distillation_config, model_output, data):
     """KDRL's k2 estimator (2506.02208 Eq.8). Two arms share this mode: j1_kdrl
@@ -373,7 +389,7 @@ def k2_kdrl(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_firstseg"], use_estimator=True)
+    DistillationLossSettings(names=["k1_firstseg"], **_EST)
 )  # type: ignore[arg-type]
 def k1_first_segment(config, distillation_config, model_output, data):
     """H axis: supervise only the first FIRST_SEGMENT_K response tokens.
@@ -471,13 +487,13 @@ def _randscatter_window(mask):
     return r >= thresh
 
 
-register_distillation_loss(DistillationLossSettings(names=["k1_lastseg"], use_estimator=True))(
+register_distillation_loss(DistillationLossSettings(names=["k1_lastseg"], **_EST))(
     _window_kernel(_lastseg_window, "lastseg_covered_frac")
 )  # type: ignore[arg-type]
-register_distillation_loss(DistillationLossSettings(names=["k1_randseg"], use_estimator=True))(
+register_distillation_loss(DistillationLossSettings(names=["k1_randseg"], **_EST))(
     _window_kernel(_randseg_window, "randseg_covered_frac")
 )  # type: ignore[arg-type]
-register_distillation_loss(DistillationLossSettings(names=["k1_randscatter"], use_estimator=True))(
+register_distillation_loss(DistillationLossSettings(names=["k1_randscatter"], **_EST))(
     _window_kernel(_randscatter_window, "randscatter_covered_frac")
 )  # type: ignore[arg-type]
 
@@ -486,7 +502,7 @@ POWER_ALPHA = float(os.environ.get("SIMOPD_POWER_ALPHA", "1.0"))
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_power"], use_estimator=True)
+    DistillationLossSettings(names=["k1_power"], **_EST)
 )  # type: ignore[arg-type]
 def k1_power(config, distillation_config, model_output, data):
     """F axis, f3: PowerOPD's bounded power reward (2606.17199; no code released).
@@ -520,7 +536,7 @@ def k1_power(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_softlog"], use_estimator=True)
+    DistillationLossSettings(names=["k1_softlog"], **_EST)
 )  # type: ignore[arg-type]
 def k1_soft_log_compression(config, distillation_config, model_output, data):
     """F axis: soft log compression, sign(d)*log(1+|d|) (Demystifying's winner).
@@ -556,7 +572,7 @@ CLIP_M = float(os.environ.get("SIMOPD_CLIP_M", "10.0"))
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_posclip"], use_estimator=True)
+    DistillationLossSettings(names=["k1_posclip"], **_EST)
 )  # type: ignore[arg-type]
 def k1_positive_clip(config, distillation_config, model_output, data):
     """F axis [OURS]: clip the POSITIVE tail only -- min(r, M), negative side untouched.
@@ -585,7 +601,7 @@ def k1_positive_clip(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_tanh"], use_estimator=True)
+    DistillationLossSettings(names=["k1_tanh"], **_EST)
 )  # type: ignore[arg-type]
 def k1_smooth_bounded(config, distillation_config, model_output, data):
     """F axis [OURS]: smooth bounded M*tanh(r/M) -- f2's control for boundary shape.
@@ -627,7 +643,7 @@ def _reweight_kept(losses, mask, keep_seq):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_verified_only"], use_estimator=True)
+    DistillationLossSettings(names=["k1_verified_only"], **_EST)
 )  # type: ignore[arg-type]
 def k1_verified_only(config, distillation_config, model_output, data):
     """G axis: distil only rollouts that pass the rule verifier.
@@ -672,7 +688,7 @@ def k1_verified_only(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_failure_only"], use_estimator=True)
+    DistillationLossSettings(names=["k1_failure_only"], **_EST)
 )  # type: ignore[arg-type]
 def k1_failure_only(config, distillation_config, model_output, data):
     """G axis [OURS]: the mirror of k1_verified_only -- distil only rollouts the
@@ -708,7 +724,7 @@ def k1_failure_only(config, distillation_config, model_output, data):
 
 
 @register_distillation_loss(
-    DistillationLossSettings(names=["k1_rgopd_gate"], use_estimator=True)
+    DistillationLossSettings(names=["k1_rgopd_gate"], **_EST)
 )  # type: ignore[arg-type]
 def k1_rgopd_gate(config, distillation_config, model_output, data):
     """G axis: RG-OPD's directional alignment gate (2607.04037 Eq.2) on the
@@ -1138,3 +1154,35 @@ def _fire_registry_fn(config, distillation_config, model_output, data):
 register_distillation_loss(DistillationLossSettings(names=["k1_fire_gate"], use_topk=True))(_fire_registry_fn)
 
 
+
+
+# ---- SIMOPD_TERM_EVENT=1: termination panels on every family arm riding the N0 carrier -----
+def _with_term_panels(fn):
+    """Under the corrected-rerun flag each sampled-k1 family arm keeps its own registry
+    function; this wrapper only appends the shared termination panels (eos_dl_at_stop = the
+    event-level k1 the kernel handed in, eos_dl_at_stop_raw = vanilla's token-level value,
+    q/p by position, per-member q/p ...) so 'N0 + f1' carries the same live receipts as N0."""
+    def wrapped(config, distillation_config, model_output, data):
+        losses, metrics = fn(config, distillation_config, model_output, data)
+        if "eos_q" in model_output and "eos_p" in model_output:
+            mask = data["response_mask"]
+            mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+            try:
+                _termination_panels(metrics, model_output, data, mask, losses)
+            except Exception as e:  # pragma: no cover - panels must never kill a step
+                print(f"[simopd] termination panels skipped for {fn.__name__}: {e!r}", file=sys.stderr)
+        return losses, metrics
+    wrapped.__name__ = getattr(fn, "__name__", "fn")
+    wrapped._term_event_wrapped = True
+    return wrapped
+
+
+if _TERM_EVENT:
+    from verl.trainer.distillation.losses import DISTILLATION_LOSS_REGISTRY as _REG
+    for _name in topk_losses.TERM_EVENT_FAMILY + ("k1_fire_gate",):
+        _f = _REG.get(_name)
+        if _f is not None and not getattr(_f, "_term_event_wrapped", False):
+            _REG[_name] = _with_term_panels(_f)
+    print(f"[simopd] SIMOPD_TERM_EVENT=1: {len(topk_losses.TERM_EVENT_FAMILY)} sampled-k1 modes ride the N0 "
+          f"carrier (top-k payload + gathered terminators, event-level sampled log-probs at the student's stops)",
+          file=sys.stderr, flush=True)

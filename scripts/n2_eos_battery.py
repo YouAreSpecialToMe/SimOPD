@@ -25,6 +25,10 @@ Sections (torch required; verl only for the kernel section, skipped if absent):
   F  N0 kernel (k1_termfix): distillation_losses == vanilla k1 everywhere except at
      the sampled-stop position, where it is the EVENT-level log p(E_S) - log q(E_T);
      eos_dl_raw carries the token-level value; no eos_term
+  G  (only with SIMOPD_TERM_EVENT=1) the orthogonal knob: the sampled-k1 family's modes
+     are registered use_topk and dispatch to the termfix kernel; the kernel exposes
+     tf_stu_lp/tf_tch_lp == event-fixed values; k1_termcal's raw becomes N0's; the
+     generic sampled-column fix used by the fire kernel matches
 """
 
 import os
@@ -214,8 +218,13 @@ if HAVE_VERL:
     out = T.compute_termcal_topk(z, t_lps, t_ids, cfg, None, data=None)
     lse = torch.logsumexp(z.float(), -1)
     stu_samp = z.float()[0, torch.arange(T_len), samp] - lse[0]
-    ok(torch.allclose(out["distillation_losses"][0], stu_samp - tlog[torch.arange(T_len), samp], atol=1e-5),
-       "distillation_losses == vanilla k1 (log p_S(y) - log p_T(y)) on the sampled column")
+    van_k1 = stu_samp - tlog[torch.arange(T_len), samp]
+    if T.TERM_EVENT:   # N0 + N2: the calibration channel rides the corrected base
+        _sp = torch.isin(samp, torch.tensor(STOP))
+        _lp = torch.logsumexp(z.float()[0][:, STOP], -1) - lse[0]
+        van_k1 = torch.where(_sp, _lp - torch.logsumexp(tlog[:, TCH], -1), van_k1)
+    ok(torch.allclose(out["distillation_losses"][0], van_k1, atol=1e-5),
+       "distillation_losses == vanilla k1 (log p_S(y) - log p_T(y)) on the sampled column" + (" [event-fixed at the stop under TERM_EVENT]" if T.TERM_EVENT else ""))
     q_exact = tlog[:, TCH].exp().sum(-1)
     ok(torch.allclose(out["eos_q"][0], q_exact, atol=1e-6), "eos_q == exact full-softmax teacher termination mass over E_T")
     for i, tid_ in enumerate(UNION):
@@ -291,6 +300,32 @@ if HAVE_VERL:
            f"mismatch case: token-level Delta-ell {dl_raw:.1f} (vanilla) vs event-level {dl_fix:.2f} (N0)")
     else:
         print("  skip  mismatch mini-case (no teacher-only terminator in this configuration)")
+
+    # -------------------------------------------------- G. the TERM_EVENT knob ---
+    if T.TERM_EVENT:
+        print("== G. SIMOPD_TERM_EVENT=1: family carrier swap")
+        from verl.trainer.distillation.losses import DISTILLATION_SETTINGS_REGISTRY as SREG, DISTILLATION_LOSS_REGISTRY as LREG
+        import simopd.losses as L2  # noqa: F401  (registration side effects)
+        for name in ("k1_rec", "k1_softlog", "k1_lastseg", "skew_kl_a0.1", "k2_kdrl", "k1_rgopd_gate"):
+            ok(T.TOPK_DISPATCH.get(name) is T.compute_termfix_topk, f"{name} dispatches to the termfix kernel")
+            st = SREG.get(name)
+            ok(st is not None and st.use_topk and not st.use_estimator, f"{name} registered use_topk under the flag")
+            ok(getattr(LREG.get(name), "_term_event_wrapped", False), f"{name} registry fn wrapped with the termination panels")
+        ok(torch.allclose(o0["tf_tch_lp"][0], torch.where(stop_pos, torch.logsumexp(tlog[:, TCH], -1), tlog[torch.arange(T_len), samp]), atol=1e-5),
+           "tf_tch_lp == log q at the sampled token, log q(E_T) at the sampled stop")
+        ok(torch.allclose(o0["tf_stu_lp"][0], torch.where(stop_pos, log_p, stu_samp), atol=1e-5),
+           "tf_stu_lp == log p at the sampled token, log p(E_S) at the sampled stop")
+        oc = T.compute_termcal_topk(z, t_lps, t_ids, cfg, None, data=None)
+        ok(torch.allclose(oc["distillation_losses"][0], o0["distillation_losses"][0], atol=1e-5) and "eos_term" in oc,
+           "k1_termcal under the flag == N0's raw + the BCE term (N0 + N2)")
+        # the generic helper (fire kernel path) matches the kernel's fix
+        lse_ = torch.logsumexp(z.float(), -1)
+        t_all_ = t_lps.values().unsqueeze(0)[..., :K]
+        stu_g, tch_g, is_stop_g = T._term_event_fix_sampled(z.float(), lse_, t_all_, t_lps.values().unsqueeze(0)[..., K], samp.unsqueeze(0), "test")
+        ok(torch.allclose(stu_g[0], o0["tf_stu_lp"][0], atol=1e-5) and torch.allclose(tch_g[0], o0["tf_tch_lp"][0], atol=1e-5) and bool((is_stop_g[0] == stop_pos).all()),
+           "_term_event_fix_sampled (fire kernel path) == the termfix kernel's fixed values")
+    else:
+        print("== G. skipped (SIMOPD_TERM_EVENT unset)")
 
     # ------------------------------------------------------- E. repetition mask ---
     print("== E. _repetition_mask")

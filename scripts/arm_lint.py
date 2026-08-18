@@ -46,8 +46,18 @@ _MODEL_EOS = "151643"
 
 def _term_family_problems(run_id, env):
     out = []
-    if env.get("DISTILLATION_LOSS_MODE") not in ("k1_termfix", "k1_termcal"):
+    on_carrier = str(env.get("SIMOPD_GATHER_EOS", "")) == "1" or env.get("DISTILLATION_LOSS_MODE") in ("k1_termfix", "k1_termcal")
+    if not on_carrier:
         return out
+    if str(env.get("SIMOPD_TERM_EVENT", "")) == "1":
+        for k, want in (("SIMOPD_KEEP_SAMPLED", "1"), ("SIMOPD_GATHER_EOS", "1")):
+            if str(env.get(k, "")) != want:
+                out.append(f"[{run_id}] SIMOPD_TERM_EVENT=1 needs {k}={want} (the N0 carrier); got {env.get(k)!r}")
+        try:
+            if int(env.get("DISTILLATION_TOPK", 0)) < 3:
+                out.append(f"[{run_id}] SIMOPD_TERM_EVENT=1 needs DISTILLATION_TOPK >= 3 (top-k payload carries the terminators)")
+        except ValueError:
+            out.append(f"[{run_id}] DISTILLATION_TOPK not an int")
     raw = str(env.get("SIMOPD_STOP_IDS", "")).strip()
     want = {_MODEL_EOS}
     if raw and raw.lower() != "off":
@@ -79,6 +89,12 @@ EXPECT_PG = {
     "f2_clip2.3": True, "f4_posclip": True, "f5_tanh": True,
     "n0_termfix": True,
     "n2_termcal": True,
+    "n02_termfix_cal": True, "n0_f1_softlog": True, "n0_f2_clip10": True, "n0_f3_power": True,
+    "n0_h2_lastseg": True, "n0_b1_skew": True, "n0_g1_verified": True, "n0_g4_failure": True,
+    "n0_g6_seqmean": True,
+    "n0_f2_clip2.3": True, "n0_f4_posclip": True, "n0_f5_tanh": True, "n0_b5_k2": False,
+    "n0_h1_firstseg": True, "n0_h3_randseg": True, "n0_h4_randscatter": True, "n0_g5_rgopd": True,
+    "n0_g2_fire": True,
     "g1_verified_only": True, "g1_quota": True, "g2_fire_likelihood": True,
     "g4_failure_only": True, "g4_quota": True, "g5_rgopd_gate": True,
     "g6_seqmean": True,
@@ -161,9 +177,13 @@ def main():
                 problems.append(f"{tag} use_topk mode {mode!r} missing from TOPK_DISPATCH")
             if "DISTILLATION_TOPK" not in env:
                 problems.append(f"{tag} top-k mode without DISTILLATION_TOPK")
-        if mode in WANT_SAMPLED_MODES and env.get("SIMOPD_KEEP_SAMPLED") != "1":
+        # under SIMOPD_TERM_EVENT=1 every sampled-k1 family mode rides the N0 carrier and the
+        # termfix kernel consumes the sampled column (topk_losses.TERM_EVENT_FAMILY)
+        _te = str(env.get("SIMOPD_TERM_EVENT", "")) == "1"
+        wants_sampled = mode in WANT_SAMPLED_MODES or (_te and (mode in T.TERM_EVENT_FAMILY or mode == "k1_fire_gate"))
+        if wants_sampled and env.get("SIMOPD_KEEP_SAMPLED") != "1":
             problems.append(f"{tag} kernel unpacks the sampled column but SIMOPD_KEEP_SAMPLED != 1")
-        if mode not in WANT_SAMPLED_MODES and env.get("SIMOPD_KEEP_SAMPLED") == "1":
+        if not wants_sampled and env.get("SIMOPD_KEEP_SAMPLED") == "1":
             notes.append(f"{tag} KEEP_SAMPLED set but kernel does not consume the column (harmless width)")
 
         # --- optimizer branch vs the r5 verdict ---

@@ -50,6 +50,24 @@ CAVEATS = {
     # preregistered reads (P-EOS / P-support / P-teacher, arms.yaml) are decided on
     # the eos_* panels + the truncation trajectory, not on composite alone.
     "n0_termfix": "single-knob vs vanilla; verdict reads the termination fixed point (trunc/len trajectory, interval not endpoint) before composite; P-artifact (interior fixed point) vs P-drive (locks like vanilla); eos_dl_at_stop (applied, event-level) vs eos_dl_at_stop_raw (vanilla's -25) is the live receipt; the sampled-<|im_end|> corner is watched on eos_pm_1",
+    "n02_termfix_cal": "corrected-rerun wave 1: judged against n0_termfix (carrier, no channel) and n2_termcal (channel, no fix): the 2x2 with vanilla reads whether dense supply has value once the sign is right",
+    "n0_f1_softlog": "corrected-rerun wave 1: judged against n0_termfix and banked f1_soft_log",
+    "n0_f2_clip10": "corrected-rerun wave 1: judged against n0_termfix and banked f2_hard_clip",
+    "n0_f3_power": "corrected-rerun wave 1: judged against n0_termfix and banked f3_power",
+    "n0_h2_lastseg": "corrected-rerun wave 1: judged against n0_termfix and banked h2_last_segment",
+    "n0_b1_skew": "corrected-rerun wave 1: judged against n0_termfix and banked b1_skew_kl",
+    "n0_g1_verified": "corrected-rerun wave 1: judged against n0_termfix and banked g1_verified_only",
+    "n0_g4_failure": "corrected-rerun wave 1: judged against n0_termfix and banked g4_failure_only",
+    "n0_g6_seqmean": "corrected-rerun wave 1: judged against n0_termfix and banked g6_seqmean",
+    "n0_f2_clip2.3": "corrected-rerun wave 1: judged against n0_termfix and the banked f2_clip2.3 row, seed-paired",
+    "n0_f4_posclip": "corrected-rerun wave 1: judged against n0_termfix and the banked f4_posclip row, seed-paired",
+    "n0_f5_tanh": "corrected-rerun wave 1: judged against n0_termfix and the banked f5_tanh row, seed-paired",
+    "n0_b5_k2": "corrected-rerun wave 1: judged against n0_termfix and the banked b5_k2 row, seed-paired",
+    "n0_h1_firstseg": "corrected-rerun wave 1: judged against n0_termfix and the banked h1_first_segment row, seed-paired",
+    "n0_h3_randseg": "corrected-rerun wave 1: judged against n0_termfix and the banked h3_random_segment row, seed-paired",
+    "n0_h4_randscatter": "corrected-rerun wave 1: judged against n0_termfix and the banked h4_random_scatter row, seed-paired",
+    "n0_g5_rgopd": "corrected-rerun wave 1: judged against n0_termfix and the banked g5_rgopd_gate row, seed-paired",
+    "n0_g2_fire": "corrected-rerun wave 1: judged against n0_termfix and the banked g2_fire_likelihood row, seed-paired",
     "n2_termcal": "single-knob vs vanilla; verdict reads the termination fixed point (trunc/len) and the eos_* panels before composite; E_S={151643} student side, E_T={151643,151645} teacher side (stop-token audit 2026-08-19: same event, disjoint tokens); eos_dl_at_stop is the live receipt of the -25-nat terminal punishment in the PG base",
 }
 
@@ -71,6 +89,10 @@ ARMS = [  # ledger order: axis order from the plan
     "h8_gen2048", "h9_prune_adapt", "h10_task_subset",
     "vanilla_n8", "j1_kdrl",
     "n0_termfix", "n2_termcal",
+    "n02_termfix_cal", "n0_f1_softlog", "n0_f2_clip10", "n0_f3_power", "n0_h2_lastseg",
+    "n0_b1_skew", "n0_g1_verified", "n0_g4_failure", "n0_g6_seqmean",
+    "n0_f2_clip2.3", "n0_f4_posclip", "n0_f5_tanh", "n0_b5_k2", "n0_h1_firstseg", "n0_h3_randseg",
+    "n0_h4_randscatter", "n0_g5_rgopd", "n0_g2_fire",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.

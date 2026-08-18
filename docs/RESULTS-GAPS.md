@@ -235,3 +235,48 @@ OPD; completed rows banked, `μ.n` pinned at 1 roster-wide), the α ladder
 - Recommended order: **`c1_direct` on the first free lane** (wave 15 rows exist;
   it jumps the queue) → waves 9–12, 14, 15 self-run → `g1_quota` predicate →
   **A1** → read everything, then revisit the deferred pool trigger by trigger.
+
+## Corrected-rerun roster (2026-08-19, after the stop-token audit)
+
+The dividing line is not the arm's name but **whether its training signal still
+consumes the sampled-token raw log q_T(y) − log p_S(y) at y = `<|endoftext|>`** (the
+−25 convention artifact, `docs/MECHANISMS.md` M-I). Vanilla does; the D/G/F/H arms
+that select/shape/gate on top of vanilla k1 do; the C/E top-k distributional
+objectives mostly do not — but the audit (`scripts/analysis/selector_stop_audit.py`,
+`docs/data/selector_stop_audit.txt`) found two of them erase the stop through the
+SUPPORT instead. The fix is an orthogonal knob, `SIMOPD_TERM_EVENT=1` (N0 carrier +
+event-level sampled log-probs at the student's stops), so every corrected cell is
+"the same arm + the flag", judged seed-paired against its banked row and against N0.
+
+**Wave 1 (registered, `campaign.tsv` wave 17): 20 one-seed cells, canonical seed 0,
+2 GPUs/lane except `n0_g2_fire` (4)** — priority N0/N2 > F > H > G1/G4/G6 > B1/B5 >
+D-slot substitutes; J series and vanilla_n8 dropped; more seeds afterwards only for
+N0, N0+N2 and arms that visibly diverge. Legacy stop contract pinned (`SIMOPD_STOP_IDS
+off`) so nothing else moves. Cost: the bill is length-driven (report §2) — if the fix
+holds lengths at c1/h1 regimes a lane costs ~15–30 GPU·h, i.e. ~0.5k for the wave;
+if it does not, up to ~2.4k, and the wave has answered the question anyway.
+
+| # | cell | = | question |
+|---|---|---|---|
+| 1 | `n0_termfix` | vanilla + fix | is the STOP convention mismatch load-bearing (P-artifact vs P-drive) |
+| 2 | `n02_termfix_cal` | N2 + fix | does dense stopping supply still add value once the sign is right |
+| 3–8 | `n0_f1_softlog` `n0_f2_clip10` `n0_f3_power` `n0_f2_clip2.3` `n0_f4_posclip` `n0_f5_tanh` | F + fix | does any signal-geometry effect survive without the −25 outlier it was compressing |
+| 9–12 | `n0_h1_firstseg` `n0_h2_lastseg` `n0_h3_randseg` `n0_h4_randscatter` | H + fix | h2 (KEY): was late supervision dangerous per se, or was it the −25 in every naturally-ended rollout; h1: audit says the banked h1 already ≈ corrected (window holds the stop in 0.07%); h3/h4: ~17–22% exposure |
+| 13–15 | `n0_g1_verified` `n0_g4_failure` `n0_g6_seqmean` | G + fix | g1: was the crater STOP enrichment (correct trajectories are the ones that stop); g6 (KEY): is seq-mean still an independent stabilizer |
+| 16–17 | `n0_b1_skew` `n0_b5_k2` | B + fix | bounded/skew geometry and the k1/k2 estimator contrast without the artifact |
+| 18 | `n2_termcal` | raw N2 | D-slot substitute: dense correction alone against the pathology |
+| 19 | `n0_g5_rgopd` | g5 + fix | D-slot substitute; audit: the gate's L_T−L_S sums (~−340) never flipped on the −25 (0/30), and under the flag the sums are event-correct |
+| 20 | `n0_g2_fire` | g2 + fix | D-slot substitute (4-GPU lane); audit: the raw terminal shifts FiRe's statistic by 25/T and moves 1/6 of the bottom-20% set — the fire kernel reads the event-fixed column under the flag |
+
+**43-arm triage** (KEEP = banked data stands under the legacy contract; RERUN = in
+wave 1; AUDIT = measured, action stated; DROP = not rerun):
+
+| verdict | arms | why (audit numbers) |
+|---|---|---|
+| RERUN (wave 1) | b1, b5, f1, f2, f3, f2_clip2.3, f4, f5, g1, g4, g6, h1, h2, h3, h4, g5, g2, + N2 | sampled-k1 descendants; their stop erased at 250 (b1 2.8e-5, h2 4e-6, g2 0.06, f3 0.37 partial) |
+| KEEP | c1, c1_direct, c1_tailbucket, c2, c2_qb_fixed8, c2_qb_perseq, c4, e1, e1_a0, e3, b4, b4_b0.1, b4_b0.9, h5 | renormalized/anchored top-k objectives: p(eot) at natural stops 0.86–1.0 at their latest ckpt, `<|im_end|>` never learned (1e-12–1e-18) — exempt by construction and by measurement |
+| AUDIT → later corrected variant | b2_forward_kl, e2_set_coverage, c3_intersection | NOT clean: unrenormalized forward KL / set coverage / intersection push out-of-support student mass down — p(eot) at natural stops b2 1.6e-4 (@175), e2 0.005, c3 0.56. Contaminated through the support, not the sampled column; a corrected variant needs the terminator coordinate collapsed inside the objective (E_T columns ↔ student E_S mass). Banked rows stand as legacy-contract results |
+| AUDIT → selector alignment first | d1_tip, d2_selectkd, d3_teachability | d1: the stop is selected 100% and its mismatch divergence (~24 nats) is the batch max, so min-max normalization compresses every other token's divergence — TIP degenerates toward entropy-only; d2: the stop is rejected (.01) while student top-1 = eot (early), protection lapses as top-1 drifts (g5@125: 60%); d3: stop selected 7% ≈ its 5% budget, robust norm. Event-aligned selectors (collapse the terminator coordinate in δ, in SelecTKD's top-5 test, in compatibility) before any rerun; not forced into wave 1 |
+| AUDIT (done) | a2_coldstart | not a natural control: SFT init has neither terminator (~1e-3 each), the closing-template continuation instead; needs the SFT-target fix (A1') |
+| DROP | b3_eopd_gate, j1_kdrl, vanilla_n8, i0/i1 (shelved) | b3 scientifically dead + 1495 GPU·h; J/n8 dropped by the lane plan |
+| = N0 | vanilla | N0 is the corrected vanilla |
