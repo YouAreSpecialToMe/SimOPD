@@ -163,8 +163,9 @@ ladder = the two registered adjudicators.
   kick on the stop logit is ~25·(1−p) per stop event. Both N1 and N2 stable ⇒
   two independent routes; one stable ⇒ the two forces are asymmetric and collapse
   answers only that remedy.
-- **N0 (registered 2026-08-19, `n0_termfix`, wave 17 — run FIRST): the
-  reward-level fix of the mismatch itself.** User's formulation: "when the student
+- **N0 (registered 2026-08-19, `n0_termfix`, wave 17 — run FIRST): semantic
+  alignment of the target representation — STOP token ratio → STOP event
+  ratio; no new loss, no new gradient channel.** User's formulation: "when the student
   samples `<|endoftext|>`, read the teacher's `<|im_end|>` probability" — made
   exact as the event level: vanilla with ONE change, at the sampled stop token
   the per-token signal is Δℓ_T = log Σ_{E_T} q − log Σ_{E_S} p instead of the
@@ -187,6 +188,21 @@ ladder = the two registered adjudicators.
   changes the environment for every arm in the campaign and is a follow-up
   campaign's opening question, together with whether other Base/Instruct pairs
   carry the same mismatch.
+  What N0 does NOT do (collaborator framing 2026-08-19): stop supervision
+  reaches the student only when it actually samples STOP, so if p_S(STOP)
+  keeps falling for any other reason N0's correction opportunities fall with
+  it — N0 fixes the SIGN of the stop event and keeps sampled-OPD's starvation
+  of DENSITY; it cannot pull a locked policy back. N2 is the complement: the
+  dense channel KL(Bern(q_T(STOP)) ‖ Bern(p_S(STOP))) at every visited state
+  restores stopping mass even where STOP is never sampled. **N0 = semantic
+  alignment, N2 = non-starving supply**, and the 2×2 {V, N0, N2, N0+N2} reads:
+  N0 alone holds ⇒ the artifact was the whole engine (density starvation never
+  bit once the sign was right); N2 alone holds but N0 does not ⇒ density is
+  load-bearing beyond the sign; both hold ⇒ two sufficient routes; neither ⇒
+  the continuation drive lives outside the termination coordinate. Live
+  receipts: `eos_n_stop` (N0's correction-opportunity count per micro-batch)
+  next to the truncation trajectory; `eos_ravail_500up` (N2's available
+  restoration).
 - M1 measured-magnitude harvest (registered) and its top-k extension.
 - Waves 9/10 execution.
 - a1/a3 length predictions: registered in spirit (teacher-short ⇒ a3 should be

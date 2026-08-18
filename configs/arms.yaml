@@ -1510,7 +1510,7 @@ arms:
   - run_id: n0_termfix
     axis: N
     cohort: supplement
-    desc: "[OURS] terminal-token identity fix: vanilla with ONE change -- at the student's own stop tokens the per-token signal is the EVENT-level Delta-ell (log q_T(E_T) - log p_theta(E_S)) instead of the token-level log q(<|endoftext|>) - log p(<|endoftext|>); the artifact-isolation cell of the termination chapter"
+    desc: "[OURS] semantic alignment of the target representation: STOP token ratio -> STOP event ratio. Vanilla with ONE change -- at the student's own stop tokens the per-token signal is the EVENT-level Delta-ell (log q_T(E_T) - log p_theta(E_S)) instead of the token-level log q(<|endoftext|>) - log p(<|endoftext|>); no new loss, no new gradient channel; the artifact-isolation cell of the termination chapter"
     status: stock
     note: "REGISTERED 2026-08-19 (user proposal after the stop-token audit: 'when the
            student samples <|endoftext|>, read the teacher's <|im_end|> probability').
@@ -1541,6 +1541,15 @@ arms:
            channel is then the live question, and the two together read the
            2x2 {V, N0, N2, N0+N2}. Secondary: N0's capability vs vanilla/c2 --
            if the artifact was the whole story, N0 should approach c2's 0.68.
+           WHAT IT DOES NOT DO (collaborator framing 2026-08-19): stop supervision
+           reaches the student ONLY when it actually samples STOP. If p_S(STOP)
+           keeps falling for any other reason, N0's correction opportunities fall
+           with it -- N0 corrects the SIGN of the stop event and keeps sampled-OPD's
+           starvation of DENSITY intact; it cannot pull a locked policy back. That
+           is by design: N0 = semantic alignment, N2 = non-starving supply, and the
+           pair splits the problem. The starvation is measured live: eos_n_stop
+           (sampled-stop events per micro-batch) IS the correction-opportunity
+           count, read next to the truncation trajectory.
            Corner (monitored, not fixed here): a sampled <|im_end|> is NOT in E_S,
            so it keeps its token-level signal (log q_T(im_end) - log p ~ +25 when
            it happens); at p ~1e-11 it does not happen, and eos_pm_1 (student mass
@@ -1565,7 +1574,7 @@ arms:
   - run_id: n2_termcal
     axis: N
     cohort: supplement
-    desc: "[OURS] termination-marginal calibration: vanilla + an exact full-softmax stop-vs-continue channel at every visited state, BCEWithLogits(m_t, q_t) with q_t = teacher mass on ITS terminators and m_t = student log-odds of the tokens that END its rollout; the termination chapter's minimal causal cell"
+    desc: "[OURS] termination-marginal calibration = the non-starving DENSE termination channel: vanilla + an exact full-softmax stop-vs-continue term at EVERY visited state (stopping mass is restored even where the student never samples STOP), BCEWithLogits(m_t, q_t) with q_t = teacher mass on ITS terminators and m_t = student log-odds of the tokens that END its rollout; the termination chapter's minimal causal cell"
     status: stock
     note: "REGISTERED 2026-08-19 as n2_eos_aux (single-token EOS calibration);
            RE-REGISTERED the same day, before any run, as termination-marginal
