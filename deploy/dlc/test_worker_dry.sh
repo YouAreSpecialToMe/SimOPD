@@ -125,9 +125,15 @@ chk "rank1 exited cleanly"                '[ "$(cat "$SB/w1.rc")" = 0 ]'
 chk "d0 registered in math map"           'grep -qP "\td0\t" "$EXP_ROOT/.campaign/MACHINE_MAP"'
 chk "d1 registered in math map"           'grep -qP "\td1\t" "$EXP_ROOT/.campaign/MACHINE_MAP"'
 chk "d0+d1 in code map (stale lock stolen)" 'grep -qP "\td0\t" "$EXP_ROOT/.campaign_code/MACHINE_MAP" && grep -qP "\td1\t" "$EXP_ROOT/.campaign_code/MACHINE_MAP"'
-chk "code BATCH_TAG seeded"               '[ "$(cat "$EXP_ROOT/.campaign_code/BATCH_TAG")" = code4k ]'
+chk "code BATCH_TAG seeded"               '[ "$(cat "$EXP_ROOT/.campaign_code/BATCH_TAG")" = code16k ]'
 chk "if BATCH_TAG seeded"                 '[ "$(cat "$EXP_ROOT/.campaign_if/BATCH_TAG")" = if4k ]'
-chk "wide-box width seeded (code)"        '[ "$(cat "$EXP_ROOT/.campaign_code/GPUS_PER_RUN.d2")" = 4 ]'
+# Against the manifest, not a hardcoded label -- naming a box here is the same
+# mistake worker.sh had (its list still said d2/d3/d4 after code's rows moved to
+# j5d2..j5d7), and a test that repeats the bug cannot catch it. Weak by
+# construction: EXP_ROOT is the LIVE tree, so a file seeded by an earlier run
+# also satisfies this. It still fails the day the manifest names a box nothing
+# seeds, which is the failure that stranded the 4-GPU family.
+chk "wide-box width seeded (code)"        'for m in $(awk -F"\t" "\$1 ~ /^[0-9]/ && \$5 ~ /4-GPU family/ {print \$2}" "$EXP_ROOT/configs/campaign_code.tsv" | sort -u); do [ "$(cat "$EXP_ROOT/.campaign_code/GPUS_PER_RUN.$m" 2>/dev/null)" = 4 ] || exit 1; done'
 # w8b seeding checked via a minimal single-namespace pass (below), keeping the
 # main concurrency test to three domains for speed
 chk "reaper: finished leftover reaped"    '[ ! -d "$SB/evalq/claims/fakerun_s0_16k__25" ]'
