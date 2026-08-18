@@ -1309,9 +1309,105 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     return out
 
 
+# ---- N2: vanilla + an exact EOS-vs-rest calibration channel ---------------------
+# The stop-side counterpart of the F-axis magnitude ladder: nothing about the
+# content signal changes (sampled k1 on the sampled column, PG branch, no renorm,
+# no distributed matching); one direct term per visited state calibrates the
+# student's stop margin to the teacher's TRUE full-softmax stop mass. Design
+# review 2026-08-19; payload contract in simopd.eos_gather.
+EOS_AUX_COEF = float(os.environ.get("SIMOPD_EOS_AUX_COEF", "1.0"))
+
+
+def _log1mexp(x):
+    """log(1 - exp(x)) for x <= 0, the standard two-branch form (Maechler 2012):
+    log(-expm1(x)) near 0, log1p(-exp(x)) far below -- both branches finite and
+    accurate where the other loses digits."""
+    return torch.where(x > -0.6931471805599453, torch.log(-torch.expm1(x)), torch.log1p(-torch.exp(x)))
+
+
+def stop_margin(log_p_stop):
+    """m = log p/(1-p) from log p, without ever forming p or 1-p in float."""
+    lp = log_p_stop.clamp(max=-1e-7)          # p <= 1 - 1e-7 keeps log(1-p) finite (m <= ~16)
+    return lp - _log1mexp(lp)
+
+
+def compute_eos_aux_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """N2 kernel. Returns vanilla's sampled-k1 as `distillation_losses` (the PG base,
+    bit-identical to the D-axis kernels' `raw`) plus the per-token EOS term under
+    `eos_term`, delivered past the PG detach by simopd.b3_additive.
+
+    Row layout from teacher_patch under SIMOPD_GATHER_EOS=1 (width K+1):
+        [ top-(K-n) non-stop | n extra ids (loss set, then diag) | sampled ]
+    _prepare_streaming(want_sampled=True) hands back the first K as t_lp/t_id and
+    the last as the sampled column; the extra block is sliced off the end of t_lp.
+
+    Term: BCEWithLogits(m_t, q_t), q_t = sum over the loss set of exp(teacher
+    logprob) (full-softmax, never renormalized), m_t = logit of the student's stop
+    mass. dL/dm = p_t - q_t in [-1, 1]: teacher wants to stop more than the student
+    -> margin up; student stops early -> margin down. Bounded on the margin by
+    construction, so it cannot produce the +80-class kicks the F axis catalogues.
+    """
+    from simopd import eos_gather as EG
+
+    lse, t_all, t_id_all, sampled_lp, sampled_id = _prepare_streaming(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+    )
+    stop = EG.stop_ids()
+    diag = EG.diag_ids()
+    n_stop, n = len(stop), len(stop) + len(diag)
+    K = t_all.shape[-1]
+    if n == 0 or K <= n:
+        raise RuntimeError(f"k1_eos_aux: need SIMOPD_GATHER_EOS=1 with a stop set and DISTILLATION_TOPK "
+                           f"> {n}; got K={K}, ids={stop + diag}")
+    t_lp, t_id = t_all[..., : K - n], t_id_all[..., : K - n]
+    extra_lp, extra_id = t_all[..., K - n:], t_id_all[..., K - n:]
+    want = torch.tensor(stop + diag, device=extra_id.device, dtype=extra_id.dtype)
+    if not bool((extra_id == want).all()):
+        raise RuntimeError("k1_eos_aux: the extra-id block does not carry the configured ids in order -- "
+                           "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
+    if not bool(torch.isfinite(extra_lp).all()):
+        raise RuntimeError("k1_eos_aux: -inf in the stop/diag block -- the sampler patch failed to deliver "
+                           "a stop id; refusing to train on a fabricated q=0")
+
+    # teacher stop mass over the loss set (exact, full-softmax)
+    q = extra_lp[..., :n_stop].float().exp().sum(dim=-1).clamp(0.0, 1.0)
+    # student stop mass: logsumexp over the loss set minus the streaming lse
+    stop_idx = torch.tensor(stop, device=student_logits.device, dtype=torch.long)
+    z_stop = torch.index_select(student_logits, -1, stop_idx).float()      # [..., n_stop]
+    log_p = torch.logsumexp(z_stop, dim=-1) - lse
+    m = stop_margin(log_p)
+    term = F.binary_cross_entropy_with_logits(m, q, reduction="none")
+
+    # vanilla's k1 on the sampled column, exactly as the D-axis kernels form it
+    finite = torch.isfinite(sampled_lp)
+    if (~finite).sum() > 0:
+        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
+    stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
+    raw = _weighted_sampled_token_loss(
+        stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
+    )
+
+    stu_at_teacher = torch.gather(student_logits, dim=-1, index=t_id) - lse.unsqueeze(-1)
+    stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
+    s_ent = _entropy_from_logits(student_logits, lse)
+    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher, s_ent=s_ent)
+    out["distillation_losses"] = raw
+    out["d_raw_k1"] = raw                       # delta_ell panel source (F6 convention)
+    out["eos_term"] = term
+    out["eos_q"] = q.detach()
+    out["eos_p"] = log_p.detach().exp()
+    out["eos_dstop"] = (q - log_p.exp()).detach()
+    out["eos_missing"] = (~finite).float()
+    out["eos_sampled_is_stop"] = torch.isin(sampled_id, stop_idx).float()
+    for j in range(len(diag)):
+        out[f"eos_diag_q_{j}"] = extra_lp[..., n_stop + j].detach().float().exp()
+    return out
+
+
 TOPK_DISPATCH.update(
     {
         "eopd_entropy_gate": compute_eopd_gate_topk,
+        "k1_eos_aux": compute_eos_aux_topk,
         "k1_fire_gate": compute_fire_components,
         "jsd_topk": compute_jsd_topk,
         "intersection_topk": compute_intersection_topk,

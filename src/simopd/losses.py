@@ -896,6 +896,119 @@ def _b3_registry_fn(config, distillation_config, model_output, data):
     return losses, metrics
 
 
+# ---- N2: vanilla + exact EOS-vs-rest calibration channel --------------------------
+_n2_base = _topk_registry_fn("eos_missing", "eos_sampled_is_stop", *_PANELS, signal="delta_ell")
+
+
+def _repetition_mask(data, mask, n=8):
+    """Positions whose trailing n-gram already occurred earlier in the same response.
+
+    The autopsy's loop signature (closing template repeated 696-1271x) at token
+    resolution: a position is 'in repetition' when the n-gram ending there has an
+    earlier occurrence in the response. Rolling int64 hash (wraps mod 2^64,
+    deterministic), first-occurrence via scatter_reduce(amin) per sequence -- a few
+    tensor ops per sequence, no [T, T] anything. Returns None when the response ids
+    are not available (CPU harnesses) so callers zero-fill their panels."""
+    resp = data.get("responses", None) if hasattr(data, "get") else None
+    if resp is None:
+        return None
+    resp = getattr(resp, "data", resp)
+    if getattr(resp, "is_nested", False):
+        resp = resp.to_padded_tensor(0)
+    if resp.dim() != 2 or resp.shape != mask.shape:
+        return None
+    B, T = resp.shape
+    rep = torch.zeros_like(mask, dtype=torch.bool)
+    if T < n:
+        return rep
+    win = resp.long().unfold(1, n, 1)                        # [B, T-n+1, n], a view
+    h = win[..., 0].clone()
+    for j in range(1, n):
+        h = h * 1000003 + win[..., j]                        # int64 wraps: fine as a hash
+    L = h.shape[1]
+    ar = torch.arange(L, device=h.device)
+    for b in range(B):
+        hb = h[b]
+        uniq, inv = torch.unique(hb, return_inverse=True)
+        first = torch.full((uniq.shape[0],), L, device=h.device, dtype=torch.long)
+        first = first.scatter_reduce(0, inv, ar, reduce="amin", include_self=True)
+        rep[b, n - 1:] = ar > first[inv]                     # window ending at t is a repeat
+    return rep & mask
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_eos_aux"], use_topk=True)
+)  # type: ignore[arg-type]
+def _n2_registry_fn(config, distillation_config, model_output, data):
+    """N2 (n2_eos_aux): keep vanilla OPD exactly unchanged and add only an exact,
+    full-softmax teacher EOS-vs-rest calibration channel.
+
+    The returned losses are vanilla's sampled k1 (PG branch detaches them into
+    advantages; signal="delta_ell" is true here as for the D arms). The EOS term
+    must NOT ride in those losses -- detach would strip its pathwise gradient -- so
+    it takes b3's route: normalized by the global mini-batch token count (same
+    denominator as the PG base, so the coefficient does not drift with response
+    length or micro-batch count) and left in b3_additive.STASH for the wrapper.
+
+    Panels (every key every call, zero-filled -- verl's DP aggregation requires a
+    constant key set): the term; q/p/(q-p) by response position band; the
+    available restoration E[(q-p)_+] beyond 500 tokens; q/(q-p) split by
+    novel-vs-repetition positions; per-diagnostic-id q (e.g. <|im_end|>)."""
+    from simopd import b3_additive, eos_gather, topk_losses
+
+    losses, metrics = _n2_base(config, distillation_config, model_output, data)
+    mask = data["response_mask"]
+    mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+    term = no_padding_2_padding(model_output["eos_term"], data)
+    q = no_padding_2_padding(model_output["eos_q"], data)
+    p = no_padding_2_padding(model_output["eos_p"], data)
+    dstop = q - p
+
+    _plain = lambda v: getattr(v, "data", v)  # noqa: E731
+    _bnt = _plain(data.get("batch_num_tokens", None)) if hasattr(data, "get") else None
+    _dp = _plain(data.get("dp_size", 1)) if hasattr(data, "get") else 1
+    _denom = (torch.as_tensor(_bnt).float() / max(int(_dp), 1)) if _bnt is not None else (mask.sum() + 1e-8)
+    scalar = topk_losses.EOS_AUX_COEF * (term * mask).sum() / _denom
+    b3_additive.STASH["eos_aux"] = scalar
+
+    M = lambda v: Metric(aggregation=AggregationType.MEAN, value=v)  # noqa: E731
+    z = losses.new_zeros(()).float()
+    def _mean(x, sel):
+        return x[sel].float().mean() if bool(sel.any()) else z
+    metrics["distillation/eos_aux_term"] = M(scalar.detach())
+    positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0).expand_as(mask)
+    for lo, hi, tag in _POS_BINS:
+        b = mask & (positions >= lo) & (positions < hi)
+        metrics[f"distillation/eos_q_pos{tag}"] = M(_mean(q, b))
+        metrics[f"distillation/eos_p_pos{tag}"] = M(_mean(p, b))
+        metrics[f"distillation/eos_dstop_pos{tag}"] = M(_mean(dstop, b))
+    late = mask & (positions >= 500)
+    metrics["distillation/eos_ravail_500up"] = M(_mean(dstop.clamp_min(0.0), late))
+    metrics["distillation/eos_q_mean"] = M(_mean(q, mask))
+    metrics["distillation/eos_p_mean"] = M(_mean(p, mask))
+    # novel vs repetition (the loop signature); never let this diagnostic kill a step
+    rep = None
+    try:
+        rep = _repetition_mask(data, mask)
+    except Exception as e:  # pragma: no cover - diagnostic only
+        print(f"[simopd] n2 repetition panel skipped: {e!r}", file=sys.stderr)
+    if rep is None:
+        rep = torch.zeros_like(mask)
+    nov = mask & ~rep
+    metrics["distillation/eos_frac_rep"] = M(rep.float().sum() / mask.float().sum().clamp_min(1.0))
+    metrics["distillation/eos_q_rep"] = M(_mean(q, rep))
+    metrics["distillation/eos_q_novel"] = M(_mean(q, nov))
+    metrics["distillation/eos_dstop_rep"] = M(_mean(dstop, rep))
+    metrics["distillation/eos_dstop_novel"] = M(_mean(dstop, nov))
+    for j in range(len(eos_gather.diag_ids())):
+        key = f"eos_diag_q_{j}"
+        if key in model_output:
+            v = no_padding_2_padding(model_output[key], data)
+            metrics[f"distillation/{key}"] = M(_mean(v, mask))
+            metrics[f"distillation/{key}_500up"] = M(_mean(v, late))
+    return losses, metrics
+
+
 def _fire_registry_fn(config, distillation_config, model_output, data):
     """FiRe 2606.02684, both halves of the title (audit r4; Eq.4-8 verbatim).
 

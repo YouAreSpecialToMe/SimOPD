@@ -74,6 +74,17 @@ ladder = the two registered adjudicators.
   `vanilla + a truncation-zeroing reward term and nothing else` — if that alone
   pins the length distribution, the EOS-starvation loop is causally closed.
   Amendment candidate (2 cards × 3 seeds, ~350 GPU·h at vanilla's own pace).
+- **N2 (registered 2026-08-19, `n2_eos_aux`): the supply-side twin of N1.**
+  N1 closes the loop with a SIGN (RL pressure on truncated rollouts); N2 closes
+  it with SUPPLY (an exact, full-softmax teacher EOS-vs-rest calibration term at
+  every visited state, gradient p−q on the stop margin, bounded by construction).
+  It is the one cell that separates what exact top-k (c2/c4) does in a single
+  move — stop gradient without sampling EOS vs out-of-support deviations never
+  slammed — and reads which of the two carries their stability. Payload contract
+  (`simopd.eos_gather`): the stop id is force-gathered, never inferred; a miss
+  is refused (a silent q=0 would manufacture an anti-stop gradient exactly at
+  collapse onset). Both N1 and N2 stable ⇒ two independent routes; one stable
+  ⇒ the two forces are asymmetric and collapse answers only that remedy.
 - M1 measured-magnitude harvest (registered) and its top-k extension.
 - Waves 9/10 execution.
 - a1/a3 length predictions: registered in spirit (teacher-short ⇒ a3 should be

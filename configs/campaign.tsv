@@ -393,3 +393,6 @@
 16	any	g6_seqmean	0	w length-proportionality: the one G-axis coordinate never varied; judged against vanilla x3
 16	any	g6_seqmean	1
 16	any	g6_seqmean	2
+17	any	n2_eos_aux	0	M-I keystone family (design review 2026-08-19): vanilla + exact EOS-vs-rest channel; single knob vs vanilla x3; protocol 2-GPU lane (streaming kernel, no [T,V])
+17	any	n2_eos_aux	1
+17	any	n2_eos_aux	2

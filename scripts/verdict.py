@@ -46,6 +46,10 @@ CAVEATS = {
     "g5_rgopd_gate": "gate audited on protocol k1 base, NOT their top-50+tail base (registered); outcome-level caveat as g1",
     "vanilla_n8": "n=8 cell control; its row vs vanilla measures the group-sampling knob alone",
     "j1_kdrl": "judged vs vanilla_n8 (same cell); cross-cell comparison to the main table crosses the n boundary",
+    # N2's verdict is about the length fixed point first and capability second: the
+    # preregistered reads (P-EOS / P-support / P-teacher, arms.yaml) are decided on
+    # the eos_* panels + the truncation trajectory, not on composite alone.
+    "n2_eos_aux": "single-knob vs vanilla; verdict reads the termination fixed point (trunc/len) and the eos_* panels before composite; loss set = 151643 only, diag 151645 -- if the panels put teacher stop mass on 151645 the loss set is wrong and the cell is re-registered, not reinterpreted",
 }
 
 ARMS = [  # ledger order: axis order from the plan
@@ -65,6 +69,7 @@ ARMS = [  # ledger order: axis order from the plan
     "h4_random_scatter", "h5_gen100", "h6_gen_sched", "h7_gen512",
     "h8_gen2048", "h9_prune_adapt", "h10_task_subset",
     "vanilla_n8", "j1_kdrl",
+    "n2_eos_aux",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.

@@ -52,6 +52,7 @@ EXPECT_PG = {
     "e2_set_coverage_a0": False, "e3_zvalue": False,
     "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
     "f2_clip2.3": True, "f4_posclip": True, "f5_tanh": True,
+    "n2_eos_aux": True,
     "g1_verified_only": True, "g1_quota": True, "g2_fire_likelihood": True,
     "g4_failure_only": True, "g4_quota": True, "g5_rgopd_gate": True,
     "g6_seqmean": True,
@@ -64,7 +65,7 @@ EXPECT_PG = {
 }
 # Kernels that split the sampled column off the teacher payload.
 WANT_SAMPLED_MODES = {"eopd_entropy_gate", "k1_fire_gate", "tip_select",
-                      "selectkd_verify", "teachability_select"}
+                      "selectkd_verify", "teachability_select", "k1_eos_aux"}
 # verl-native top-k modes with no entry in our dispatch.
 VERL_NATIVE_TOPK = {"forward_kl_topk"}
 

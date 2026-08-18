@@ -188,6 +188,12 @@ def _after_vllm_server():
                            "first: " + "; ".join(errors))
 
 
+def _after_vllm_sampler():
+    from simopd import eos_gather
+
+    eos_gather.install()
+
+
 def _after_vllm_rollout():
     from simopd import zmq_lane
 
@@ -234,7 +240,7 @@ REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch
                     "simopd.zmq_lane", "simopd.gkd_mix", "simopd.gkd_schedule",
                     "simopd.gkd_stats", "simopd.a5_aggrevate", "simopd.h_horizon",
                     "simopd.h_budget", "simopd.h9_controller",
-                    "simopd.teacher_registry", "simopd.b3_additive")
+                    "simopd.teacher_registry", "simopd.b3_additive", "simopd.eos_gather")
 
 
 # verl module -> what to run once it has finished executing
@@ -253,6 +259,12 @@ _TARGETS = {
     # server handles into the named registry the student server resolves. Gated
     # on the a5 env inside the hook, so every other arm's trainer is untouched.
     "verl.experimental.teacher_loop.teacher_model": _after_teacher_model,
+    # N2 only (SIMOPD_GATHER_EOS=1): once vLLM's sampler module loads -- in the
+    # teacher's engine-core / worker processes, which inherit this env and this
+    # PYTHONPATH -- rebind Sampler.gather_logprobs so every scored row carries the
+    # exact stop-token logprobs. Gated inside install(); every other arm's vLLM is
+    # untouched.
+    "vllm.v1.sample.sampler": _after_vllm_sampler,
 }
 
 

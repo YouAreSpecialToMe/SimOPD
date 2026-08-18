@@ -1487,3 +1487,74 @@ arms:
            complete), same everything, this one env var the only knob"
     env:
       SIMOPD_LOSS_AGG_MODE: seq-mean-token-mean
+
+  - run_id: n2_eos_aux
+    axis: N
+    cohort: supplement
+    desc: "[OURS] vanilla + an exact full-softmax teacher EOS-vs-rest calibration channel at every visited state (BCEWithLogits(m_t, q_t)); the termination chapter's minimal causal cell"
+    status: stock
+    note: "REGISTERED 2026-08-19 (design review; M-I keystone family, sibling of N1).
+           WHAT: L = L_vanilla^{k1} + lambda * BCEWithLogits(m_t, q_t) per response
+           token, q_t = p_T(stop | s_t) exact (full log_softmax, force-gathered by
+           simopd.eos_gather, never top-k renormalized), m_t = logit of the
+           student's stop mass. dL/dm_t = p_t - q_t in [-1,1]: teacher-calibrated
+           stopping, both directions -- it lifts the margin where the teacher wants
+           to stop more than the student and lowers it where the student would stop
+           early. Bounded on the margin by construction (no +80-class kicks).
+           NOT changed: rollout source, sampled k1 on the sampled column, PG branch,
+           every non-stop teacher coordinate, no renorm, no distributed matching,
+           token-mean aggregation. The term says how much to stop, never which
+           continuation token to write.
+           WHY IT IS THE KEYSTONE: exact top-k (c2/c4) does two things at once --
+           (a) EOS in the support gets stop gradient at every position without
+           being sampled, (b) a sampled deviation outside the teacher's top-k is
+           renormalized away and never slammed. Their stability cannot be assigned
+           between R_stop supply and G_late suppression. This arm adds (a) alone.
+           PREREGISTERED: P-EOS = holds an interior equilibrium (~c2/c4 band) =>
+           sampling blindness on the stop coordinate is load-bearing; F3's support
+           dichotomy collapses to one token. P-support = locks like vanilla with
+           q >> p on the panels => the exact family's stability is (b), G_late-side.
+           P-teacher = locks with q ~ p ~ 0 beyond the answer => teacher-side
+           conditional degeneration on student-induced late states, a different
+           remedy class (clean-prefix teacher / rollout truncation). Secondary: vs
+           c2/c4 capability -- N2 stable but ~vanilla/h3 capability => c2's gain
+           splits into termination (EOS channel) + content (distributed direct).
+           IMPLEMENTATION CONTRACT: q must be exact. A stop id missing from the
+           payload is -inf and the kernel REFUSES it (a silent q=0 would manufacture
+           an anti-stop gradient exactly at collapse onset). Loss set = the token(s)
+           that actually END a student rollout: Qwen3-1.7B-Base under verl stops on
+           generation_config eos 151643 <|endoftext|> only; <|im_end|> 151645 is
+           gathered as a DIAGNOSTIC column (the Instruct teacher's own turn end --
+           the panel eos_diag_q_0 shows where its stop intent sits). If the panels
+           show the teacher's stop mass on 151645 while rollouts end on 151643, the
+           loss set is the wrong token and the arm must be re-registered, not
+           reinterpreted.
+           lambda=1.0 canonical; internal ablation ladder {0.3, 1, 3, 10}, sized by
+           the forward audit A_EOS/A_cont before any rung is launched (design
+           review: 1:100 token-count arithmetic is not a force ratio -- the EOS
+           margin gradient is directionally coherent, continuation gradients are
+           not). Not to be stacked with g6_seqmean until each moves the fixed
+           point on its own; then the 2x2 {V, S, E, S+E}.
+           Panels: eos_aux_term; eos_q/p/dstop by position band 0-100/100-500/
+           500-2k/2k+; eos_ravail_500up = E[(q-p)_+]; q and dstop split by
+           novel-vs-repetition (8-gram); eos_diag_q_<j> per diagnostic id;
+           eos_sampled_is_stop (the sampled-EOS event rate, R_stop's old channel).
+           LANE: the protocol's 2-GPU lane, deliberately -- unlike the D/b3/g2
+           KEEP_SAMPLED family (NGPUS 2 + TWS 2) this kernel never materializes
+           [T, V] on the student side (streaming lse, one index_select for the
+           stop logits, chunked entropy/top-k for the diagnostics), and the
+           teacher's log_softmax cost does not depend on k, so a top-66 payload
+           costs what c1-c4's top-32 costs on the same lane. TOPK 66 = 64 true
+           top-k (non-stop tokens) + 2 gathered ids (stop 151643, diag 151645);
+           the sampled column rides KEEP_SAMPLED as for D, tensor width 67. If the
+           3-step rehearsal shows student-side pressure at 16k, move to the 4-GPU
+           family by adding NGPUS_PER_NODE=2 TEACHER_WORLD_SIZE=2 and pinning."
+    env:
+      DISTILLATION_LOSS_MODE: k1_eos_aux
+      DISTILLATION_TOPK: 66
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_DIAG_IDS: "151645"
+      SIMOPD_EOS_AUX_COEF: "1.0"
+      SIMOPD_SHADOW: "0"

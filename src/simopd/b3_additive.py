@@ -1,4 +1,4 @@
-"""b3_eopd_gate's additive soft-KD term, delivered past the PG detach.
+"""Additive direct terms (b3's soft-KD, N2's EOS channel), delivered past the PG detach.
 
 EOPD's official loss (WLS04/EOPD core_algos) is `pg_loss = pg_loss + soft_kd_loss`:
 a PG base on every token plus a directly-differentiated forward-KL term on
@@ -32,9 +32,10 @@ def install():
     def distillation_loss(config, distillation_config, model_output, data):
         STASH.clear()
         loss, metrics = fn(config, distillation_config, model_output, data)
-        term = STASH.pop("soft_kd", None)
-        if term is not None:
-            loss = loss + term
+        # Every stashed term is added, whichever registry fn left it: b3's
+        # "soft_kd", N2's "eos_aux" (2026-08-19). Pop as we go so nothing carries.
+        for key in list(STASH):
+            loss = loss + STASH.pop(key)
         return loss, metrics
 
     setattr(distillation_loss, _MARK, True)
