@@ -61,7 +61,8 @@ ARMS = [  # ledger order: axis order from the plan
     "f2_clip2.3", "f4_posclip", "f5_tanh", "g1_verified_only",
     "g1_quota", "g2_fire_likelihood", "g4_failure_only", "g4_quota", "g5_rgopd_gate",
     "h1_first_segment", "h2_last_segment", "h3_random_segment",
-    "h4_random_scatter", "h5_gen100",
+    "h4_random_scatter", "h5_gen100", "h7_gen512", "h8_gen2048",
+    "h10_task_subset",
     "vanilla_n8", "j1_kdrl",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
