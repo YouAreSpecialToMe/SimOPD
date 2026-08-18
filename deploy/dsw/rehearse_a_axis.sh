@@ -55,6 +55,7 @@ SIDEBAND=/tmp/simopd_gkd_stats_rehearsal_${ARM}.jsonl
 # 两个实际全程健康的彩排)。
 if [ "${VERDICT_ONLY:-0}" != 1 ]; then
     rm -f "$SIDEBAND"
+    rm -f "/tmp/simopd_h_budget_rehearsal_${ARM}.jsonl"   # h9 反向侧带,同样求新
     # 彩排必须从零开始(2026-08-18 实测):verl 完训即存终局 checkpoint,上一轮
     # 3 步彩排留下的 global_step_3 会让 resume_mode=auto 瞬间"完训"退出——
     # 0 步、exit 0 的假绿灯。清掉彩排自己的 ckpt 命名空间(只动 rehearsal_*,
@@ -95,10 +96,32 @@ case "$ARM" in
     grep -q 'teacher_registry: published' "$LOG"   || fail "teacher handles never published"
     ! grep -iEq 'request.*already|duplicate request' "$LOG" || fail "duplicate request id (NEW-ISSUE 3)"
     ;;
+  h6_gen_sched)
+    grep -q 'h_horizon armed' "$LOG"               || fail "h_horizon never armed"
+    grep -q 'h_horizon: .* training-prompt keys loaded' "$LOG" || fail "membership keys not loaded"
+    ;;
+  h9_prune_adapt)
+    grep -q 'h_horizon armed' "$LOG"               || fail "h_horizon never armed"
+    grep -q 'h_horizon: .* training-prompt keys loaded' "$LOG" || fail "membership keys not loaded"
+    grep -q 'h9_controller: first budget' "$LOG"   || fail "controller never produced a budget"
+    ;;
+  h10_task_subset)
+    grep -q 'train_sub50.parquet' "$LOG"           || fail "subset parquet absent from launch config"
+    ;;
+  h7_gen512|h8_gen2048)
+    : ;;   # h5 的已证机制换剂量,无横幅可验;判据即上方的步数与退出码
   *)
     grep -q 'gkd_mix armed' "$LOG"                 || fail "gkd_mix wrapper never armed"
     grep -q 'gkd_mix: cache loaded' "$LOG"         || fail "teacher cache not loaded"
     ;;
+esac
+
+# 无侧带臂(纯 env / 数据臂)跳过侧带判据。
+case "$ARM" in
+  h7_gen512|h8_gen2048|h10_task_subset)
+    echo "rehearsal sideband n/a [$ARM]"
+    echo "REHEARSAL PASS [$ARM]"
+    exit 0 ;;
 esac
 
 python - "$ARM" "$SIDEBAND" <<'PY' || exit 1
@@ -142,6 +165,27 @@ if arm == "a5_aggrevate":
                  f"(mixed+full_teacher+tail_tokens all zero) -- a5 would train as vanilla")
     if seen and deg / seen > 0.10:
         sys.exit(f"REHEARSAL FAIL [{arm}]: degraded {deg}/{seen} > 10% of eligible -- teacher route unhealthy")
+elif arm in ("h6_gen_sched", "h9_prune_adapt"):
+    by_step = {}
+    for r in rows:
+        if "h_target" in r:
+            by_step[r.get("step")] = r
+    if not by_step:
+        sys.exit(f"REHEARSAL FAIL [{arm}]: no h rows in sideband")
+    st = [by_step[k]["h_target"] for k in sorted(by_step)]
+    tr = sum(r.get("n_train", 0) for r in by_step.values())
+    ms = sum(r.get("n_miss", 0) for r in by_step.values())
+    if tr <= 0:
+        sys.exit(f"REHEARSAL FAIL [{arm}]: zero training rollouts counted")
+    if arm == "h6_gen_sched":
+        if len(st) >= 2 and not all(b > a for a, b in zip(st, st[1:])):
+            sys.exit(f"REHEARSAL FAIL [{arm}]: horizon not ascending across steps: {st}")
+    else:
+        if not all(256 <= x <= 16384 for x in st):
+            sys.exit(f"REHEARSAL FAIL [{arm}]: budget outside [256, 16384]: {st}")
+    print(f"rehearsal sideband OK [{arm}]: {len(rows)} rows, h_targets {st}, "
+          f"train {tr}, val-exempt {ms}")
+    sys.exit(0)
 else:
     lams = [r["lam_target"] for r in rows if "lam_target" in r]
     if not lams or not all(0.0 <= x <= 1.0 for x in lams):
