@@ -1,48 +1,72 @@
-"""Force-gather the teacher's EXACT stop-token logprobs alongside its top-k.
+"""Force-gather the teacher's EXACT termination-token logprobs alongside its top-k.
 
-N2 (`n2_eos_aux`) adds one thing to vanilla: at every visited state, a direct
-EOS-vs-rest calibration term  BCEWithLogits(m_t, q_t)  with  q_t = p_T(stop | s_t)
-and  m_t = log p_theta(stop)/(1 - p_theta(stop)).  Its gradient on the stop margin
-is p_t - q_t, so everything hinges on q_t being the teacher's TRUE full-softmax
-stop mass. It is not available from the stock payload:
+N2 (`n2_termcal`, termination-marginal calibration) adds one thing to vanilla: at
+every visited state, a direct stop-vs-continue calibration term
+BCEWithLogits(m_t, q_t) with
+
+    q_t = sum_{e in E_T} p_T(e | s_t)        the TEACHER's termination mass
+    m_t = log p_theta(E_S | s_t) / (1 - p_theta(E_S | s_t))
+                                            the STUDENT's stop log-odds
+
+Its gradient on the stop log-odds is p_t - q_t, so everything hinges on q_t being
+the teacher's TRUE full-softmax termination mass. It is not available from the
+stock payload:
 
   * vLLM's prompt_logprobs=k returns the top-k plus the ACTUAL token; there is no
-    "also give me token X". A stop token outside the teacher's top-k is simply
-    absent (verl then drops even the actual token; teacher_patch restores it).
+    "also give me token X". A termination token outside the teacher's top-k is
+    simply absent (verl then drops even the actual token; teacher_patch restores it).
   * Reading a miss as q=0 is not a harmless default: the gradient becomes p_t > 0,
-    a manufactured ANTI-stop push -- and misses cluster exactly where EOS's rank
-    is sliding out of the top-k, i.e. at collapse onset. Silent q=0 would
+    a manufactured ANTI-stop push -- and misses cluster exactly where the stop's
+    rank is sliding out of the top-k, i.e. at collapse onset. Silent q=0 would
     fabricate the starvation the arm exists to test (design review 2026-08-19).
   * A top-k-renormalized q would inflate stop mass systematically and smuggle
     support normalization (nu) into an arm that is supposed to move one knob.
 
-So this module makes the sampler emit the stop ids' logprobs as dedicated
+Why TWO sets (audit 2026-08-19, scripts/analysis/eos_stop_audit.py): the student
+(Qwen3-1.7B-Base under verl) ends a rollout ONLY on <|endoftext|> 151643 -- the
+tokenizer/generation_config eos, vLLM's sole stop -- and puts ~1e-11 on
+<|im_end|>; the Instruct teacher ends a response on <|im_end|> 151645 (median
+0.95 at the student's stop positions) and puts ~1e-11 on <|endoftext|>. Same
+EVENT, disjoint TOKENS. So the event is read on each side with that side's own
+terminators: E_S = what actually terminates the student's rollout, E_T = what the
+teacher ends a response with. Calibrating the single token 151643 to the teacher
+would push p(stop) toward 1e-11 -- an anti-stop channel -- while a symmetric union
+would let a student mass on <|im_end|> (which does NOT stop its rollout) count as
+"stopped". The aggregate log-odds gradient distributes inside E_S by the student's
+own conditional, so with E_S = {151643} it lands on the token that ends rollouts.
+
+So this module makes the sampler emit the extra ids' logprobs as dedicated
 columns, taken from the SAME full log_softmax vLLM already computes
 (Sampler.compute_logprobs), never renormalized. Layout of one position's row,
 width K+1 for a request of num_logprobs=K (what vLLM's dict builder zips):
 
-    [ actual token | top-(K-n) among NON-stop tokens | n stop/diag ids in env order ]
+    [ actual token | top-(K-n) among NON-extra tokens | n extra ids in env order ]
 
-The stop ids are excluded from the top-k so no column ever duplicates another;
+The extra ids are excluded from the top-k so no column ever duplicates another;
 teacher_patch's reader then rebuilds the (S, K+1) tensor as
 
     [ top-(K-n) | n extra ids | sampled ]
 
 which is exactly the (S, K+1) shape `_prepare_streaming(want_sampled=True)`
 expects for DISTILLATION_TOPK=K -- the D-axis path, unchanged. The kernel slices
-the last n "top-k" columns back out as the exact stop-token logprobs.
+the last n "top-k" columns back out as the exact logprobs.
 
 Env (all SIMOPD_-prefixed so they enter the run fingerprint):
-  SIMOPD_GATHER_EOS=1        arm the patch (teacher server + engine processes)
-  SIMOPD_EOS_IDS=151643      comma list: the LOSS set. Must be the token(s) that
-                             actually END a student rollout (Qwen3-1.7B-Base under
-                             verl: generation_config eos 151643 <|endoftext|>);
-                             calibrating a token that does not stop the rollout
-                             would "succeed" while nothing terminates.
-  SIMOPD_EOS_DIAG_IDS=151645 comma list, optional: gathered and panelled, NOT in
-                             the loss (<|im_end|>: the Instruct teacher's own turn
-                             end -- where its stop INTENT lives if it does not sit
-                             on <|endoftext|>. The panel answers that directly.)
+  SIMOPD_GATHER_EOS=1              arm the patch (teacher server + engine processes)
+  SIMOPD_EOS_IDS=151643            comma list: E_S, the STUDENT stop set = the
+                                   token(s) that actually END a student rollout
+                                   (Qwen3-1.7B-Base under verl: generation_config
+                                   eos 151643 <|endoftext|>). Required.
+  SIMOPD_EOS_TEACHER_IDS=151643,151645
+                                   comma list: E_T, the TEACHER termination set =
+                                   the token(s) the teacher ends a response with.
+                                   Default = E_S (symmetric). Qwen3-4B-Instruct-2507
+                                   ends on <|im_end|> 151645, so E_T must name it.
+  SIMOPD_EOS_DIAG_IDS=             comma list, optional: gathered and panelled,
+                                   in neither set.
+
+Block order: E_S, then E_T \ E_S, then diag \ (E_S u E_T). Per-member panels
+(eos_qm_i / eos_pm_i) index the union E_S u E_T in that order.
 
 Cost: torch.isin on [n_tok, K] ints, one gather of n columns, no [T, V] copy --
 the compiled rank kernel and the top-k call are vLLM's own, unchanged.
@@ -72,19 +96,44 @@ def _parse(raw):
 
 
 def stop_ids():
-    """The LOSS set: token ids whose summed mass is 'stop'. Required when enabled."""
+    """E_S, the STUDENT stop set: token ids whose summed student mass is 'stop'.
+    Must be the token(s) that actually end a student rollout. Required when enabled."""
     ids = _parse(os.environ.get("SIMOPD_EOS_IDS", ""))
     if _ENABLED and not ids:
-        raise RuntimeError("SIMOPD_GATHER_EOS=1 but SIMOPD_EOS_IDS is empty -- the loss set must "
-                           "name the token(s) that actually end a student rollout.")
+        raise RuntimeError("SIMOPD_GATHER_EOS=1 but SIMOPD_EOS_IDS is empty -- the student stop set "
+                           "must name the token(s) that actually end a student rollout.")
     if len(set(ids)) != len(ids):
         raise RuntimeError(f"SIMOPD_EOS_IDS has duplicates: {ids}")
     return ids
 
 
+def teacher_ids():
+    """E_T, the TEACHER termination set: token ids whose summed teacher mass is
+    'the response ends here'. Defaults to E_S when SIMOPD_EOS_TEACHER_IDS is unset."""
+    raw = os.environ.get("SIMOPD_EOS_TEACHER_IDS", "")
+    ids = _parse(raw) if raw.strip() else list(stop_ids())
+    if len(set(ids)) != len(ids):
+        raise RuntimeError(f"SIMOPD_EOS_TEACHER_IDS has duplicates: {ids}")
+    if _ENABLED and not ids:
+        raise RuntimeError("SIMOPD_EOS_TEACHER_IDS parsed to an empty set")
+    return ids
+
+
+def union_ids():
+    """E_S u E_T in block order: E_S first, then the teacher-only ids."""
+    s = stop_ids()
+    seen = set(s)
+    out = list(s)
+    for i in teacher_ids():
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
 def diag_ids():
-    """Gathered for the panels only. Anything also in the loss set is dropped here."""
-    s = set(stop_ids())
+    """Gathered for the panels only. Anything also in E_S u E_T is dropped here."""
+    s = set(union_ids())
     seen, out = set(), []
     for i in _parse(os.environ.get("SIMOPD_EOS_DIAG_IDS", "")):
         if i in s or i in seen:
@@ -95,8 +144,20 @@ def diag_ids():
 
 
 def extra_ids():
-    """Column order of the appended block: loss ids first, then diagnostic ids."""
-    return stop_ids() + diag_ids()
+    """Column order of the appended block: E_S, then E_T \ E_S, then diagnostic ids."""
+    return union_ids() + diag_ids()
+
+
+def stop_cols():
+    """Positions of E_S inside the extra block."""
+    return list(range(len(stop_ids())))
+
+
+def teacher_cols():
+    """Positions of E_T inside the extra block (E_S members first if shared)."""
+    u = union_ids()
+    t = set(teacher_ids())
+    return [i for i, tok in enumerate(u) if tok in t]
 
 
 def n_extra():

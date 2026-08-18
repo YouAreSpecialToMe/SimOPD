@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""CPU battery for N2 (n2_eos_aux): the exact-EOS payload contract end to end.
+"""CPU battery for N2 (n2_termcal): the exact termination payload contract end to end.
 
-    PYTHONPATH=src SIMOPD_GATHER_EOS=1 SIMOPD_EOS_IDS=7 SIMOPD_EOS_DIAG_IDS=9 \\
-        python scripts/n2_eos_battery.py
+    PYTHONPATH=src SIMOPD_GATHER_EOS=1 SIMOPD_EOS_IDS=7 SIMOPD_EOS_TEACHER_IDS=7,9 \\
+        SIMOPD_EOS_DIAG_IDS=11 python scripts/n2_eos_battery.py       # asymmetric sets (the arm)
+    PYTHONPATH=src SIMOPD_GATHER_EOS=1 SIMOPD_EOS_IDS=7 SIMOPD_EOS_TEACHER_IDS= \\
+        SIMOPD_EOS_DIAG_IDS=9 python scripts/n2_eos_battery.py        # symmetric single token
 
 Sections (torch required; verl only for the kernel section, skipped if absent):
   A  margin/BCE math: stop_margin == log p/(1-p) across [1e-12, 1-1e-7];
@@ -15,7 +17,9 @@ Sections (torch required; verl only for the kernel section, skipped if absent):
      last-write-wins rule vLLM uses): rows = [top-(K-n) by value | extras | sampled],
      no -inf, no stop id in the top block, sampled == exact
   D  kernel: distillation_losses == vanilla k1 on the sampled column; eos_term ==
-     BCE(m, q_exact); d term / d z_stop == p - q; refuses -inf and a shuffled block
+     BCE(m, q_exact) with q over E_T and m over E_S; d term / d z_stop == p - q;
+     a teacher-only member of E_T sits on the CONTINUE side of the student's
+     log-odds (no loophole); per-member panels exact; refuses -inf and a shuffled block
   E  _repetition_mask flags a planted repeated 8-gram and nothing before it
 """
 
@@ -28,7 +32,8 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 os.environ.setdefault("SIMOPD_GATHER_EOS", "1")
 os.environ.setdefault("SIMOPD_EOS_IDS", "7")
-os.environ.setdefault("SIMOPD_EOS_DIAG_IDS", "9")
+os.environ.setdefault("SIMOPD_EOS_TEACHER_IDS", "7,9")
+os.environ.setdefault("SIMOPD_EOS_DIAG_IDS", "11")
 os.environ["SIMOPD_SHADOW"] = "0"
 
 import torch  # noqa: E402
@@ -50,10 +55,13 @@ def ok(cond, msg):
 
 torch.manual_seed(0)
 V, K = 40, 12
-STOP, DIAG = EG.stop_ids(), EG.diag_ids()
-EXTRA = EG.extra_ids()
+STOP, TCH, DIAG = EG.stop_ids(), EG.teacher_ids(), EG.diag_ids()
+UNION, EXTRA = EG.union_ids(), EG.extra_ids()
 n = len(EXTRA)
-ok(STOP == [7] and DIAG == [9] and EXTRA == [7, 9], f"env parsed: stop={STOP} diag={DIAG}")
+ok(EXTRA == UNION + DIAG and UNION[:len(STOP)] == STOP and set(UNION) == set(STOP) | set(TCH),
+   f"env parsed: E_S={STOP} E_T={TCH} diag={DIAG} -> block {EXTRA}")
+ok(all(EXTRA[c] in TCH for c in EG.teacher_cols()) and sorted(EXTRA[c] for c in EG.teacher_cols()) == sorted(TCH),
+   "teacher_cols index exactly E_T inside the block")
 
 # ------------------------------------------------------------------ A. math ---
 from simopd.topk_losses import stop_margin, _log1mexp  # noqa: E402
@@ -184,31 +192,40 @@ if HAVE_VERL:
     t_ids = torch.nested.nested_tensor([torch.tensor(rr["prompt_ids"][:-1])], layout=torch.jagged)
     t_lps = torch.nested.nested_tensor([torch.tensor(rr["prompt_logprobs"][:-1])], layout=torch.jagged)
     cfg = types.SimpleNamespace(distillation_loss=types.SimpleNamespace(topk=K, log_prob_min_clamp=None))
-    out = T.compute_eos_aux_topk(z, t_lps, t_ids, cfg, None, data=None)
+    out = T.compute_termcal_topk(z, t_lps, t_ids, cfg, None, data=None)
     lse = torch.logsumexp(z.float(), -1)
     stu_samp = z.float()[0, torch.arange(T_len), samp] - lse[0]
     ok(torch.allclose(out["distillation_losses"][0], stu_samp - tlog[torch.arange(T_len), samp], atol=1e-5),
        "distillation_losses == vanilla k1 (log p_S(y) - log p_T(y)) on the sampled column")
-    q_exact = tlog[:, STOP].exp().sum(-1)
-    ok(torch.allclose(out["eos_q"][0], q_exact, atol=1e-6), "eos_q == exact full-softmax teacher stop mass")
+    q_exact = tlog[:, TCH].exp().sum(-1)
+    ok(torch.allclose(out["eos_q"][0], q_exact, atol=1e-6), "eos_q == exact full-softmax teacher termination mass over E_T")
+    for i, tid_ in enumerate(UNION):
+        ok(torch.allclose(out[f"eos_qm_{i}"][0], tlog[:, tid_].exp(), atol=1e-6), f"eos_qm_{i} == exact p_T(id {tid_})")
+        ok(torch.allclose(out[f"eos_pm_{i}"][0], (z.float()[0][:, tid_] - lse[0]).exp(), atol=1e-5), f"eos_pm_{i} == exact p_S(id {tid_})")
     log_p = torch.logsumexp(z.float()[0][:, STOP], -1) - lse[0]
     term_ref = F.binary_cross_entropy_with_logits(stop_margin(log_p), q_exact, reduction="none")
     ok(torch.allclose(out["eos_term"][0], term_ref, atol=1e-5), "eos_term == BCEWithLogits(m, q_exact)")
-    ok(torch.allclose(out["eos_diag_q_0"][0], tlog[:, DIAG[0]].exp(), atol=1e-6), "diag column == exact p_T(diag id)")
+    if DIAG:
+        ok(torch.allclose(out["eos_diag_q_0"][0], tlog[:, DIAG[0]].exp(), atol=1e-6), "diag column == exact p_T(diag id)")
     ok(out["eos_sampled_is_stop"][0].sum() == 1, "sampled-EOS event counted once")
     g, = torch.autograd.grad(out["eos_term"].sum(), z)
     p_stop = log_p.exp()
     ok(torch.allclose(g[0][:, STOP[0]], (p_stop - q_exact), atol=1e-4), "d term / d z_stop == p - q exactly (bounded in [-1,1])")
+    p_full = torch.softmax(z.float()[0], -1)
+    for tid_ in [t for t in TCH if t not in STOP]:
+        want_g = -(p_stop - q_exact) * p_full[:, tid_] / (1 - p_stop)
+        ok(torch.allclose(g[0][:, tid_], want_g, atol=1e-4),
+           f"teacher-only terminator {tid_} gets the CONTINUE-side gradient -(p-q)*p_v/(1-p): student mass there never counts as stopped")
     # refusals
     bad = torch.tensor(rr["prompt_logprobs"][:-1]); bad[2, K - n] = float("-inf")
     try:
-        T.compute_eos_aux_topk(z, torch.nested.nested_tensor([bad], layout=torch.jagged), t_ids, cfg, None, data=None)
+        T.compute_termcal_topk(z, torch.nested.nested_tensor([bad], layout=torch.jagged), t_ids, cfg, None, data=None)
         ok(False, "kernel must refuse -inf in the stop block")
     except RuntimeError as e:
         ok("fabricated q=0" in str(e), "kernel refuses -inf in the stop block (no silent q=0)")
     sh = torch.tensor(rr["prompt_ids"][:-1]); sh[:, K - n], sh[:, K - n + 1] = sh[:, K - n + 1].clone(), sh[:, K - n].clone()
     try:
-        T.compute_eos_aux_topk(z, t_lps, torch.nested.nested_tensor([sh], layout=torch.jagged), cfg, None, data=None)
+        T.compute_termcal_topk(z, t_lps, torch.nested.nested_tensor([sh], layout=torch.jagged), cfg, None, data=None)
         ok(False, "kernel must refuse a block whose ids are not in env order")
     except RuntimeError as e:
         ok("not running eos_gather" in str(e), "kernel refuses a block whose ids are out of order")

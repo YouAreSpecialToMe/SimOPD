@@ -1,0 +1,203 @@
+student tokenizer eos: <|endoftext|> 151643 | pad: <|endoftext|> 151643
+ids: {'<|im_start|>': 151644, '<|im_end|>': 151645, '<|endoftext|>': 151643, '\\n': 198}
+  decode 151644 -> '<|im_start|>' | special: True
+  decode 151645 -> '<|im_end|>' | special: True
+  decode 151643 -> '<|endoftext|>' | special: True
+
+=================== Part 1: how do rollouts actually end (eval parquets with text)
+
+--- vanilla_s0_16k math500 step125  [vanilla_s0_16k__math500__step125__seed0__20260818T100459Z.parquet]  n=1500
+    finish_reason: {'length': np.int64(1349), 'stop': np.int64(151)} | mean resp_len: 29478.5 | acc: 0.509
+    STOPPED: n=151  delta=resp_len-n_text_tokens histogram (clipped -1..6): {1: 150, 2: 1}
+             ends_with_\n: 0.000 | fake_turn markers: 0.000 | mean len 998 | acc 0.894
+             most common 12-char tails: [("'questions! 😊'", 11), ("' is correct.'", 6), ("'\\n\\n**Q.E.D.**'", 4), ("'ct solution.'", 3), ("'sqrt{3}}{3}}'", 3), ("'inal answer.'", 2)]
+             example tail: '= 81$ ✔️\n- $36 + 81 = 117$ ✔️\n- $\\sqrt{117} = \\sqrt{9 \\times 13} = 3\\sqrt{13}$ ✔️\n\nEverything checks out. \n\n\\boxed{3\\sqrt{13}} is the final answer. \n\n**Q.E.D.**'
+    TRUNCATED: n=1349  delta hist: {-1: 1, 0: 1273, 1: 47, 2: 7, 3: 6, 4: 1, 5: 3, 6: 11} | fake_turn markers: 0.000
+             example tail: " final answer.\n\nYes, that's correct.\n\n\\boxed{(3, \\frac{\\pi}{2})}.\n\nYes, I think that's correct.\n\nYes, final answer.\n\n\\boxed{(3, \\frac{\\pi}{2})}.\n\nYes, that's it"
+
+--- vanilla_s0_16k math500 step150  [vanilla_s0_16k__math500__step150__seed0__20260818T085227Z.parquet]  n=1500
+    finish_reason: {'length': np.int64(1492), 'stop': np.int64(8)} | mean resp_len: 32499.3 | acc: 0.49
+    STOPPED: n=8  delta=resp_len-n_text_tokens histogram (clipped -1..6): {1: 8}
+             ends_with_\n: 0.000 | fake_turn markers: 0.000 | mean len 701 | acc 1.000
+             most common 12-char tails: [("'questions! 😊'", 2), ("'ny doubts! 🤔'", 1), ("' anything! 😊'", 1), ("'t me know! 😊'", 1), ("'15x - 80}\\n$$'", 1), ("'hing else! 🤓'", 1)]
+             example tail: "\nThus, the final answer is:\n\n\\boxed{-\\frac{\\pi}{6}} \n\nAnd that's it! \n\n**Final Answer:** \\boxed{-\\frac{\\pi}{6}} \n\nQ.E.D. \n\nLet me know if you have any doubts! 🤔"
+    TRUNCATED: n=1492  delta hist: {-1: 2, 0: 1419, 1: 35, 2: 15, 3: 4, 4: 2, 5: 4, 6: 11} | fake_turn markers: 0.000
+             example tail: "i}{2})} \n\nYes. \n\nFinal Answer: \\boxed{(3, \\frac{\\pi}{2})} \n\nI think that's it. \n\n**Final Answer:**\n\n\\boxed{(3, \\frac{\\pi}{2})} \n\nYes. \n\nFinal Answer: \\boxed{(3,"
+
+--- vanilla_s0_16k math500 step225  [vanilla_s0_16k__math500__step225__seed0__20260814T204051Z.parquet]  n=1500
+    finish_reason: {'length': np.int64(1459), 'stop': np.int64(41)} | mean resp_len: 31801.5 | acc: 0.481
+    STOPPED: n=41  delta=resp_len-n_text_tokens histogram (clipped -1..6): {1: 41}
+             ends_with_\n: 0.000 | fake_turn markers: 0.000 | mean len 932 | acc 0.951
+             most common 12-char tails: [("' are done! 🎉'", 4), ("'\\nAll done! 🎉'", 2), ("'\\\\pi}{2})}\\n$$'", 1), ('"e\'re done! 📝"', 1), ("'questions! 😊'", 1), ("'oxed{-50}\\n$$'", 1)]
+             example tail: 'he point $(0,3)$ is on the positive y-axis, so the angle is $\\frac{\\pi}{2}$ radians. The distance $r$ is 3.\n\nSo the answer is:\n\n$$\n\\boxed{(3, \\frac{\\pi}{2})}\n$$'
+    TRUNCATED: n=1459  delta hist: {-1: 1, 0: 1322, 1: 85, 2: 27, 3: 11, 4: 5, 5: 2, 6: 6} | fake_turn markers: 0.000
+             example tail: '{2})} \n\nYes. \n\n**Final Answer:** \\boxed{(3, \\frac{\\pi}{2})} \n\nYes. \n\nFinal answer: \\boxed{(3, \\frac{\\pi}{2})} \n\nYes. \n\n**Final Answer:** \\boxed{(3, \\frac{\\pi}{2'
+
+--- c4_pi_tail_budget_s0_16k math500 step100  [c4_pi_tail_budget_s0_16k__math500__step100__seed0__20260815T075451Z.parquet]  n=1500
+    finish_reason: {'stop': np.int64(1413), 'length': np.int64(87)} | mean resp_len: 5198.1 | acc: 0.683
+    STOPPED: n=1413  delta=resp_len-n_text_tokens histogram (clipped -1..6): {0: 1, 1: 1349, 2: 42, 3: 7, 4: 4, 5: 5, 6: 5}
+             ends_with_\n: 0.000 | fake_turn markers: 0.000 | mean len 3508 | acc 0.725
+             most common 12-char tails: [("'is \\\\boxed{3}'", 23), ("'\\n\\n\\\\boxed{12}'", 22), ("'is \\\\boxed{4}'", 21), ("'is \\\\boxed{1}'", 20), ("'is \\\\boxed{2}'", 19), ("':\\n\\n\\\\boxed{1}'", 16)]
+             example tail: 'on the y-axis.\n\nSo, the angle is $\\frac{\\pi}{2}$.\n\nTherefore, we can conclude that:\n\n\\[\n\\boxed{(3, \\frac{\\pi}{2})}\n\\]\n\nFinal answer:\n\n\\boxed{(3, \\frac{\\pi}{2})}'
+    TRUNCATED: n=87  delta hist: {-1: 1, 0: 83, 1: 3} | fake_turn markers: 0.000
+             example tail: 'seats adjacent to the block are: 1,2,2,3,3,4,4,5,5,6,6,7,7,1\n\nSo, in each of the 7 pairs, the two adjacent seats are occupied by Pierre and Rosa.\n\nSo, the seats'
+[skip] c4_pi_tail_budget_s0_16k math500 step250: no artifact with response column
+[skip] c2_quantile_budget_s0_16k math500 step250: no artifact with response column
+[skip] c1_direct_s0_16k math500 step250: no artifact with response column
+[skip] h2_horizon_s0_16k math500 step250: no artifact with response column
+[skip] d2_ent_gate_s0_16k math500 step250: no artifact with response column
+
+--- vanilla_s0_16k aime24 step125  [vanilla_s0_16k__aime24__step125__seed0__20260816T231243Z.parquet]  n=960
+    finish_reason: {'length': np.int64(959), 'stop': np.int64(1)} | mean resp_len: 32614.7 | acc: 0.044
+    STOPPED: n=1  delta=resp_len-n_text_tokens histogram (clipped -1..6): {1: 1}
+             ends_with_\n: 0.000 | fake_turn markers: 0.000 | mean len 14179 | acc 0.000
+             most common 12-char tails: [("'rect answer.'", 1)]
+             example tail: ' not 99.\n\nSo no solution.\n\nI think the answer is \\boxed{0}.\n\nI will go with that.\n\n\\boxed{0}.\n\n**Final Answer:** \\boxed{0}.\n\nI think that is the correct answer.'
+    TRUNCATED: n=959  delta hist: {0: 884, 1: 59, 2: 8, 3: 3, 4: 1, 6: 4} | fake_turn markers: 0.000
+             example tail: "hat's correct.\n\nFinal Answer: \\boxed{204}.\n\nYes, I think that's correct.\n\nFinal Answer: \\boxed{204}.\n\nYes, I think that's it.\n\n\\boxed{204}.\n\nYes, I think that's"
+[skip] c4_pi_tail_budget_s0_16k aime24 step250: no artifact with response column
+
+=================== Part 2: model probes on real (prompt, response) pairs (CPU forward)
+Using the latest cached version of the dataset since HuggingFaceH4/MATH-500 couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /mgfs/shared/Group_GY/changhao/simopd_data/hf_cache/datasets/HuggingFaceH4___math-500/default/0.0.0/6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be (last modified on Fri Aug  7 05:27:31 2026).
+3 examples; prompt tail (as tokenized for training/eval): 'inal answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
+  ex: vanilla_s0_16k@125 test/algebra/2036.json resp_len=678 n_text=677 delta=1 tail=' out. \n\n\\boxed{3\\sqrt{13}} is the final answer. \n\n**Q.E.D.**'
+  ex: vanilla_s0_16k@125 test/precalculus/779.json resp_len=593 n_text=592 delta=1 tail='$\n\\boxed{-2 + 7i}\n$$\n\n---\n\n**Final Answer:** \\boxed{-2 + 7i}'
+  ex: c4_pi_tail_budget_s0_16k@100 test/algebra/2584.json resp_len=737 n_text=736 delta=1 tail='g checks out.\n\n---\n\n**Final Answer:**\n\n\\boxed{\\dfrac{14}{3}}'
+
+
+##### teacher  Qwen3-4B-Instruct-2507  (loaded 1s)  generation_config eos=[151645, 151643]
+  -- example test/algebra/2036.json (vanilla_s0_16k@125, delta=1) tail='t{13}} is the final answer. \n\n**Q.E.D.**'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=0.54  p(eot)=6.18e-11  p(\n)=2.59e-09  p(im_start)=1.64e-08 | top: '<|im_end|>':0.54, ' �':0.421, ' �':0.0209, ' (':0.00989, ' �':0.006, ' �':0.00092
+    position: after <|im_end|>
+                                   p(im_end)=2.23e-10  p(eot)=0.148  p(\n)=0.852  p(im_start)=2.18e-12 | top: '\n':0.852, '<|endoftext|>':0.148, '\n\n':1.18e-05, '\r':5.18e-07, '\r\n':2.61e-07, '\n\n\n':2.03e-07
+    position: after <|im_end|>\n
+                                   p(im_end)=0.952  p(eot)=0.0326  p(\n)=2.88e-08  p(im_start)=0.0154 | top: '<|im_end|>':0.952, '<|endoftext|>':0.0326, '<|im_start|>':0.0154, 'ropical':1.09e-05, '"crypto':5.16e-06, '-':4.02e-06
+    greedy continuation from END OF ANSWER: ['<|im_end|>', '\n', '<|im_end|>', '\n', '<|im_start|>', 'user'] [151645, 198, 151645, 198, 151644, 872]
+  -- example test/precalculus/779.json (vanilla_s0_16k@125, delta=1) tail='\n\n---\n\n**Final Answer:** \\boxed{-2 + 7i}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=0.914  p(eot)=1.23e-11  p(\n)=1.06e-10  p(im_start)=1.15e-08 | top: '<|im_end|>':0.914, ' �':0.085, ' �':0.000394, '✅':0.000164, ' ✔':5.33e-05, ' �':4.15e-05
+    position: after <|im_end|>
+                                   p(im_end)=2.68e-11  p(eot)=1  p(\n)=1.47e-05  p(im_start)=1.73e-13 | top: '<|endoftext|>':1, '\n':1.47e-05, '\n\n':1.98e-07, '\n\n\n':6.76e-09, 'estroy':5.96e-09, '\r':4.1e-09
+    position: after <|im_end|>\n
+                                   p(im_end)=0.651  p(eot)=0.348  p(\n)=1.27e-08  p(im_start)=0.000672 | top: '<|im_end|>':0.651, '<|endoftext|>':0.348, '<|im_start|>':0.000672, '```':8.03e-05, 'enderit':9.59e-06, 'ropical':6.59e-06
+    greedy continuation from END OF ANSWER: ['<|im_end|>', '<|endoftext|>', 'Human', ':', ' We', ' are'] [151645, 151643, 33975, 25, 1205, 525]
+  -- example test/algebra/2584.json (c4_pi_tail_budget_s0_16k@100, delta=1) tail='**Final Answer:**\n\n\\boxed{\\dfrac{14}{3}}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=0.999  p(eot)=3.85e-12  p(\n)=3.54e-11  p(im_start)=2.82e-09 | top: '<|im_end|>':0.999, ' �':0.000553, '✅':2.14e-05, ' �':7.88e-06, ' �':1.55e-06, '.':6.47e-07
+    position: after <|im_end|>
+                                   p(im_end)=2.35e-13  p(eot)=1  p(\n)=8.76e-08  p(im_start)=4.64e-15 | top: '<|endoftext|>':1, '\n\n':1.28e-07, '\n':8.76e-08, '\n\n\n':4.9e-10, 'estroy':1.8e-10, 'udge':1.32e-10
+    position: after <|im_end|>\n
+                                   p(im_end)=0.269  p(eot)=0.731  p(\n)=1.34e-08  p(im_start)=0.000278 | top: '<|endoftext|>':0.731, '<|im_end|>':0.269, '<|im_start|>':0.000278, '```':2.01e-05, 'otent':4.49e-06, 'ropical':4.49e-06
+    greedy continuation from END OF ANSWER: ['<|im_end|>', '<|endoftext|>', 'Human', ':', ' We', ' are'] [151645, 151643, 33975, 25, 1205, 525]
+
+
+##### student0 Qwen3-1.7B-Base  (loaded 0s)  generation_config eos=151643
+  -- example test/algebra/2036.json (vanilla_s0_16k@125, delta=1) tail='t{13}} is the final answer. \n\n**Q.E.D.**'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=5.04e-12  p(eot)=0.563  p(\n)=4.13e-07  p(im_start)=5.04e-12 | top: '<|endoftext|>':0.563, ' (':0.301, ' \n\n':0.036, ' �':0.0317, ' �':0.0193, ' �':0.0043
+    position: after <|im_end|>
+                                   p(im_end)=6.06e-08  p(eot)=0.592  p(\n)=0.0202  p(im_start)=6.06e-08 | top: '<|endoftext|>':0.592, 'assistant':0.17, '\n\n':0.0707, 'Assistant':0.0334, '\n':0.0202, ' assistant':0.00956
+    position: after <|im_end|>\n
+                                   p(im_end)=7.96e-06  p(eot)=0.000812  p(\n)=3.35e-05  p(im_start)=7.96e-06 | top: 'What':0.0687, '��态':0.0209, 'תשוב':0.0197, '.waitKey':0.0174, '.makeText':0.0153, '\\ActiveForm':0.0127
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' A', ' certain', ' type'] [151643, 33975, 25, 362, 3654, 943]
+  -- example test/precalculus/779.json (vanilla_s0_16k@125, delta=1) tail='\n\n---\n\n**Final Answer:** \\boxed{-2 + 7i}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=2.96e-10  p(eot)=0.998  p(\n)=1.74e-07  p(im_start)=2.96e-10 | top: '<|endoftext|>':0.998, ' �':0.000625, ' ':0.000203, ' **':0.000123, ' (':6.59e-05, '  \n':4.53e-05
+    position: after <|im_end|>
+                                   p(im_end)=2.76e-07  p(eot)=0.797  p(\n)=0.0165  p(im_start)=2.76e-07 | top: '<|endoftext|>':0.797, '\n\n':0.035, 'assistant':0.0241, 'Assistant':0.0241, '\n':0.0165, ' assistant':0.00782
+    position: after <|im_end|>\n
+                                   p(im_end)=8.27e-06  p(eot)=0.00102  p(\n)=2.47e-05  p(im_start)=8.27e-06 | top: 'A':0.0713, '.waitKey':0.018, '��态':0.0159, 'paque':0.0149, 'תשוב':0.00907, '�':0.00907
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' A', ' certain', ' company'] [151643, 33975, 25, 362, 3654, 2813]
+  -- example test/algebra/2584.json (c4_pi_tail_budget_s0_16k@100, delta=1) tail='**Final Answer:**\n\n\\boxed{\\dfrac{14}{3}}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=5.43e-12  p(eot)=0.999  p(\n)=2.7e-07  p(im_start)=5.43e-12 | top: '<|endoftext|>':0.999, '.':0.00023, ' �':0.000179, ' \n\n':0.000158, '\\':0.00014, ' is':6.6e-05
+    position: after <|im_end|>
+                                   p(im_end)=2.8e-07  p(eot)=0.759  p(\n)=0.0333  p(im_start)=2.8e-07 | top: '<|endoftext|>':0.759, '\n\n':0.0623, '\n':0.0333, 'assistant':0.0202, 'Assistant':0.0178, ' assistant':0.00657
+    position: after <|im_end|>\n
+                                   p(im_end)=1.01e-05  p(eot)=0.00192  p(\n)=5.99e-05  p(im_start)=1.01e-05 | top: 'If':0.143, '如果':0.0161, 'Cumhur':0.00976, 'תשוב':0.00714, 'استف':0.00714, '\\Facades':0.00671
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' A', ' certain', ' type'] [151643, 33975, 25, 362, 3654, 943]
+
+
+##### vanilla_s0@250  (loaded 18s)  generation_config eos=151643
+  -- example test/algebra/2036.json (vanilla_s0_16k@125, delta=1) tail='t{13}} is the final answer. \n\n**Q.E.D.**'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=1.87e-13  p(eot)=0.015  p(\n)=1.54e-09  p(im_start)=1.81e-13 | top: '  \n\n':0.439, ' �':0.235, ' \n\n':0.162, ' �':0.0408, ' �':0.0318, ' �':0.015
+    position: after <|im_end|>
+                                   p(im_end)=1.73e-09  p(eot)=0.241  p(\n)=0.00823  p(im_start)=1.68e-09 | top: '\n\n':0.449, '<|endoftext|>':0.241, '.':0.1, '  \n\n':0.0474, ' \n\n':0.0325, '�':0.00823
+    position: after <|im_end|>\n
+                                   p(im_end)=6.74e-13  p(eot)=4.31e-10  p(\n)=1.15e-08  p(im_start)=6.64e-13 | top: '\\':0.625, '◻':0.0581, 'Great':0.0513, '.':0.0352, 'Q':0.0214, 'Done':0.0214
+    greedy continuation from END OF ANSWER: ['  \n\n', '---', ' \n\n', '**', 'Final', ' Answer'] [18611, 4421, 4710, 334, 19357, 21806]
+  -- example test/precalculus/779.json (vanilla_s0_16k@125, delta=1) tail='\n\n---\n\n**Final Answer:** \\boxed{-2 + 7i}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=1.19e-14  p(eot)=0.0231  p(\n)=1.02e-09  p(im_start)=1.15e-14 | top: '  \n\n':0.674, ' \n\n':0.248, '<|endoftext|>':0.0231, '  ':0.0231, ' �':0.00962, ' ':0.00849
+    position: after <|im_end|>
+                                   p(im_end)=1.35e-09  p(eot)=0.0218  p(\n)=0.00708  p(im_start)=1.31e-09 | top: '\n\n':0.818, '.':0.0247, ' We':0.0247, '<|endoftext|>':0.0218, ' **':0.0103, ' Let':0.00708
+    position: after <|im_end|>\n
+                                   p(im_end)=7.71e-12  p(eot)=9.44e-09  p(\n)=5.48e-07  p(im_start)=7.59e-12 | top: 'We':0.243, '**':0.115, '\\':0.0893, 'Let':0.0695, 'A':0.0613, '.':0.0422
+    greedy continuation from END OF ANSWER: ['  \n\n', '(Note', ':', ' This', ' is', ' the'] [18611, 89389, 25, 1096, 374, 279]
+  -- example test/algebra/2584.json (c4_pi_tail_budget_s0_16k@100, delta=1) tail='**Final Answer:**\n\n\\boxed{\\dfrac{14}{3}}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=1.68e-16  p(eot)=7.57e-09  p(\n)=1.89e-10  p(im_start)=1.63e-16 | top: '  \n\n':0.529, ' \n\n':0.467, '.':0.00278, '  ':0.000426, ' \\':0.000426, '.\n\n':0.000293
+    position: after <|im_end|>
+                                   p(im_end)=3.76e-10  p(eot)=0.000118  p(\n)=0.00209  p(im_start)=3.65e-10 | top: '\n\n':0.956, '.':0.0073, '.\n\n':0.00345, '  \n\n':0.00269, ' **':0.00269, ' \n\n':0.00237
+    position: after <|im_end|>\n
+                                   p(im_end)=1.13e-13  p(eot)=5.05e-10  p(\n)=1.88e-09  p(im_start)=1.11e-13 | top: 'We':0.277, '\\':0.277, '**':0.0482, '.':0.0426, '$$':0.0376, '$\\':0.0292
+    greedy continuation from END OF ANSWER: ['  \n\n', '---', ' \n\n', 'And', ' we', "'re"] [18611, 4421, 4710, 3036, 582, 2299]
+
+
+##### c4_pi_tail_budget_s0@250  (loaded 18s)  generation_config eos=151643
+  -- example test/algebra/2036.json (vanilla_s0_16k@125, delta=1) tail='t{13}} is the final answer. \n\n**Q.E.D.**'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=1.51e-14  p(eot)=0.989  p(\n)=6.62e-10  p(im_start)=1.49e-14 | top: '<|endoftext|>':0.989, ' �':0.00519, ' �':0.00278, ' �':0.00102, ' \n\n':0.000796, ' —':0.000376
+    position: after <|im_end|>
+                                   p(im_end)=6.16e-09  p(eot)=0.804  p(\n)=0.000445  p(im_start)=5.97e-09 | top: '<|endoftext|>':0.804, '\n\n':0.109, '.':0.0214, 'assistant':0.00893, ' \n\n':0.00478, ' �':0.0029
+    position: after <|im_end|>\n
+                                   p(im_end)=3.5e-09  p(eot)=2.51e-05  p(\n)=2.21e-05  p(im_start)=3.45e-09 | top: '.':0.14, '\\':0.109, '◻':0.0959, '✅':0.0513, '---':0.0453, '---\n\n':0.0311
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' A', ' certain', ' number'] [151643, 33975, 25, 362, 3654, 1372]
+  -- example test/precalculus/779.json (vanilla_s0_16k@125, delta=1) tail='\n\n---\n\n**Final Answer:** \\boxed{-2 + 7i}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=2.31e-16  p(eot)=1  p(\n)=3.51e-12  p(im_start)=2.27e-16 | top: '<|endoftext|>':1, ' �':2.43e-05, ' \n\n':1.47e-05, ' �':7.89e-06, ' �':1.21e-06, ' �':5.71e-07
+    position: after <|im_end|>
+                                   p(im_end)=4.21e-08  p(eot)=0.87  p(\n)=0.000227  p(im_start)=4.08e-08 | top: '<|endoftext|>':0.87, '\n\n':0.0917, '.':0.00314, '�':0.00148, ' \n\n':0.00115, ' }':0.0007
+    position: after <|im_end|>\n
+                                   p(im_end)=1.27e-08  p(eot)=0.000132  p(\n)=7.06e-05  p(im_start)=1.27e-08 | top: '◻':0.145, '.':0.128, ' \n\n':0.0285, '\\':0.0251, '#':0.0251, 'or':0.0222
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' What', ' is', ' the'] [151643, 33975, 25, 3555, 374, 279]
+  -- example test/algebra/2584.json (c4_pi_tail_budget_s0_16k@100, delta=1) tail='**Final Answer:**\n\n\\boxed{\\dfrac{14}{3}}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=1.58e-17  p(eot)=1  p(\n)=8.97e-12  p(im_start)=1.58e-17 | top: '<|endoftext|>':1, ' \n\n':5.14e-05, ' �':1.01e-05, ' �':4.22e-06, '  \n\n':1.07e-06, ' \\':1.86e-07
+    position: after <|im_end|>
+                                   p(im_end)=1.24e-08  p(eot)=0.696  p(\n)=0.000494  p(im_start)=1.2e-08 | top: '<|endoftext|>':0.696, '\n\n':0.256, 'assistant':0.00683, ' \n\n':0.00322, '.':0.00251, 'end':0.00196
+    position: after <|im_end|>\n
+                                   p(im_end)=1.04e-08  p(eot)=0.000144  p(\n)=3.87e-05  p(im_start)=1.01e-08 | top: '.':0.168, ' \n\n':0.0481, '\\':0.0425, '◻':0.0331, '✅':0.0331, 'or':0.0201
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' If', ' $', 'f'] [151643, 33975, 25, 1416, 400, 69]
+
+
+##### c2_quantile_budget_s0@250  (loaded 18s)  generation_config eos=151643
+  -- example test/algebra/2036.json (vanilla_s0_16k@125, delta=1) tail='t{13}} is the final answer. \n\n**Q.E.D.**'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=2.09e-16  p(eot)=0.998  p(\n)=5.43e-12  p(im_start)=2.06e-16 | top: '<|endoftext|>':0.998, ' �':0.00091, ' �':0.000379, ' �':0.000261, ' —':0.000123, ' �':7.47e-05
+    position: after <|im_end|>
+                                   p(im_end)=5.96e-10  p(eot)=0.979  p(\n)=0.000107  p(im_start)=5.78e-10 | top: '<|endoftext|>':0.979, '\n\n':0.0109, '.':0.00243, 'assistant':0.00115, ' �':0.00101, ' \n\n':0.000478
+    position: after <|im_end|>\n
+                                   p(im_end)=5.4e-10  p(eot)=1.02e-05  p(\n)=5.49e-06  p(im_start)=5.36e-10 | top: '\\':0.226, '.':0.199, '◻':0.176, '---':0.0647, '✅':0.0238, '#':0.021
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' What', ' is', ' the'] [151643, 33975, 25, 3555, 374, 279]
+  -- example test/precalculus/779.json (vanilla_s0_16k@125, delta=1) tail='\n\n---\n\n**Final Answer:** \\boxed{-2 + 7i}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=3.49e-19  p(eot)=1  p(\n)=1.45e-13  p(im_start)=3.38e-19 | top: '<|endoftext|>':1, ' �':1.86e-07, ' \n\n':1.13e-07, ' �':4.14e-08, ' �':2.85e-08, ' —':2.85e-08
+    position: after <|im_end|>
+                                   p(im_end)=1.07e-08  p(eot)=0.963  p(\n)=9.85e-05  p(im_start)=1.07e-08 | top: '<|endoftext|>':0.963, '\n\n':0.0291, '.':0.000878, '�':0.000684, '}':0.000366, ' }':0.000323
+    position: after <|im_end|>\n
+                                   p(im_end)=1.23e-08  p(eot)=0.000103  p(\n)=6.65e-05  p(im_start)=1.23e-08 | top: '.':0.113, '◻':0.113, '</':0.0997, '```':0.0605, '#':0.0534, '\\':0.0416
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' What', ' is', ' the'] [151643, 33975, 25, 3555, 374, 279]
+  -- example test/algebra/2584.json (c4_pi_tail_budget_s0_16k@100, delta=1) tail='**Final Answer:**\n\n\\boxed{\\dfrac{14}{3}}'
+    position: END OF ANSWER (after last text token)
+                                   p(im_end)=4.43e-20  p(eot)=1  p(\n)=3.27e-13  p(im_start)=4.43e-20 | top: '<|endoftext|>':1, ' \n\n':1.21e-06, ' �':6.83e-08, ' \u200b':4.14e-08, ' \\':2.22e-08, ' �':1.73e-08
+    position: after <|im_end|>
+                                   p(im_end)=1.51e-09  p(eot)=0.886  p(\n)=0.00018  p(im_start)=1.47e-09 | top: '<|endoftext|>':0.886, '\n\n':0.106, ' \n\n':0.00118, '.':0.00118, 'assistant':0.000808, '�':0.00049
+    position: after <|im_end|>\n
+                                   p(im_end)=3.71e-09  p(eot)=4.04e-05  p(\n)=1.23e-05  p(im_start)=3.65e-09 | top: '.':0.349, '\\':0.0535, '◻':0.0535, '$$':0.0324, '</':0.0324, '```':0.0286
+    greedy continuation from END OF ANSWER: ['<|endoftext|>', 'Human', ':', ' A', ' certain', ' number'] [151643, 33975, 25, 362, 3654, 1372]
+
+DONE

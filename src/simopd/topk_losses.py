@@ -1331,21 +1331,28 @@ def stop_margin(log_p_stop):
     return lp - _log1mexp(lp)
 
 
-def compute_eos_aux_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
-    """N2 kernel. Returns vanilla's sampled-k1 as `distillation_losses` (the PG base,
-    bit-identical to the D-axis kernels' `raw`) plus the per-token EOS term under
-    `eos_term`, delivered past the PG detach by simopd.b3_additive.
+def compute_termcal_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """N2 kernel (termination-marginal calibration). Returns vanilla's sampled-k1 as
+    `distillation_losses` (the PG base, bit-identical to the D-axis kernels' `raw`)
+    plus the per-token termination term under `eos_term`, delivered past the PG
+    detach by simopd.b3_additive.
 
     Row layout from teacher_patch under SIMOPD_GATHER_EOS=1 (width K+1):
-        [ top-(K-n) non-stop | n extra ids (loss set, then diag) | sampled ]
+        [ top-(K-n) non-extra | n extra ids: E_S, E_T \ E_S, diag | sampled ]
     _prepare_streaming(want_sampled=True) hands back the first K as t_lp/t_id and
     the last as the sampled column; the extra block is sliced off the end of t_lp.
 
-    Term: BCEWithLogits(m_t, q_t), q_t = sum over the loss set of exp(teacher
-    logprob) (full-softmax, never renormalized), m_t = logit of the student's stop
-    mass. dL/dm = p_t - q_t in [-1, 1]: teacher wants to stop more than the student
-    -> margin up; student stops early -> margin down. Bounded on the margin by
-    construction, so it cannot produce the +80-class kicks the F axis catalogues.
+    Term: BCEWithLogits(m_t, q_t)
+        q_t = sum_{e in E_T} p_T(e)            teacher termination mass (full-softmax,
+                                               never renormalized; E_T = the tokens the
+                                               TEACHER ends a response with)
+        m_t = logit of sum_{e in E_S} p_theta(e)  student stop log-odds (E_S = the tokens
+                                               that actually END a student rollout)
+    dL/dm = p_t - q_t in [-1, 1]; inside E_S the push is distributed by the student's
+    own conditional, outside E_S by its conditional over "continue" -- a student mass
+    on a teacher-only terminator counts as CONTINUE, so no token that does not stop
+    the rollout can satisfy the channel. Bounded on the log-odds by construction, so
+    it cannot produce the +80-class kicks the F axis catalogues.
     """
     from simopd import eos_gather as EG
 
@@ -1353,25 +1360,28 @@ def compute_eos_aux_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
     )
     stop = EG.stop_ids()
+    extra = EG.extra_ids()
     diag = EG.diag_ids()
-    n_stop, n = len(stop), len(stop) + len(diag)
+    n_stop, n = len(stop), len(extra)
+    n_union = n - len(diag)
     K = t_all.shape[-1]
     if n == 0 or K <= n:
-        raise RuntimeError(f"k1_eos_aux: need SIMOPD_GATHER_EOS=1 with a stop set and DISTILLATION_TOPK "
-                           f"> {n}; got K={K}, ids={stop + diag}")
+        raise RuntimeError(f"k1_termcal: need SIMOPD_GATHER_EOS=1 with a stop set and DISTILLATION_TOPK "
+                           f"> {n}; got K={K}, ids={extra}")
     t_lp, t_id = t_all[..., : K - n], t_id_all[..., : K - n]
     extra_lp, extra_id = t_all[..., K - n:], t_id_all[..., K - n:]
-    want = torch.tensor(stop + diag, device=extra_id.device, dtype=extra_id.dtype)
+    want = torch.tensor(extra, device=extra_id.device, dtype=extra_id.dtype)
     if not bool((extra_id == want).all()):
-        raise RuntimeError("k1_eos_aux: the extra-id block does not carry the configured ids in order -- "
+        raise RuntimeError("k1_termcal: the extra-id block does not carry the configured ids in order -- "
                            "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
     if not bool(torch.isfinite(extra_lp).all()):
-        raise RuntimeError("k1_eos_aux: -inf in the stop/diag block -- the sampler patch failed to deliver "
-                           "a stop id; refusing to train on a fabricated q=0")
+        raise RuntimeError("k1_termcal: -inf in the extra block -- the sampler patch failed to deliver "
+                           "an id; refusing to train on a fabricated q=0")
 
-    # teacher stop mass over the loss set (exact, full-softmax)
-    q = extra_lp[..., :n_stop].float().exp().sum(dim=-1).clamp(0.0, 1.0)
-    # student stop mass: logsumexp over the loss set minus the streaming lse
+    # teacher termination mass over E_T (exact, full-softmax)
+    t_cols = torch.tensor(EG.teacher_cols(), device=extra_lp.device, dtype=torch.long)
+    q = torch.index_select(extra_lp, -1, t_cols).float().exp().sum(dim=-1).clamp(0.0, 1.0)
+    # student stop mass over E_S: logsumexp over the set minus the streaming lse
     stop_idx = torch.tensor(stop, device=student_logits.device, dtype=torch.long)
     z_stop = torch.index_select(student_logits, -1, stop_idx).float()      # [..., n_stop]
     log_p = torch.logsumexp(z_stop, dim=-1) - lse
@@ -1399,15 +1409,24 @@ def compute_eos_aux_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     out["eos_dstop"] = (q - log_p.exp()).detach()
     out["eos_missing"] = (~finite).float()
     out["eos_sampled_is_stop"] = torch.isin(sampled_id, stop_idx).float()
+    # per-member panels over the union E_S u E_T (block order): teacher q and student p
+    union_idx = torch.tensor(extra[:n_union], device=student_logits.device, dtype=torch.long)
+    p_members = (torch.index_select(student_logits, -1, union_idx).float() - lse.unsqueeze(-1)).exp()
+    for i in range(n_union):
+        out[f"eos_qm_{i}"] = extra_lp[..., i].detach().float().exp()
+        out[f"eos_pm_{i}"] = p_members[..., i].detach()
     for j in range(len(diag)):
-        out[f"eos_diag_q_{j}"] = extra_lp[..., n_stop + j].detach().float().exp()
+        out[f"eos_diag_q_{j}"] = extra_lp[..., n_union + j].detach().float().exp()
     return out
+
+
+compute_eos_aux_topk = compute_termcal_topk   # pre-rename alias (battery, docs)
 
 
 TOPK_DISPATCH.update(
     {
         "eopd_entropy_gate": compute_eopd_gate_topk,
-        "k1_eos_aux": compute_eos_aux_topk,
+        "k1_termcal": compute_termcal_topk,
         "k1_fire_gate": compute_fire_components,
         "jsd_topk": compute_jsd_topk,
         "intersection_topk": compute_intersection_topk,

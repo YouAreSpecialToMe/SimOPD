@@ -59,6 +59,37 @@ effects; the eval protocol is M-IV.
   budget) — the DH1 bridge cells split it.
 - The early-excursion ratchet: spike-before-80 is close to decisive (40/46
   recoveries relapse); a free early-stopping signal for any follow-up campaign.
+- **The stop-token identity mismatch (2026-08-19 CPU audit,
+  `scripts/analysis/eos_stop_probe.py` / `eos_stop_audit.py`, receipts in
+  `docs/data/eos_stop_*.txt`).** The student and the teacher end a response with
+  DIFFERENT tokens. Qwen3-1.7B-Base under verl stops a rollout only on
+  `<|endoftext|>` 151643 (tokenizer eos = generation_config eos = vLLM's sole
+  stop, training and eval alike; of stopped eval responses 99% end on it directly
+  with no `<|im_end|>` before it — resp_len − text-token count = 1). The Instruct
+  teacher ends on `<|im_end|>` 151645. At the position where a real student
+  rollout stopped (30 stopped math500 responses from vanilla@125/225 and c4@100):
+  q_T(`<|im_end|>`) median 0.95, q_T(`<|endoftext|>`) median 1.4e-11 (teacher
+  rank ~2×10⁴, never inside any top-k); the base student has p(`<|endoftext|>`)
+  median 0.98 and p(`<|im_end|>`) ~1e-11. Same event, disjoint tokens.
+  Consequences, all measured: (i) vanilla's sampled-column k1 gives the student's
+  stop token Δℓ = log q − log p = **−25 nats** (median; −28…−17) at EVERY stop
+  event — the single most negative reward of the response in 25/30, beyond
+  p99.9 in all (body median 0.00, p1 −9.4) — and the teacher's own terminator is
+  never sampled (p ~1e-11), so no positive stop signal ever arrives; (ii)
+  vanilla@250 has p(`<|endoftext|>`) median 6e-5 at natural stop positions (base
+  0.98) and its greedy continuation there is the closing template ("  \n\n---
+  \n\n**Final Answer**…") — the erosion is at the stop decision itself; (iii)
+  c2/c4@250 keep 0.997: renormalized support KL puts zero gradient on
+  out-of-support tokens, so the base's stop survives untouched — and neither
+  ever learns `<|im_end|>` (~1e-14 → 1e-19). **The exact-top-k arms do not
+  SUPPLY stopping; they stop PUNISHING it.** The reading of the dose ladder
+  changes accordingly: |Δℓ| ∞/10/log/2.3/1 at the stop event is −25/−10/−3.3/
+  −2.3/−1 — the same ordering as lock 122/198/208/247/never — and the
+  "dose beyond p99.7" is, in every stopped response, the terminal token; d/h2
+  (sampled column, terminal included) lock, h1 (front window, terminal excluded)
+  does not; g4 (correct-only) locks because the correct traces are exactly the
+  ones that stop. Whether the mismatch is the WHOLE of the continuation drive or
+  only its trigger is the open causal question — the N0/N2 cells below split it.
 
 **Probe positions** (existing arms re-labeled):
 {vanilla, f2, f1, b1, f3} = the magnitude dose ladder · {b4 vs b2; e2} = bounded
@@ -74,17 +105,41 @@ ladder = the two registered adjudicators.
   `vanilla + a truncation-zeroing reward term and nothing else` — if that alone
   pins the length distribution, the EOS-starvation loop is causally closed.
   Amendment candidate (2 cards × 3 seeds, ~350 GPU·h at vanilla's own pace).
-- **N2 (registered 2026-08-19, `n2_eos_aux`): the supply-side twin of N1.**
+- **N2 (registered 2026-08-19, re-registered the same day as `n2_termcal`,
+  termination-marginal calibration): the supply-side twin of N1.**
   N1 closes the loop with a SIGN (RL pressure on truncated rollouts); N2 closes
-  it with SUPPLY (an exact, full-softmax teacher EOS-vs-rest calibration term at
-  every visited state, gradient p−q on the stop margin, bounded by construction).
-  It is the one cell that separates what exact top-k (c2/c4) does in a single
-  move — stop gradient without sampling EOS vs out-of-support deviations never
-  slammed — and reads which of the two carries their stability. Payload contract
-  (`simopd.eos_gather`): the stop id is force-gathered, never inferred; a miss
-  is refused (a silent q=0 would manufacture an anti-stop gradient exactly at
-  collapse onset). Both N1 and N2 stable ⇒ two independent routes; one stable
-  ⇒ the two forces are asymmetric and collapse answers only that remedy.
+  it with SUPPLY: vanilla unchanged plus an exact, full-softmax stop-vs-continue
+  term at every visited state, BCEWithLogits(m_t, q_t) with q_t = Σ_{e∈E_T}
+  p_T(e|s_t) over the TEACHER's terminators E_T = {151643, 151645} and m_t = the
+  log-odds of Σ_{e∈E_S} p_θ(e|s_t) over the tokens that actually END the
+  student's rollout E_S = {151643}; gradient p−q on the log-odds, bounded, and
+  the push lands inside E_S by the student's own conditional (so on
+  `<|endoftext|>`) while student mass on a teacher-only terminator counts as
+  CONTINUE — the second-layer "which terminator" KL is deliberately absent, the
+  channel moves the termination hazard and nothing else. The stop-token audit is
+  what forced two sets: the original single-token registration (E = {151643} on
+  both sides) would have calibrated p(stop) toward q_T(`<|endoftext|>`) = 1e-11 —
+  a manufactured anti-stop channel from a TRUE q, the very failure the design
+  review guarded against for top-k misses. Payload contract (`simopd.eos_gather`):
+  every id is force-gathered, never inferred; a miss is refused. Live receipt:
+  panel `eos_dl_at_stop` logs vanilla's Δℓ at the student's own stop tokens (the
+  audit's −25) on every step. λ ladder now opens UPWARD ({1, 3, 10, 30}) — the PG
+  kick on the stop logit is ~25·(1−p) per stop event. Both N1 and N2 stable ⇒
+  two independent routes; one stable ⇒ the two forces are asymmetric and collapse
+  answers only that remedy.
+- **N0 (proposed 2026-08-19, not registered): the reward-level fix of the
+  mismatch itself.** Vanilla with ONE change: at the sampled stop token the
+  per-token signal is the event-level Δℓ_T = log Σ_{E_T} q − log Σ_{E_S} p
+  instead of the token-level log q(`<|endoftext|>`) − log p(`<|endoftext|>`);
+  every other token untouched. It removes the −25 without adding supply, so it
+  isolates the artifact: N0 stable ⇒ vanilla's collapse is (mostly) the identity
+  mismatch and the exact-top-k family's stability is the exemption; N0 locks ⇒
+  the continuation drive is real beyond the terminal token and N2's supply is
+  the live question. Same payload as N2 (the gathered `<|im_end|>` column), a
+  registry function of a dozen lines. Not the environment fix (letting the
+  rollout stop on `<|im_end|>` too) — that changes the environment for every arm
+  in the campaign and is a follow-up campaign's opening question, together with
+  whether other Base/Instruct pairs carry the same mismatch.
 - M1 measured-magnitude harvest (registered) and its top-k extension.
 - Waves 9/10 execution.
 - a1/a3 length predictions: registered in spirit (teacher-short ⇒ a3 should be

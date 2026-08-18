@@ -33,7 +33,7 @@ def install():
         STASH.clear()
         loss, metrics = fn(config, distillation_config, model_output, data)
         # Every stashed term is added, whichever registry fn left it: b3's
-        # "soft_kd", N2's "eos_aux" (2026-08-19). Pop as we go so nothing carries.
+        # "soft_kd", N2's "eos_aux" (n2_termcal, 2026-08-19). Pop as we go so nothing carries.
         for key in list(STASH):
             loss = loss + STASH.pop(key)
         return loss, metrics

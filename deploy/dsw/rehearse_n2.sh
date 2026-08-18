@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 3-step rehearsal for n2_eos_aux on a 2-GPU pair, machine-verdicted (same shape as
+# 3-step rehearsal for n2_termcal on a 2-GPU pair, machine-verdicted (same shape as
 # rehearse_a_axis.sh; exit 0 = every criterion passed, .OK is yours to touch).
 #
 #   bash deploy/dsw/rehearse_n2.sh 0,1
@@ -7,14 +7,14 @@
 # What it proves that the CPU battery cannot: the sitecustomize hook fires inside
 # vLLM's engine-core process of the TEACHER server (Sampler.gather_logprobs
 # rebound), the N2 reader in the server actor turns real vLLM dicts into
-# [top-64 | 151643 151645 | sampled] rows, the kernel accepts them at real widths
+# [top-64 | 151643 151645 | sampled] rows (E_S={151643}, E_T={151643,151645}), the kernel accepts them at real widths
 # and lengths, and the eos_* panels come out. The teacher job's Ray actors do NOT
 # stream to this log (separate Ray job), so no banner grep on their side --
 # instead the kernel is the guard: it REFUSES a payload without the exact block
 # (wrong ids / -inf), so 3 green steps imply the whole chain worked.
 set -euo pipefail
 GPUS=${1:?gpu pair, e.g. 0,1}
-ARM=n2_eos_aux
+ARM=n2_termcal
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 D=/mgfs/shared/Group_GY/changhao/simopd_data
 LOGD=$D/n2
@@ -73,24 +73,31 @@ import re, sys
 log = open(sys.argv[1], errors="replace").read()
 steps = [l for l in log.splitlines() if "step:" in l and "eos_aux_term" in l]
 if not steps:
-    sys.exit("REHEARSAL FAIL [n2_eos_aux]: no step line carries distillation/eos_aux_term")
+    sys.exit("REHEARSAL FAIL [n2_termcal]: no step line carries distillation/eos_aux_term")
 last = steps[-1]
 def get(k):
     m = re.search(r"actor/distillation/%s:([-+0-9.eE]+)" % re.escape(k), last)
     return float(m.group(1)) if m else None
 need = ["eos_aux_term", "eos_missing", "eos_sampled_is_stop", "eos_q_mean", "eos_p_mean",
-        "eos_ravail_500up", "eos_frac_rep", "eos_diag_q_0",
+        "eos_ravail_500up", "eos_frac_rep", "eos_qm_0", "eos_qm_1", "eos_pm_0", "eos_pm_1",
+        "eos_n_stop", "eos_dl_at_stop", "eos_q_at_stop", "eos_p_at_stop",
         "eos_q_pos0_100", "eos_dstop_pos0_100", "eos_q_pos2k_up", "eos_dstop_pos2k_up"]
 missing = [k for k in need if get(k) is None]
 if missing:
-    sys.exit(f"REHEARSAL FAIL [n2_eos_aux]: panels missing from step line: {missing}")
+    sys.exit(f"REHEARSAL FAIL [n2_termcal]: panels missing from step line: {missing}")
 if get("eos_missing") != 0.0:
-    sys.exit(f"REHEARSAL FAIL [n2_eos_aux]: eos_missing = {get('eos_missing')} (sampled column had -inf)")
+    sys.exit(f"REHEARSAL FAIL [n2_termcal]: eos_missing = {get('eos_missing')} (sampled column had -inf)")
 q, p = get("eos_q_mean"), get("eos_p_mean")
 if not (0.0 <= q <= 1.0 and 0.0 <= p <= 1.0):
-    sys.exit(f"REHEARSAL FAIL [n2_eos_aux]: q/p out of [0,1]: {q} {p}")
+    sys.exit(f"REHEARSAL FAIL [n2_termcal]: q/p out of [0,1]: {q} {p}")
 print(f"panels ok: eos_aux_term={get('eos_aux_term'):.4g} q_mean={q:.4g} p_mean={p:.4g} "
-      f"ravail_500up={get('eos_ravail_500up'):.4g} diag_q0(im_end)={get('eos_diag_q_0'):.4g} "
+      f"ravail_500up={get('eos_ravail_500up'):.4g} q(eot)={get('eos_qm_0'):.3g} q(im_end)={get('eos_qm_1'):.3g} "
+      f"p(eot)={get('eos_pm_0'):.3g} p(im_end)={get('eos_pm_1'):.3g} | at student stops: n={get('eos_n_stop'):.3g} "
+      f"dl={get('eos_dl_at_stop'):.3g} q={get('eos_q_at_stop'):.3g} p={get('eos_p_at_stop'):.3g} | "
       f"sampled_is_stop={get('eos_sampled_is_stop'):.4g} frac_rep={get('eos_frac_rep'):.3g}")
+# the audit's prediction, checked live on 3 steps of real rollouts: with stops present,
+# Delta-ell at the student's own stop tokens is deeply negative (teacher's terminator is <|im_end|>)
+if get("eos_n_stop") and get("eos_n_stop") > 0 and get("eos_dl_at_stop") > -5.0:
+    print(f"NOTE: eos_dl_at_stop={get('eos_dl_at_stop'):.3g} is not the audit's ~-25 -- inspect before launching wave 17")
 PY
 echo "REHEARSAL PASS [$ARM]  ->  touch $LOGD/rehearsal_${ARM}.OK"

@@ -1,0 +1,59 @@
+Using the latest cached version of the dataset since HuggingFaceH4/MATH-500 couldn't be found on the Hugging Face Hub (offline mode is enabled).
+Found the latest cached dataset configuration 'default' at /mgfs/shared/Group_GY/changhao/simopd_data/hf_cache/datasets/HuggingFaceH4___math-500/default/0.0.0/6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be (last modified on Fri Aug  7 05:27:31 2026).
+30 stopped responses sampled
+
+[teacher] scored 30 responses in 32s
+
+[base] scored 30 responses in 17s
+
+[vanilla@250] scored 30 responses in 15s
+
+[c4@250] scored 30 responses in 14s
+
+=== per-response table: terminal position (where the student emitted <|endoftext|>)
+run@step        corr len   q(eot)    q(im_end) rank_eot(T) top1_T      | p_base(eot) p_van(eot) p_c4(eot) | p_base(im_end) p_van(im_end) p_c4(im_end)
+vanilla@125  1   1281  4.4e-12  0.984    25487    '<|im_end|>' | 0.909      6.1e-05   0.935    | 3e-11         4e-14         9e-14   || r_T=-26.1  body: med=0.00 p1=-8.3 min=-22.5 frac(r<-10)=0.0063 pct(body<r_T)=0.0000
+vanilla@125  1   917   7.8e-12  0.795    22333    '<|im_end|>' | 0.920      6.6e-06   0.993    | 3e-10         1e-15         2e-15   || r_T=-25.5  body: med=0.00 p1=-9.2 min=-14.9 frac(r<-10)=0.0098 pct(body<r_T)=0.0000
+vanilla@125  1   529   1.9e-11  0.900    18058    '<|im_end|>' | 0.722      1.4e-03   0.866    | 6e-12         2e-15         6e-15   || r_T=-24.4  body: med=0.00 p1=-10.9 min=-29.4 frac(r<-10)=0.0189 pct(body<r_T)=0.0019
+vanilla@125  1   653   2.7e-11  0.389    24463    ' �'       | 0.966      1.6e-05   0.966    | 8e-14         8e-19         1e-16   || r_T=-24.3  body: med=0.00 p1=-11.4 min=-28.4 frac(r<-10)=0.0153 pct(body<r_T)=0.0015
+vanilla@125  1   1596  3.5e-12  0.914    47694    '<|im_end|>' | 0.998      6.0e-05   0.999    | 5e-11         9e-15         1e-15   || r_T=-26.4  body: med=0.00 p1=-6.1 min=-12.5 frac(r<-10)=0.0013 pct(body<r_T)=0.0000
+vanilla@125  0   1191  5.6e-13  0.245    36692    ' �'       | 0.979      1.4e-04   1.000    | 4e-13         4e-15         8e-17   || r_T=-28.2  body: med=0.00 p1=-8.7 min=-15.4 frac(r<-10)=0.0059 pct(body<r_T)=0.0000
+vanilla@125  1   412   7.7e-12  0.946    10872    '<|im_end|>' | 0.992      1.1e-02   1.000    | 1e-10         3e-14         3e-18   || r_T=-25.6  body: med=0.00 p1=-11.5 min=-19.9 frac(r<-10)=0.0195 pct(body<r_T)=0.0000
+vanilla@125  1   674   4.6e-11  0.732    24676    '<|im_end|>' | 0.975      2.8e-05   0.938    | 1e-11         2e-17         1e-15   || r_T=-23.8  body: med=0.00 p1=-9.3 min=-16.5 frac(r<-10)=0.0059 pct(body<r_T)=0.0000
+vanilla@125  1   1015  2.6e-12  0.984    32393    '<|im_end|>' | 1.000      1.4e-05   1.000    | 2e-13         3e-16         1e-18   || r_T=-26.7  body: med=0.00 p1=-7.8 min=-22.5 frac(r<-10)=0.0099 pct(body<r_T)=0.0000
+vanilla@125  0   1383  6.7e-11  0.293    76211    ' �'       | 0.667      1.8e-02   0.984    | 1e-12         1e-13         1e-13   || r_T=-23.0  body: med=0.00 p1=-9.8 min=-17.6 frac(r<-10)=0.0101 pct(body<r_T)=0.0000
+c4_pi_t@100  1   549   2.3e-12  0.962    24481    '<|im_end|>' | 0.999      6.8e-06   1.000    | 1e-10         6e-16         2e-18   || r_T=-26.8  body: med=0.00 p1=-9.6 min=-20.3 frac(r<-10)=0.0109 pct(body<r_T)=0.0000
+c4_pi_t@100  1   805   7.5e-12  0.914    18495    '<|im_end|>' | 0.998      2.1e-10   0.996    | 2e-12         2e-17         2e-17   || r_T=-25.6  body: med=0.00 p1=-9.8 min=-22.6 frac(r<-10)=0.0100 pct(body<r_T)=0.0000
+c4_pi_t@100  1   785   7.8e-12  0.621    53083    '<|im_end|>' | 0.998      5.2e-10   0.997    | 1e-10         3e-16         9e-17   || r_T=-25.6  body: med=0.00 p1=-9.8 min=-17.3 frac(r<-10)=0.0102 pct(body<r_T)=0.0000
+c4_pi_t@100  1   1237  8.7e-12  0.998    10285    '<|im_end|>' | 0.999      1.1e-08   1.000    | 9e-11         4e-16         4e-16   || r_T=-25.5  body: med=0.00 p1=-6.4 min=-17.1 frac(r<-10)=0.0073 pct(body<r_T)=0.0000
+c4_pi_t@100  1   1263  3.8e-11  0.970    14558    '<|im_end|>' | 0.999      8.7e-11   0.997    | 7e-11         3e-15         2e-15   || r_T=-24.0  body: med=0.00 p1=-7.4 min=-12.4 frac(r<-10)=0.0016 pct(body<r_T)=0.0000
+c4_pi_t@100  1   445   4.5e-11  0.999    2888     '<|im_end|>' | 0.999      1.3e-10   0.999    | 4e-10         1e-17         8e-18   || r_T=-23.8  body: med=0.00 p1=-14.8 min=-25.9 frac(r<-10)=0.0225 pct(body<r_T)=0.0023
+c4_pi_t@100  1   1528  4.5e-11  0.892    41270    '<|im_end|>' | 0.905      5.0e-05   0.562    | 5e-15         2e-17         2e-17   || r_T=-23.7  body: med=0.00 p1=-8.7 min=-21.1 frac(r<-10)=0.0085 pct(body<r_T)=0.0000
+c4_pi_t@100  1   546   5.3e-12  0.998    8292     '<|im_end|>' | 1.000      8.9e-09   1.000    | 5e-13         5e-17         3e-19   || r_T=-26.0  body: med=0.00 p1=-9.5 min=-14.2 frac(r<-10)=0.0073 pct(body<r_T)=0.0000
+c4_pi_t@100  1   663   4.0e-12  0.998    28886    '<|im_end|>' | 0.998      1.3e-08   0.999    | 6e-11         4e-17         4e-16   || r_T=-26.2  body: med=0.00 p1=-9.0 min=-14.2 frac(r<-10)=0.0091 pct(body<r_T)=0.0000
+c4_pi_t@100  1   395   1.4e-11  0.962    33126    '<|im_end|>' | 0.969      1.7e-08   0.269    | 1e-11         1e-17         6e-18   || r_T=-25.0  body: med=0.00 p1=-8.4 min=-14.7 frac(r<-10)=0.0076 pct(body<r_T)=0.0000
+vanilla@225  1   869   3.3e-11  0.007    3047     '✅'        | 0.933      8.3e-01   0.996    | 2e-11         3e-14         1e-14   || r_T=-24.1  body: med=0.00 p1=-11.2 min=-24.9 frac(r<-10)=0.0173 pct(body<r_T)=0.0012
+vanilla@225  1   965   1.8e-10  0.036    4752     '✅'        | 0.822      3.1e-01   0.996    | 4e-11         6e-14         2e-14   || r_T=-22.3  body: med=0.00 p1=-10.4 min=-16.7 frac(r<-10)=0.0114 pct(body<r_T)=0.0000
+vanilla@225  1   827   3.4e-09  0.669    3257     '<|im_end|>' | 0.970      6.4e-01   0.996    | 3e-10         5e-14         5e-14   || r_T=-19.5  body: med=0.00 p1=-8.3 min=-14.3 frac(r<-10)=0.0048 pct(body<r_T)=0.0000
+vanilla@225  1   329   1.4e-11  1.000    8628     '<|im_end|>' | 0.997      9.8e-01   0.998    | 4e-11         2e-15         1e-15   || r_T=-25.0  body: med=0.00 p1=-11.2 min=-20.4 frac(r<-10)=0.0183 pct(body<r_T)=0.0000
+vanilla@225  1   629   1.4e-11  0.999    15322    '<|im_end|>' | 0.879      3.0e-01   0.998    | 6e-09         1e-15         1e-14   || r_T=-24.8  body: med=0.00 p1=-7.7 min=-18.3 frac(r<-10)=0.0032 pct(body<r_T)=0.0000
+vanilla@225  1   406   1.7e-11  1.000    8427     '<|im_end|>' | 0.996      9.9e-01   1.000    | 9e-12         5e-16         1e-16   || r_T=-24.8  body: med=0.00 p1=-12.3 min=-20.0 frac(r<-10)=0.0198 pct(body<r_T)=0.0000
+vanilla@225  1   855   9.3e-12  0.983    61726    '<|im_end|>' | 0.850      9.8e-01   0.999    | 3e-12         2e-15         1e-15   || r_T=-25.2  body: med=0.00 p1=-11.5 min=-26.6 frac(r<-10)=0.0152 pct(body<r_T)=0.0012
+vanilla@225  1   576   2.3e-12  0.991    80114    '<|im_end|>' | 0.530      8.8e-01   0.996    | 8e-12         4e-15         1e-15   || r_T=-26.2  body: med=0.00 p1=-11.1 min=-22.3 frac(r<-10)=0.0139 pct(body<r_T)=0.0000
+vanilla@225  1   741   2.2e-08  0.035    1089     '✅'        | 0.642      4.1e-01   0.949    | 1e-10         2e-12         5e-13   || r_T=-17.2  body: med=0.00 p1=-8.7 min=-18.0 frac(r<-10)=0.0081 pct(body<r_T)=0.0014
+vanilla@225  0   976   2.3e-11  0.996    12638    '<|im_end|>' | 0.989      9.7e-01   1.000    | 1e-11         4e-15         2e-16   || r_T=-24.5  body: med=0.00 p1=-7.4 min=-17.2 frac(r<-10)=0.0021 pct(body<r_T)=0.0000
+
+=== aggregate over 30 responses
+  q_eot        median=1.384e-11  mean=8.549e-10  min=5.551e-13  max=2.158e-08
+  q_im         median=0.954  mean=0.7738  min=0.007488  max=0.9999
+  rank         median=2.041e+04  mean=2.511e+04  min=1089  max=8.011e+04
+  pb           median=0.9768  mean=0.92  min=0.5297  max=0.9998
+  pv           median=6.03e-05  mean=0.2443  min=8.693e-11  max=0.9925
+  pc           median=0.9971  mean=0.9476  min=0.2687  max=1
+  rT           median=-24.99  mean=-24.65  min=-28.2  max=-17.21
+  pct          median=0  mean=0.0003118  min=0  max=0.002252
+  med          median=5.454e-05  mean=0.0001312  min=9.06e-06  max=0.0005769
+  p01          median=-9.412  mean=-9.542  min=-14.82  max=-6.137
+  min_nonterm  median=-18.14  mean=-19.27  min=-29.43  max=-12.44
+  frac_lt10    median=0.009844  mean=0.0104  min=0.001254  max=0.02252
+DONE
