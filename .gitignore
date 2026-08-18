@@ -33,3 +33,6 @@ wandb/
 
 # per-domain claim namespaces (runtime state, one per campaign)
 /.campaign_*/
+
+# editor/launcher backups (never tracked)
+*.bak-*
