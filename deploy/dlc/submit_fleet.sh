@@ -108,6 +108,15 @@ EXTRA_ARGS=()
 # incarnation. Whole-fleet behavior changes still deserve a fresh job.
 CMD="bash /mgfs/shared/Group_GY/changhao/SimOPD-exp/deploy/dlc/worker.sh"
 [ "${EVAL_ONLY:-0}" = 1 ] && CMD="EVAL_ONLY=1 $CMD"
+# WORKER_ENV: assignments prepended verbatim to the payload. A domain job is not
+# the default job -- it needs MACHINE_PREFIX (the manifest pins rows to j5d*, and
+# a pinned row has no fallback), DOMAINS (so it serves that namespace and not
+# math), and EVAL_BACKFILL_MAX (the default 0 means UNLIMITED, which on
+# 2026-08-18 had 27 code boxes open eight vLLM engines each at boot and hang
+# their own training lanes' preflight on the shared disk for 30+ minutes). Those
+# three were being hand-pasted into the console field, which is where they get
+# forgotten. Now the submitter prints them as part of the command.
+[ -n "${WORKER_ENV:-}" ] && CMD="$WORKER_ENV $CMD"
 
 # Two ways to hand this to DLC, same job either way. The colleagues' pattern
 # is console + a payload script on /mgfs -- worker.sh IS our payload, so the
