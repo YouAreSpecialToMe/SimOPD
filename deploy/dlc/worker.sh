@@ -305,17 +305,28 @@ claim_complete() {  # RUN STEP -> 0 when all five benchmark artifacts exist
 # mtime means "last alive" and 2h of true silence is a dead owner: a pod
 # killed mid-cell frees its cells in 2h instead of 36, and the per-bench
 # resume in eval_suite makes the redo pay only the missing benchmarks.
-now=$(date +%s)
-for c in "$EVALQ"/claims/*__*; do
-    [ -d "$c" ] || continue
-    name=$(basename "$c"); RUN=${name%__*}; STEP=${name##*__}
-    age=$(( now - $(stat -c %Y "$c") ))
-    if claim_complete "$RUN" "$STEP"; then
-        rm -rf "$c" && echo "reaped finished-claim leftover $name"
-    elif [ "$age" -gt "${REAP_SILENT_SEC:-7200}" ]; then
-        rm -rf "$c" && echo "reaped silent claim $name (${age}s)"
-    fi
-done
+# EVERY PASS, not just at boot. Until 2026-08-18 this ran once during boot
+# hygiene and never again, so in a fleet that stays up for hours the stranded
+# claims only accumulate: 85 of them had built up by mid-morning, 69 already
+# past the silence threshold, and they held 85 cells that the ~28 idle eval
+# cards could otherwise have worked. The queue read as "fully claimed" while a
+# fifth of the fleet sat in idle sweeps. Reaping is cheap (one stat per claim)
+# and idempotent, so there is no reason for it to be a boot-only step.
+reap_claims() {
+    local now c name RUN STEP age
+    now=$(date +%s)
+    for c in "$EVALQ"/claims/*__*; do
+        [ -d "$c" ] || continue
+        name=$(basename "$c"); RUN=${name%__*}; STEP=${name##*__}
+        age=$(( now - $(stat -c %Y "$c") ))
+        if claim_complete "$RUN" "$STEP"; then
+            rm -rf "$c" && echo "reaped finished-claim leftover $name"
+        elif [ "$age" -gt "${REAP_SILENT_SEC:-7200}" ]; then
+            rm -rf "$c" && echo "reaped silent claim $name (${age}s)"
+        fi
+    done
+}
+reap_claims
 
 free_gpus() {  # indices with <500MiB used
     nvidia-smi --query-gpu=index,memory.used --format=csv,noheader \
@@ -462,6 +473,10 @@ while :; do
         launched_gpus+="$(echo "$out" | grep -oE 'GPU_LIST\s+[0-9, ]+' \
                           | sed 's/GPU_LIST//; s/,/ /g') "
     done
+
+    # Stranded claims first: a cell whose owner died is invisible to feed_evalq
+    # (it only skips what is claimed) and blocks any worker that would take it.
+    reap_claims
 
     # -- 1.5 feed the eval queue: the fleet feeds itself. The m-fleet era fed
     #    evalq from an hourly hop-pod cron (exp_patrol.sh) with a hand-picked
