@@ -1302,6 +1302,31 @@ arms:
     env:
       TRAIN_FILE_BASENAME: train_sub50.parquet
 
+  - run_id: h6_gen_sched
+    axis: H
+    cohort: supplement
+    desc: "[OURS: POPD 2605.31490 / FastOPD-schedule 2602.15260 form] rollout horizon H(step) linear 128->16384; val exempt via membership gate"
+    status: stock
+    note: "ADDED 2026-08-18 (efficiency-survey expansion wave 1). Progressive
+           horizon: per-request max_tokens clamped to H(step) at the same
+           vLLMHttpServer.generate seam as gkd_mix/a5 (src/simopd/h_horizon.py),
+           schedule machinery = gkd_schedule verbatim, bounds [1,16384] enforced
+           at install (H=0 is the empty-rollout as_dict crash class). REGISTERED
+           IMPROVEMENT over h5's recorded confound: membership gate (SIMOPD_H_KEYS
+           = the a5 .dry key file) exempts val/unseen prompts, so in-loop val
+           generates at FULL budget and stays main-table comparable -- the clamp
+           only ever touches training rollouts (h_miss in telemetry counts the
+           exemptions working). Mutual exclusion with A-arm knobs refused at
+           install. Telemetry: per-step sideband h_* fields (target, realized
+           mean, cap-hit frac, gen tokens) relayed to wandb via the losses h key
+           set. The matched-budget pair vs a fixed-H arm (axis-A R2's design on
+           the depth axis; ramp mean ~8256) is a registered follow-up config,
+           not this arm. Reads against h5/h7/h8: schedule-vs-fixed at the depth
+           axis; against vanilla: the accuracy-vs-generated-tokens frontier."
+    env:
+      SIMOPD_H_SCHEDULE: "mode=linear,start=128,end=16384,warmup=0,decay=250"
+      SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
     axis: I

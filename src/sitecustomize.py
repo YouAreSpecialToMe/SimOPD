@@ -175,7 +175,8 @@ def _after_vllm_server():
     # raise-on-failure discipline for exactly this path).
     errors = []
     for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server"),
-                    ("gkd_mix", "install"), ("a5_aggrevate", "install")):
+                    ("gkd_mix", "install"), ("a5_aggrevate", "install"),
+                    ("h_horizon", "install")):
         try:
             m = __import__(f"simopd.{mod}", fromlist=[fn])
             getattr(m, fn)()
@@ -231,7 +232,7 @@ def _after_teacher_model():
 # a module that existed on the author's box and on none of the four that needed it.
 REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch",
                     "simopd.zmq_lane", "simopd.gkd_mix", "simopd.gkd_schedule",
-                    "simopd.gkd_stats", "simopd.a5_aggrevate",
+                    "simopd.gkd_stats", "simopd.a5_aggrevate", "simopd.h_horizon",
                     "simopd.teacher_registry", "simopd.b3_additive")
 
 

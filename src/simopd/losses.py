@@ -177,7 +177,8 @@ def _gkd_relay_metrics():
     """
     mix_armed = os.environ.get("SIMOPD_GKD_CACHE", "") != ""
     a5_armed = os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""
-    if not (mix_armed or a5_armed):
+    h_armed = os.environ.get("SIMOPD_H_SCHEDULE", "") != ""
+    if not (mix_armed or a5_armed or h_armed):
         return {}
     from simopd import gkd_stats
 
@@ -196,7 +197,7 @@ def _gkd_relay_metrics():
             "gkd_miss_tokens": g("miss_tokens"),
             "gkd_stats_step": g("step"),
         }
-    else:
+    elif a5_armed:
         vals = {
             "gkd_tmax": g("tmax"),
             "gkd_kappa_mean": g("kappa_mean"),
@@ -213,6 +214,23 @@ def _gkd_relay_metrics():
             "gkd_tail_tokens": g("tail_tokens"),
             "gkd_stats_step": g("step"),
         }
+    else:
+        # h6/h9 rows (h_horizon): horizon target + realized generation stats.
+        # n_miss counts val/unseen passthroughs (full budget, the h5-confound
+        # fix working); cap_hit_frac ~1 means the clamp binds, ->0 means
+        # natural stops arrive before H (the schedule has converged past need).
+        n = g("n_train")
+        vals = {
+            "h_target": g("h_target"),
+            "h_realized_mean": (g("gen_tokens") / n) if n else 0.0,
+            "h_cap_hit_frac": (g("cap_hits") / n) if n else 0.0,
+            "h_clamped_frac": (g("clamped_n") / n) if n else 0.0,
+            "h_n_train": n,
+            "h_miss": g("n_miss"),
+            "h_gen_tokens": g("gen_tokens"),
+            "h_max_len": g("max_len"),
+            "h_stats_step": g("step"),
+        }
     return {"distillation/" + k: Metric(aggregation=AggregationType.MEAN, value=v)
             for k, v in vals.items()}
 
@@ -224,7 +242,8 @@ def _gkd_relay_metrics():
 # parse exists to avoid. Import time runs in every process (sitecustomize),
 # gated so vanilla and non-A arms never need the env.
 if (os.environ.get("SIMOPD_GKD_CACHE", "") != ""
-        or os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""):
+        or os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""
+        or os.environ.get("SIMOPD_H_SCHEDULE", "") != ""):
     from simopd import gkd_stats as _gkd_stats_bringup
 
     _gkd_stats_bringup.path()

@@ -57,6 +57,7 @@ EXPECT_PG = {
     "h1_first_segment": True, "h2_last_segment": True, "h3_random_segment": True,
     "h4_random_scatter": True, "h5_gen100": True,
     "h7_gen512": True, "h8_gen2048": True, "h10_task_subset": True,
+    "h6_gen_sched": True,
     "i0_think_scorer": True, "i1_priv_cot": True,
     "vanilla_n8": True, "j1_kdrl": False,
 }
