@@ -109,9 +109,28 @@ domain_env() {  # print export statements for one domain; empty for math
               echo "export DATA_DIR=$DATA/simopd_if VAL_FILE_BASENAME=ifeval.parquet"
               echo "export MAX_RESPONSE_LENGTH=4096"
               echo "export CUSTOM_REWARD_PATH=$EXP_ROOT/src/simopd/domain_reward.py" ;;
+        # 16384, not the 4096 this domain was planned at. The 4096 rested on a
+        # registered PREDICTION -- "natural answer lengths in both domains sit far
+        # below the 4096 cap" -- never a measurement, and three things now argue
+        # against it. (a) On math every arm drifts: even h1, the double-zero arm
+        # with no continuation drive at all, ends at 5,690, and the stable arms sit
+        # at 8.4-9.8k. The drift is a training dynamic, not a property of the task's
+        # natural answer length, so nothing makes code immune. (b) FiRe (2606.02684),
+        # the one paper in this roster that actually trains with a code teacher and
+        # evaluates HumanEval+/MBPP+/LiveCodeBench, uses 16384. PowerOPD (2606.17199)
+        # separately records full-vocab OPD saturating a 4,096-token limit. (c) Cost
+        # is asymmetric: rollout time follows tokens ACTUALLY generated, not the cap,
+        # so if the short-answer prediction holds this change is nearly free -- and
+        # if it fails, 4096 would have destroyed the evidence, because truncation
+        # rate is Finding 1's central observable and every arm would pin at 1.0.
+        # Bonus: max_num_tokens becomes 1024+16384+1 = 17409 against the unchanged
+        # ppo_max_token_len_per_gpu=17408, so a code micro-batch again holds ~1
+        # sequence exactly as math does -- the packing-granularity divergence that
+        # would have split c2's tau and g2's FIRE populations across domains closes
+        # by itself.
         code) echo "export MANIFEST=configs/campaign_code.tsv CLAIM_DIR=.campaign_code"
               echo "export DATA_DIR=$DATA/simopd_code VAL_FILE_BASENAME=val_holdout.parquet"
-              echo "export MAX_RESPONSE_LENGTH=4096" ;;
+              echo "export MAX_RESPONSE_LENGTH=16384" ;;
         w8b)  # the measured W shape, verbatim from w_pair_launch.sh (81 s/step):
               # student FSDP-4 + teacher TP2 x2 replicas, whole box, mem 0.40,
               # cap 8192. TAG stays `w` so rows join the banked cell family.
@@ -241,7 +260,11 @@ for DOM in $DOMAINS; do
     mkdir -p "$CD"
     case "$DOM" in
         if|code)
-              case "$DOM" in if) t=if4k;; *) t=code4k;; esac
+              # code16k, renamed with the cap it actually runs at: the tag becomes
+              # the run name (<arm>_s<seed>_<tag>), hence the checkpoint dir, the
+              # config fingerprint and every artifact filename. Renaming is free
+              # only while zero code checkpoints exist, which is now.
+              case "$DOM" in if) t=if4k;; *) t=code16k;; esac
               [ -s "$CD/BATCH_TAG" ] || printf '%s' "$t" > "$CD/BATCH_TAG"
               # d2/d3/d4 are the 4-GPU boxes for the topology-carrying family
               # (b3/d1/d2/d3/g2/n8/j1 pin their own NGPUS=2+TWS=2 = 4 GPUs);
