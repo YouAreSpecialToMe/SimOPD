@@ -630,23 +630,24 @@ _Regenerate: `extract_metrics.py` (logs → `metrics.parquet`) then `emit_dynami
 installed in the campaign venv and installing into it while rows are flying is not an option._
 
 <!-- AUTO:EXPANSION-DYNAMICS BEGIN (exp_publish.py -- do not edit inside) -->
-## Expansion waves 9–15 — dynamics at a glance
+## Expansion waves 9–16 — dynamics at a glance
 
-_Auto-published 2026-08-14T20:42:46Z; latest logged step per arm, seed-averaged. Compare against §2's table for the 16k-campaign arms._
+_Auto-published 2026-08-18T17:27:27Z; latest logged step per arm, seed-averaged. Compare against §2's table for the 16k-campaign arms._
 
 | arm | step | len | trunc | entropy | s/it |
 |---|---|---|---|---|---|
-| b4_jsd_b0.1 | 60 | 8551 | 0.28 | 7.64 | 521.15 |
-| b4_jsd_b0.9 | 59 | 7542 | 0.18 | 1.05 | 439.68 |
+| b4_jsd_b0.1 | 63 | 9326 | 0.34 | 7.83 | 565.95 |
+| b4_jsd_b0.9 | 66 | 7841 | 0.14 | 0.89 | 427.39 |
 | c1_direct | 47 | 10833 | 0.44 | 0.29 | 669.44 |
 | c1_tailbucket | 119 | 1285 | 0.01 | 2.14 | 94.09 |
 | c2_qb_fixed8 | 52 | 6481 | 0.12 | 2.89 | 527.51 |
 | c2_qb_perseq | 41 | 12573 | 0.60 | 0.19 | 1124.32 |
 | e1_pl_rank_a0 | 85 | 6702 | 0.19 | 7.51 | 417.40 |
 | e2_set_coverage_a0 | 49 | 12601 | 0.61 | 0.04 | 807.13 |
-| f2_clip2.3 | 52 | 10986 | 0.46 | 0.29 | 635.95 |
+| f2_clip2.3 | 61 | 8907 | 0.27 | 0.37 | 466.57 |
 | f4_posclip | 49 | 12582 | 0.66 | 0.14 | 760.43 |
 | f5_tanh | 45 | 12627 | 0.67 | 0.13 | 764.37 |
-| h4_random_scatter | 62 | 10876 | 0.51 | 0.12 | 635.41 |
+| g6_seqmean | 49 | 12131 | 0.61 | 0.14 | 726.84 |
+| h4_random_scatter | 62 | 10602 | 0.49 | 0.11 | 616.01 |
 | h5_gen100 | 250 | 100 | 1.00 | 0.13 | 43.17 |
 <!-- AUTO:EXPANSION-DYNAMICS END -->
