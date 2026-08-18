@@ -233,6 +233,7 @@ def _after_teacher_model():
 REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch",
                     "simopd.zmq_lane", "simopd.gkd_mix", "simopd.gkd_schedule",
                     "simopd.gkd_stats", "simopd.a5_aggrevate", "simopd.h_horizon",
+                    "simopd.h_budget", "simopd.h9_controller",
                     "simopd.teacher_registry", "simopd.b3_additive")
 
 

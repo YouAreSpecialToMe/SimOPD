@@ -63,7 +63,18 @@ def _load_keys():
     return _keys
 
 
+def _adapt_mode():
+    # h9_prune_adapt: horizon comes from the trainer's budget relay instead of
+    # a schedule. Env-keyed (process-stable), so the closure may branch on the
+    # FUNCTION safely under the cloudpickle law.
+    return os.environ.get("SIMOPD_H9_ADAPT", "") != ""
+
+
 def _h_at(step):
+    if _adapt_mode():
+        from simopd import h_budget
+
+        return h_budget.budget()
     global _sched
     if _sched is None:
         _sched = gkd_schedule.parse(os.environ["SIMOPD_H_SCHEDULE"])
@@ -134,8 +145,14 @@ def _mark_train_tokens(n, hit_cap):
 
 
 def install():
-    if os.environ.get("SIMOPD_H_SCHEDULE", "") == "":
+    sched_spec = os.environ.get("SIMOPD_H_SCHEDULE", "")
+    adapt = os.environ.get("SIMOPD_H9_ADAPT", "") != ""
+    if not sched_spec and not adapt:
         return
+    if sched_spec and adapt:
+        raise RuntimeError("h_horizon: both SIMOPD_H_SCHEDULE and SIMOPD_H9_ADAPT are "
+                           "set -- two knobs claiming one horizon; an arm registers "
+                           "exactly one curve (h6: schedule; h9: adaptive budget)")
     if os.environ.get("SIMOPD_GKD_CACHE", ""):
         raise RuntimeError("h_horizon: SIMOPD_GKD_CACHE is also set -- an h-arm and "
                            "the a1/a3/a4 mixer never share a run")
@@ -146,13 +163,21 @@ def install():
         raise RuntimeError("h_horizon: SIMOPD_H_KEYS unset -- without the membership "
                            "gate the clamp would also truncate in-loop validation "
                            "(h5's recorded confound; this arm registered the fix)")
-    # Eager parse + bounds: a horizon of 0 delivers empty rollouts (the verl
-    # as_dict crash class); above the protocol cap it silently no-ops under an
-    # h-arm's name. Both die HERE, not at step 0 in the server actor.
-    s = gkd_schedule.parse(os.environ["SIMOPD_H_SCHEDULE"])
-    if not (1 <= min(s.start, s.end) and max(s.start, s.end) <= 16384):
-        raise RuntimeError(f"h_horizon: schedule endpoints ({s.start}, {s.end}) outside "
-                           f"[1, 16384] -- the horizon must stay in the protocol window")
+    if sched_spec:
+        # Eager parse + bounds: a horizon of 0 delivers empty rollouts (the verl
+        # as_dict crash class); above the protocol cap it silently no-ops under
+        # an h-arm's name. Both die HERE, not at step 0 in the server actor.
+        s = gkd_schedule.parse(sched_spec)
+        if not (1 <= min(s.start, s.end) and max(s.start, s.end) <= 16384):
+            raise RuntimeError(f"h_horizon: schedule endpoints ({s.start}, {s.end}) outside "
+                               f"[1, 16384] -- the horizon must stay in the protocol window")
+    else:
+        # Budget mode: the relay path must resolve at bringup (config errors die
+        # here, not at step 0 three layers deep); budget() itself is clamped to
+        # [1, 16384] by h_budget, cold-start default = full window (adapt DOWN).
+        from simopd import h_budget
+
+        h_budget.path()
     mod = sys.modules.get("verl.workers.rollout.vllm_rollout.vllm_async_server")
     if mod is None:
         return
@@ -199,6 +224,6 @@ def install():
 
     setattr(generate, _MARK, True)
     cls.generate = generate
-    print(f"[simopd] h_horizon armed on vLLMHttpServer.generate "
-          f"(schedule[{os.environ['SIMOPD_H_SCHEDULE']}]; "
+    knob = f"schedule[{sched_spec}]" if sched_spec else "adaptive budget (h9 relay)"
+    print(f"[simopd] h_horizon armed on vLLMHttpServer.generate ({knob}; "
           f"stats -> {gkd_stats.path()})", file=sys.stderr, flush=True)

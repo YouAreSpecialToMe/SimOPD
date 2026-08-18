@@ -1327,6 +1327,35 @@ arms:
       SIMOPD_H_SCHEDULE: "mode=linear,start=128,end=16384,warmup=0,decay=250"
       SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
 
+  - run_id: h9_prune_adapt
+    axis: H
+    cohort: supplement
+    desc: "[OURS: Prune-OPD 2605.07804 lite] response budget adapted from teacher-lost-the-thread reliable lengths"
+    status: stock
+    note: "ADDED 2026-08-18 (wave 1). PROVENANCE HONESTY: Prune-OPD's published
+           controller consumes per-position teacher/student TOP-K SET overlap;
+           our protocol loss is sampled-token k1 -- the trainer sees log-prob
+           SCALARS, no distributions at the seam -- so the lite controller keeps
+           the architecture (compatibility events -> reliable length -> adapted
+           budget) and swaps the event signal for what the protocol measures:
+           log pi_T(student token) < -9.2 (~1e-4; the ESR 2605.27028 off-policy
+           teacher-decay story, the same quantity the delta-ell position panels
+           chart). The M=8th lost event marks a sequence's reliable length;
+           budget = EMA(0.7) of the micro-batch q90 * 1.25 margin, clipped
+           [256, 16384]; STARTS at the full window and adapts DOWN (Prune's
+           posture: shorten only on evidence; high compatibility keeps the
+           window long). Constants are code-documented in h9_controller.py, not
+           knobs -- wave 1 registers exactly one curve. Pipeline: k1_rec hook
+           (losses._h9_observe, exceptions never propagate; a frozen budget is
+           visible in the h9_* panel) -> h_budget reverse sideband (append-only,
+           EXPERIMENT_NAME-keyed) -> h_horizon budget mode clamps the NEXT
+           rollouts. Same membership gate as h6: val/unseen exempt at full
+           budget. Single-rank assumption recorded (protocol lanes train
+           n_gpus_per_node=1; DP>1 would need a single-writer rule)."
+    env:
+      SIMOPD_H9_ADAPT: "1"
+      SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
     axis: I

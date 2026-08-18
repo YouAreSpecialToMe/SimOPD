@@ -16,6 +16,7 @@ measured runaway spike lives (M1 first harvest, 2026-08-11).
 
 import math
 import os
+import sys
 
 import torch
 from verl.trainer.distillation.losses import (
@@ -177,7 +178,8 @@ def _gkd_relay_metrics():
     """
     mix_armed = os.environ.get("SIMOPD_GKD_CACHE", "") != ""
     a5_armed = os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""
-    h_armed = os.environ.get("SIMOPD_H_SCHEDULE", "") != ""
+    h_armed = (os.environ.get("SIMOPD_H_SCHEDULE", "") != ""
+               or os.environ.get("SIMOPD_H9_ADAPT", "") != "")
     if not (mix_armed or a5_armed or h_armed):
         return {}
     from simopd import gkd_stats
@@ -231,6 +233,16 @@ def _gkd_relay_metrics():
             "h_max_len": g("max_len"),
             "h_stats_step": g("step"),
         }
+        if os.environ.get("SIMOPD_H9_ADAPT", "") != "":
+            # h9 only (env-constant key addition, DP-legal): the trainer-side
+            # controller's own channel, so budget dynamics chart even when the
+            # server bucket lags a step.
+            from simopd import h_budget
+
+            brow = h_budget.latest() or {}
+            gb = lambda k: float(brow.get(k, 0) or 0)
+            vals.update({"h9_budget": gb("budget"), "h9_lq": gb("lq"),
+                         "h9_calls": gb("calls")})
     return {"distillation/" + k: Metric(aggregation=AggregationType.MEAN, value=v)
             for k, v in vals.items()}
 
@@ -243,10 +255,33 @@ def _gkd_relay_metrics():
 # gated so vanilla and non-A arms never need the env.
 if (os.environ.get("SIMOPD_GKD_CACHE", "") != ""
         or os.environ.get("SIMOPD_A5_TMAX_SCHEDULE", "") != ""
-        or os.environ.get("SIMOPD_H_SCHEDULE", "") != ""):
+        or os.environ.get("SIMOPD_H_SCHEDULE", "") != ""
+        or os.environ.get("SIMOPD_H9_ADAPT", "") != ""):
     from simopd import gkd_stats as _gkd_stats_bringup
 
     _gkd_stats_bringup.path()
+
+
+_h9 = {"warned": False}
+
+
+def _h9_observe(teacher, mask):
+    """h9_prune_adapt trainer half: feed sampled-token teacher log-probs to the
+    budget controller (h9_controller.observe -> h_budget relay -> the serving
+    wrapper's clamp). Env-gated no-op for every other arm; never propagates --
+    a controller bug must not fail a train step (the budget just stops moving,
+    which the h9_* wandb panel makes visible)."""
+    if os.environ.get("SIMOPD_H9_ADAPT", "") == "":
+        return
+    try:
+        from simopd import h9_controller
+
+        h9_controller.observe(teacher, mask)
+    except Exception as e:
+        if not _h9["warned"]:
+            _h9["warned"] = True
+            print(f"[simopd] h9_controller failed ({e!r}); budget frozen at its "
+                  f"last value, training continues", file=sys.stderr, flush=True)
 
 
 @register_distillation_loss(
@@ -264,6 +299,7 @@ def k1_with_recorder(config, distillation_config, model_output, data):
     metrics.update(_delta_ell_metrics(losses, mask))
     metrics.update(_clip_metrics(losses, mask, distillation_config))
     metrics.update(_gkd_relay_metrics())
+    _h9_observe(teacher, mask)
     return losses, metrics
 
 
