@@ -90,6 +90,20 @@ effects; the eval protocol is M-IV.
   does not; g4 (correct-only) locks because the correct traces are exactly the
   ones that stop. Whether the mismatch is the WHOLE of the continuation drive or
   only its trigger is the open causal question — the N0/N2 cells below split it.
+  Not a tokenization difference (`scripts/analysis/tokenizer_parity.py`,
+  `docs/data/tokenizer_parity.txt`): the two tokenizers have identical vocab
+  (151669), identical merges/normalizer/pre-tokenizer, identical ids and special
+  flags for `<|endoftext|>`/`<|im_start|>`/`<|im_end|>` (special) and
+  `<think>`/`</think>` (151667/151668, special=False in both), and encode 1500 real
+  responses identically; the teacher never tokenizes in training anyway (it scores
+  the student's ids). What differs is only what each model was TRAINED to end
+  with (`tokenizer_config.eos_token`: `<|endoftext|>` vs `<|im_end|>`;
+  `generation_config.eos_token_id`: 151643 vs [151645, 151643]) and the chat
+  template — the Base template emits `<think>\n\n</think>\n\n` under
+  `enable_thinking=False`, the Instruct-2507 template emits nothing; that prefix
+  reaches the teacher in every training/eval prompt but is benign: teacher mean
+  log q per response token −0.806 (student template) vs −0.824 (its own),
+  q(`<|im_end|>`) at the end 0.94 vs 0.88, 0.1% of tokens move by >2 nats.
 
 **Probe positions** (existing arms re-labeled):
 {vanilla, f2, f1, b1, f3} = the magnitude dose ladder · {b4 vs b2; e2} = bounded
