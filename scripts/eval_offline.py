@@ -193,6 +193,13 @@ def main():
                    help="enable_thinking=True in the chat template (thinking-regime ceilings "
                         "and the annex cells; pair with --max-tokens 16384)")
     p.add_argument("--tp", type=int, default=1)
+    p.add_argument("--stop-token-ids", default="151643,151645",
+                   help="comma-separated extra stop ids; 'off' = model default only. "
+                        "Default is the dual-terminator contract (A-AXIS R5 appendix, "
+                        "2026-08-19): base-student eos 151643 + instruct-teacher eos "
+                        "151645 -- OPD teaches the teacher's terminator, and refusing "
+                        "it at eval scores 'answered then could not stop' as length-"
+                        "truncated wrong. Every artifact row records the set used.")
     # 0.85 left ~10 GiB of an 80 GiB card unused, and KV capacity is the binding
     # constraint of this suite: at 32k per request the cache admits only 18
     # concurrent sequences, so decode runs at ~80 tok/s x 18 while the 1.7B model
@@ -237,12 +244,19 @@ def main():
         max_model_len=min(args.max_tokens + 1024, _derived_max_len(args.model)),
         seed=args.seed,
     )
+    _stop_raw = (args.stop_token_ids or "").strip()
+    _stop_ids = None
+    if _stop_raw and _stop_raw.lower() != "off":
+        _stop_ids = [int(x) for x in _stop_raw.split(",") if x.strip()]
+        if not _stop_ids:
+            raise SystemExit(f"--stop-token-ids parsed to zero ids: {_stop_raw!r}")
     sampling = SamplingParams(
         n=args.n,
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_tokens,
         seed=args.seed,
+        **({"stop_token_ids": _stop_ids} if _stop_ids else {}),
     )
 
     try:
@@ -346,6 +360,10 @@ def main():
                         "problem_id": pid,
                         "top_p": args.top_p,
                         "max_tokens": args.max_tokens,
+                        # Measurement-contract marker: cells produced under different
+                        # stop sets are different protocols and must never be compared
+                        # unstated (mixed-ledger hazard, A-AXIS R5 appendix).
+                        "stop_token_ids": ",".join(map(str, _stop_ids)) if _stop_ids else "off",
                         "sample_idx": sample_idx,
                         "resp_len": len(comp.token_ids),
                         "truncated": int(comp.finish_reason == "length"),

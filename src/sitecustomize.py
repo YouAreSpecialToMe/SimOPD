@@ -176,7 +176,7 @@ def _after_vllm_server():
     errors = []
     for mod, fn in (("teacher_patch", "install"), ("zmq_lane", "install_server"),
                     ("gkd_mix", "install"), ("a5_aggrevate", "install"),
-                    ("h_horizon", "install")):
+                    ("h_horizon", "install"), ("stop_set", "install")):
         try:
             m = __import__(f"simopd.{mod}", fromlist=[fn])
             getattr(m, fn)()
@@ -240,7 +240,8 @@ REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch
                     "simopd.zmq_lane", "simopd.gkd_mix", "simopd.gkd_schedule",
                     "simopd.gkd_stats", "simopd.a5_aggrevate", "simopd.h_horizon",
                     "simopd.h_budget", "simopd.h9_controller",
-                    "simopd.teacher_registry", "simopd.b3_additive", "simopd.eos_gather")
+                    "simopd.teacher_registry", "simopd.b3_additive",
+                    "simopd.eos_gather", "simopd.stop_set")
 
 
 # verl module -> what to run once it has finished executing

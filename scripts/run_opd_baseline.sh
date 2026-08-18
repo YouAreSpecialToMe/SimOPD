@@ -296,6 +296,39 @@ max_num_tokens=$(( max_prompt_length + max_response_length + 1 ))
 #                 diagnostics toggle would be the check crying wolf.
 ckpt_dir=${CKPT_ROOT:-/scratch/zz865/simopd/ckpt}/${project_name}/${experiment_name}
 resume_mode=auto
+# Dual-terminator contract (2026-08-19, A-AXIS R5 appendix). Base student x
+# instruct teacher disagree on eos (<|endoftext|> 151643 vs <|im_end|> 151645);
+# the objective teaches the teacher's terminator while the sampler only honored
+# the student's -- vanilla@250 stops 8.3% (was 100% pre-training), a2@25
+# truncates .985 on aime24. Corrected contract = the teacher's own stop SET
+# {151643,151645}, injected by simopd/stop_set.py at the rollout server seam.
+#
+# The value is PINNED per run, because these scripts live on shared disk and
+# are re-read on every lane retry/restart: a default flip mid-campaign would
+# otherwise change a running curve's semantics at whatever step the next pod
+# event lands (and SIMOPD_STOP_IDS is fingerprinted, so the resume guard below
+# would kill the lane outright). Pin wins over env; runs that predate the
+# contract grandfather to "off" with the var UNSET, keeping their fingerprint
+# byte-identical to history. New runs carry the contract from step 0.
+export SIMOPD_STOP_IDS=${SIMOPD_STOP_IDS:-151643,151645}
+mkdir -p "$ckpt_dir"
+stop_pin="$ckpt_dir/simopd_stop_contract.txt"
+if [ -f "$stop_pin" ]; then
+    SIMOPD_STOP_IDS=$(cat "$stop_pin")
+elif [ -f "$ckpt_dir/latest_checkpointed_iteration.txt" ]; then
+    SIMOPD_STOP_IDS=off
+    echo off > "$stop_pin"
+    echo "stop contract: pre-contract checkpoints found -> grandfathered to 'off' (pinned)"
+else
+    echo "$SIMOPD_STOP_IDS" > "$stop_pin"
+fi
+if [ "$SIMOPD_STOP_IDS" = off ]; then
+    unset SIMOPD_STOP_IDS
+    echo "stop contract: off (legacy single-eos run, pinned at $stop_pin)"
+else
+    export SIMOPD_STOP_IDS
+    echo "stop contract: {$SIMOPD_STOP_IDS} (pinned at $stop_pin)"
+fi
 # On a fresh run this is the step-0 anchor of the arm's curve and a wiring check
 # worth 75 minutes before committing 14 hours: 0.474 says the student and the
 # chat template loaded correctly, 0.05 says they did not. The resume branch below
