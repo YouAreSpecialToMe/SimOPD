@@ -251,7 +251,10 @@ for i in 0 1 2 3; do
                 export CUDA_VISIBLE_DEVICES=${PAIRS[$i]}
                 export TOTAL_TRAINING_STEPS=250
                 export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s${SEED}"
-                export WANDB_TAGS="${ARM},A,seed${SEED},dlc_a_axis"
+                # stop2 = 双停契约 v2 波次标记(R5 附录)。契约本体由 run_opd_baseline
+                # 的 run 级 pin 决定,此处只是让 wandb 面板一眼分清新旧 wave;legacy
+                # 波的同名 run 已随存档移侧退役。
+                export WANDB_TAGS="${ARM},A,seed${SEED},dlc_a_axis,stop2"
                 bash scripts/run_opd_baseline.sh \
                     data.seed="$SEED" \
                     actor_rollout_ref.rollout.seed="$SEED"
