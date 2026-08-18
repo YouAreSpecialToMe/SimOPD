@@ -1179,7 +1179,7 @@ def _with_term_panels(fn):
 
 if _TERM_EVENT:
     from verl.trainer.distillation.losses import DISTILLATION_LOSS_REGISTRY as _REG
-    for _name in topk_losses.TERM_EVENT_FAMILY + ("k1_fire_gate",):
+    for _name in topk_losses.TERM_EVENT_FAMILY + ("k1_fire_gate", "tip_select", "selectkd_verify", "teachability_select"):
         _f = _REG.get(_name)
         if _f is not None and not getattr(_f, "_term_event_wrapped", False):
             _REG[_name] = _with_term_panels(_f)

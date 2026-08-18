@@ -413,3 +413,7 @@
 17	any	n2_termcal	0	#18 raw N2 (substitute for the D slot: dense correction alone vs the pathology)
 17	any	n0_g5_rgopd	0	#19 N0 + g5 (substitute for the D slot; gate event-correct via tf values)
 17	any	n0_g2_fire	0	#20 N0 + g2 (substitute for the D slot; 4-GPU lane -- 19x2 + 1x4 = 42 cards, or drop one 2-GPU lane to fit 40)
+18	any	n0_d1_tip	0	corrected-rerun wave 2 (D group, 4-GPU lanes): selectors event-aligned via the support collapse (Path 2) + event-level base (Path 1); swap into wave 1 only at 4 cards each
+18	any	n0_d2_selectkd	0
+18	any	n0_d3_teachability	0
+

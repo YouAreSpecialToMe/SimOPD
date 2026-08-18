@@ -68,6 +68,9 @@ CAVEATS = {
     "n0_h4_randscatter": "corrected-rerun wave 1: judged against n0_termfix and the banked h4_random_scatter row, seed-paired",
     "n0_g5_rgopd": "corrected-rerun wave 1: judged against n0_termfix and the banked g5_rgopd_gate row, seed-paired",
     "n0_g2_fire": "corrected-rerun wave 1: judged against n0_termfix and the banked g2_fire_likelihood row, seed-paired",
+    "n0_d1_tip": "corrected-rerun wave 2 (D, both paths): judged against n0_termfix and the banked d1_tip row, seed-paired",
+    "n0_d2_selectkd": "corrected-rerun wave 2 (D, both paths): judged against n0_termfix and the banked d2_selectkd row, seed-paired",
+    "n0_d3_teachability": "corrected-rerun wave 2 (D, both paths): judged against n0_termfix and the banked d3_teachability row, seed-paired",
     "n2_termcal": "single-knob vs vanilla; verdict reads the termination fixed point (trunc/len) and the eos_* panels before composite; E_S={151643} student side, E_T={151643,151645} teacher side (stop-token audit 2026-08-19: same event, disjoint tokens); eos_dl_at_stop is the live receipt of the -25-nat terminal punishment in the PG base",
 }
 
@@ -93,6 +96,7 @@ ARMS = [  # ledger order: axis order from the plan
     "n0_b1_skew", "n0_g1_verified", "n0_g4_failure", "n0_g6_seqmean",
     "n0_f2_clip2.3", "n0_f4_posclip", "n0_f5_tanh", "n0_b5_k2", "n0_h1_firstseg", "n0_h3_randseg",
     "n0_h4_randscatter", "n0_g5_rgopd", "n0_g2_fire",
+    "n0_d1_tip", "n0_d2_selectkd", "n0_d3_teachability",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.

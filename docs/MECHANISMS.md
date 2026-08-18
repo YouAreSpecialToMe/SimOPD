@@ -165,7 +165,15 @@ ladder = the two registered adjudicators.
   answers only that remedy.
 - **N0 (registered 2026-08-19, `n0_termfix`, wave 17 — run FIRST): semantic
   alignment of the target representation — STOP token ratio → STOP event
-  ratio; no new loss, no new gradient channel.** User's formulation: "when the student
+  ratio; no new loss, no new gradient channel.** As a knob (`SIMOPD_TERM_EVENT=1`)
+  it repairs both routes of the mismatch: **Path 1** (sampled signal: e_S sampled
+  → −25) by reading the event-level sampled log-probs at the student's stops, and
+  **Path 2** (support: e_S ∉ S_T → the student's STOP mass squeezed out by any
+  support-restricted objective, and selectors fed a fake terminator divergence) by
+  collapsing the terminator coordinate of the teacher's top-k onto the student's
+  stop id, rank-inserted (`_collapse_terminator_support`). Measured victims of
+  Path 2: b2 1.6e-4 / e2 0.005 / c3 0.56 p(eot) at natural stops; d1's TIP
+  normalization pinned by the outlier (`docs/data/selector_stop_audit.txt`). User's formulation: "when the student
   samples `<|endoftext|>`, read the teacher's `<|im_end|>` probability" — made
   exact as the event level: vanilla with ONE change, at the sampled stop token
   the per-token signal is Δℓ_T = log Σ_{E_T} q − log Σ_{E_S} p instead of the

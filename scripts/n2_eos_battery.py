@@ -318,12 +318,32 @@ if HAVE_VERL:
         oc = T.compute_termcal_topk(z, t_lps, t_ids, cfg, None, data=None)
         ok(torch.allclose(oc["distillation_losses"][0], o0["distillation_losses"][0], atol=1e-5) and "eos_term" in oc,
            "k1_termcal under the flag == N0's raw + the BCE term (N0 + N2)")
-        # the generic helper (fire kernel path) matches the kernel's fix
+        # Path 2: the support collapse -- STOP (id E_S[0]) carries log q(E_T), other extras floored, row re-sorted
+        raw_lp = t_lps.values().unsqueeze(0)[..., :K]
+        raw_id = t_ids.values().unsqueeze(0)[..., :K]
+        c_lp, c_id = T._collapse_terminator_support(raw_lp, raw_id)
+        ok(c_lp.shape == raw_lp.shape and c_id.shape == raw_id.shape, "collapse keeps the K width")
+        ok(bool((c_lp[0].diff(dim=-1) <= 1e-6).all()), "collapsed rows are rank-ordered (desc)")
+        pos0 = (c_id[0] == STOP[0]).float().argmax(-1)
+        got_stop = c_lp[0].gather(1, pos0[:, None]).squeeze(1)
+        ok(torch.allclose(got_stop, torch.logsumexp(tlog[:, TCH], -1), atol=1e-6), "STOP column (student's stop id) carries the teacher's termination mass log q(E_T)")
+        for tid_ in [t for t in EXTRA if t != STOP[0]]:
+            posx = (c_id[0] == tid_).float().argmax(-1)
+            ok(bool((c_lp[0].gather(1, posx[:, None]).squeeze(1) <= T._COLLAPSED_FILLER + 1e-6).all()), f"extra id {tid_} floored at {T._COLLAPSED_FILLER} in the collapsed support")
+        real = torch.tensor([t for t in range(V) if t not in EXTRA])
+        for r in range(T_len):
+            keep_ids = [int(i) for i in c_id[0, r] if int(i) not in EXTRA]
+            exp_top = [t for t in torch.topk(tlog[r], K).indices.tolist() if t not in EXTRA][:K - n]
+            ok(sorted(keep_ids) == sorted(exp_top), f"row {r}: the real top-(K-n) columns are untouched by the collapse")
+        # Path 1 helper reads STOP off the collapsed support == the termfix kernel's fixed values
         lse_ = torch.logsumexp(z.float(), -1)
-        t_all_ = t_lps.values().unsqueeze(0)[..., :K]
-        stu_g, tch_g, is_stop_g = T._term_event_fix_sampled(z.float(), lse_, t_all_, t_lps.values().unsqueeze(0)[..., K], samp.unsqueeze(0), "test")
+        stu_g, tch_g, is_stop_g = T._term_event_fix_sampled(z.float(), lse_, c_lp, c_id, t_lps.values().unsqueeze(0)[..., K], samp.unsqueeze(0), "test")
         ok(torch.allclose(stu_g[0], o0["tf_stu_lp"][0], atol=1e-5) and torch.allclose(tch_g[0], o0["tf_tch_lp"][0], atol=1e-5) and bool((is_stop_g[0] == stop_pos).all()),
-           "_term_event_fix_sampled (fire kernel path) == the termfix kernel's fixed values")
+           "_term_event_fix_sampled on the collapsed support == the termfix kernel's fixed values (fire/D/EOPD path)")
+        # and the fake divergence is gone: TIP's teacher-topk divergence at the stop position, raw vs collapsed
+        stu_at_raw = z.float()[0].log_softmax(-1).gather(1, raw_id[0]); stu_at_col = z.float()[0].log_softmax(-1).gather(1, c_id[0])
+        d_raw = (raw_lp[0].exp() * (raw_lp[0] - stu_at_raw)).sum(-1); d_col = (c_lp[0].exp() * (c_lp[0] - stu_at_col)).sum(-1)
+        ok(bool(torch.isfinite(d_col).all()), f"teacher-topk divergence finite on the collapsed support (stop pos: raw {float(d_raw[3]):.3f} -> collapsed {float(d_col[3]):.3f}; toy teacher, direction not asserted)")
     else:
         print("== G. skipped (SIMOPD_TERM_EVENT unset)")
 

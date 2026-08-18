@@ -244,9 +244,12 @@ consumes the sampled-token raw log q_T(y) − log p_S(y) at y = `<|endoftext|>`*
 that select/shape/gate on top of vanilla k1 do; the C/E top-k distributional
 objectives mostly do not — but the audit (`scripts/analysis/selector_stop_audit.py`,
 `docs/data/selector_stop_audit.txt`) found two of them erase the stop through the
-SUPPORT instead. The fix is an orthogonal knob, `SIMOPD_TERM_EVENT=1` (N0 carrier +
-event-level sampled log-probs at the student's stops), so every corrected cell is
-"the same arm + the flag", judged seed-paired against its banked row and against N0.
+SUPPORT instead. The fix is an orthogonal knob, `SIMOPD_TERM_EVENT=1`, and it repairs BOTH routes: Path 1 —
+the sampled column reads event-level log-probs at the student's stops (the −25); Path 2 —
+the teacher's top-k support is collapsed so its termination mass sits on the student's stop
+id inside the rank-ordered support (e_S ∉ S_T no longer squeezes the student's stop mass,
+and selectors no longer see a fake terminator divergence). Every corrected cell is "the
+same arm + the flag", judged seed-paired against its banked row and against N0.
 
 **Wave 1 (registered, `campaign.tsv` wave 17): 20 one-seed cells, canonical seed 0,
 2 GPUs/lane except `n0_g2_fire` (4)** — priority N0/N2 > F > H > G1/G4/G6 > B1/B5 >
@@ -275,8 +278,8 @@ wave 1; AUDIT = measured, action stated; DROP = not rerun):
 |---|---|---|
 | RERUN (wave 1) | b1, b5, f1, f2, f3, f2_clip2.3, f4, f5, g1, g4, g6, h1, h2, h3, h4, g5, g2, + N2 | sampled-k1 descendants; their stop erased at 250 (b1 2.8e-5, h2 4e-6, g2 0.06, f3 0.37 partial) |
 | KEEP | c1, c1_direct, c1_tailbucket, c2, c2_qb_fixed8, c2_qb_perseq, c4, e1, e1_a0, e3, b4, b4_b0.1, b4_b0.9, h5 | renormalized/anchored top-k objectives: p(eot) at natural stops 0.86–1.0 at their latest ckpt, `<|im_end|>` never learned (1e-12–1e-18) — exempt by construction and by measurement |
-| AUDIT → later corrected variant | b2_forward_kl, e2_set_coverage, c3_intersection | NOT clean: unrenormalized forward KL / set coverage / intersection push out-of-support student mass down — p(eot) at natural stops b2 1.6e-4 (@175), e2 0.005, c3 0.56. Contaminated through the support, not the sampled column; a corrected variant needs the terminator coordinate collapsed inside the objective (E_T columns ↔ student E_S mass). Banked rows stand as legacy-contract results |
-| AUDIT → selector alignment first | d1_tip, d2_selectkd, d3_teachability | d1: the stop is selected 100% and its mismatch divergence (~24 nats) is the batch max, so min-max normalization compresses every other token's divergence — TIP degenerates toward entropy-only; d2: the stop is rejected (.01) while student top-1 = eot (early), protection lapses as top-1 drifts (g5@125: 60%); d3: stop selected 7% ≈ its 5% budget, robust norm. Event-aligned selectors (collapse the terminator coordinate in δ, in SelecTKD's top-5 test, in compatibility) before any rerun; not forced into wave 1 |
+| AUDIT → corrected variant = arm + flag (Path 2) | e2_set_coverage, c3_intersection (ready), b2_forward_kl (needs a thin dispatch wrapper: verl's own kernel bypasses `_prepare_streaming`) | NOT clean: unrenormalized forward KL / set coverage / intersection push out-of-support student mass down — p(eot) at natural stops b2 1.6e-4 (@175), e2 0.005, c3 0.56. Contaminated through the SUPPORT, not the sampled column. `SIMOPD_TERM_EVENT=1` now collapses the terminator coordinate of the support onto the student's stop id for every kernel that goes through `_prepare_streaming` (`_collapse_terminator_support`), so e2/c3 corrected cells are one env block away; not in wave 1. Banked rows stand as legacy-contract results |
+| RERUN wave 2 (`n0_d1_tip` `n0_d2_selectkd` `n0_d3_teachability`, 4-GPU lanes) | d1_tip, d2_selectkd, d3_teachability | audit: d1's stop position was selected 100% and its mismatch divergence (~24 nats) was the batch max — min-max normalization compressed every other token's divergence, TIP degenerated toward entropy-only; d2 rejected the stop (.01) only while student top-1 = eot, protection lapsing as top-1 drifts (g5@125: 60%); d3 selected it 7% ≈ its 5% budget. The selectors are now event-aligned by construction: under the flag they run on the collapsed support (STOP = teacher termination mass on the student's stop id, rank-inserted) and their base reads the event-level sampled column; the selector rules themselves are untouched. Registered as wave 18; swap into wave 1 only at 4 cards each |
 | AUDIT (done) | a2_coldstart | not a natural control: SFT init has neither terminator (~1e-3 each), the closing-template continuation instead; needs the SFT-target fix (A1') |
 | DROP | b3_eopd_gate, j1_kdrl, vanilla_n8, i0/i1 (shelved) | b3 scientifically dead + 1495 GPU·h; J/n8 dropped by the lane plan |
 | = N0 | vanilla | N0 is the corrected vanilla |

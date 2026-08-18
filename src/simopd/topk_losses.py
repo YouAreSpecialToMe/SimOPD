@@ -234,11 +234,22 @@ def _prepare(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, w
     return student_log_probs, t_lp, t_id, sampled_lp, sampled_id
 
 
-def _prepare_streaming(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled):
+def _prepare_streaming(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled, raw_block=False):
     """_prepare without materializing [T, V] log-probs (the KEEP_SAMPLED family's
     18.6GiB killer): returns the per-token logsumexp instead. Every consumer
     derives log p(j) = logits[j] - lse from gathers; see _lse_chunked. The
-    teacher-side unwrap below mirrors _prepare line for line."""
+    teacher-side unwrap below mirrors _prepare line for line.
+
+    SIMOPD_TERM_EVENT=1 (Path 2 of the terminal-token identity fix, 2026-08-19): unless
+    the caller asks for the raw gathered block (raw_block=True: the N0/N2 kernels, which
+    read E_S / E_T columns explicitly), the returned top-k support has its terminator
+    coordinate COLLAPSED onto the student's stop id -- see _collapse_terminator_support.
+    Every support-consuming kernel (renorm/quantile/intersection RKL, forward KL, JSD,
+    set coverage, PL/z anchors, the D selectors, EOPD, FiRe) then sees the student's
+    stop mass INSIDE the teacher's support at the teacher's true termination mass,
+    instead of e_S sitting outside S_T and being squeezed out (b2 1.6e-4, e2 0.005,
+    c3 0.56 at their natural stops; d1's TIP normalization pinned by a 24-nat fake
+    divergence at every stop -- selector_stop_audit)."""
     from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, slice_input_tensor
 
     assert teacher_topk_log_probs.is_nested and teacher_topk_ids.is_nested
@@ -261,8 +272,49 @@ def _prepare_streaming(student_logits, teacher_topk_log_probs, teacher_topk_ids,
         t_lp, sampled_lp = t_lp[..., :k_cfg], t_lp[..., k_cfg]
         t_id, sampled_id = t_id[..., :k_cfg], t_id[..., k_cfg].long()
 
+    if TERM_EVENT and not raw_block:
+        t_lp, t_id = _collapse_terminator_support(t_lp, t_id)
+
     lse = _lse_chunked(student_logits)
     return lse, t_lp, t_id, sampled_lp, sampled_id
+
+
+_COLLAPSED_FILLER = -40.0   # exp(-40) ~ 4e-18: contributes nothing to any objective, never -inf
+
+
+def _collapse_terminator_support(t_lp, t_id):
+    """Path 2 of the identity fix: collapse the terminator coordinate of the teacher's
+    support onto the student's stop id, then restore rank order.
+
+    Input rows are teacher_patch's [ top-(K-n) non-extra | E_S, E_T\\E_S, diag ] (exact
+    full-softmax values, extra ids excluded from the top block, so no duplicates).
+    Output rows: the same K columns, where the E_S[0] column carries the teacher's
+    TERMINATION mass log sum_{E_T} q at the student's own stop id, every other extra
+    column is neutralized at a finite floor, and the K columns are re-sorted by teacher
+    log-prob so the row is again a rank-ordered top-k -- with STOP inserted where the
+    teacher's termination mass ranks. Kernels that gather the student by id then read
+    p_S(E_S[0]) against q_T(STOP): the student's stop is inside the support at the
+    teacher's true stop mass, and the fake 'teacher wants <|im_end|>, student has 1e-11'
+    divergence disappears. (Under a multi-member E_S the student side is p_S(E_S[0]);
+    exact while the student's stop mass sits on E_S[0] -- eos_pm_i panels watch it.)"""
+    from simopd import eos_gather as EG
+    if not EG.enabled():
+        raise RuntimeError("SIMOPD_TERM_EVENT=1 needs the N0 carrier (SIMOPD_GATHER_EOS=1): the "
+                           "terminator columns to collapse are not in the payload")
+    n = EG.n_extra()
+    K = t_lp.shape[-1]
+    if K <= n:
+        raise RuntimeError(f"collapse: DISTILLATION_TOPK={K} must exceed the gathered block ({n})")
+    block = t_lp[..., K - n:]
+    if not bool(torch.isfinite(block).all()):
+        raise RuntimeError("collapse: -inf in the gathered block -- refusing a fabricated q=0")
+    t_cols = torch.tensor(EG.teacher_cols(), device=block.device, dtype=torch.long)
+    log_q_stop = torch.logsumexp(torch.index_select(block, -1, t_cols).float(), dim=-1).clamp(max=0.0)
+    new_block = torch.full_like(block, _COLLAPSED_FILLER)
+    new_block[..., 0] = log_q_stop.to(block.dtype)                    # column 0 of the block == E_S[0]
+    lp2 = torch.cat((t_lp[..., : K - n], new_block), dim=-1)
+    order = torch.argsort(lp2, dim=-1, descending=True)
+    return torch.gather(lp2, -1, order), torch.gather(t_id, -1, order)
 
 
 def _lse_chunked(student_logits, chunk=256):
@@ -946,7 +998,10 @@ def _d_axis_kernel(score_fn, extra_fn=None):
 
         stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
         keep, diag = score_fn(s_ent_fn, t_lp, t_id, stu_at_teacher, stu_topk_ids, stat)
-        stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
+        # N0 + D (SIMOPD_TERM_EVENT=1): the selector above already ran on the COLLAPSED
+        # support (Path 2); the sampled-column base reads the event-level values at the
+        # student's stop tokens (Path 1). Flag off: both are no-ops.
+        stu_sampled, sampled_lp, _is_stop = _term_event_fix_sampled(student_logits, lse, t_lp, t_id, sampled_lp, sampled_id, "d-axis")
         raw = _weighted_sampled_token_loss(
             stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
         )
@@ -973,6 +1028,7 @@ def _d_axis_kernel(score_fn, extra_fn=None):
         out["distillation_losses"] = losses
         out["d_raw_k1"] = raw          # panel source: the UNWEIGHTED signed k1 (F6)
         out["d_selected_frac"] = selected
+        _term_event_outputs(out, raw, stu_sampled, sampled_lp, _is_stop)
         out["d_sampled_missing"] = (~finite).float()
         out.update(diag)
         return out
@@ -1114,7 +1170,7 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
     finite = torch.isfinite(sampled_lp)
     if (~finite).sum() > 0:
         sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
-    stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
+    stu_sampled, sampled_lp, _is_stop = _term_event_fix_sampled(student_logits, lse, t_lp, t_id, sampled_lp, sampled_id, "eopd_entropy_gate")
     raw = _weighted_sampled_token_loss(
         stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
     )
@@ -1293,7 +1349,7 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     # N0 + g2 (SIMOPD_TERM_EVENT=1): the sampled column -- FiRe's Eq.4 trajectory
     # statistic AND the k1 base -- reads the event-level values at the student's stop
     # tokens; the entropy weights and the top-k panels are untouched. Flag off: no-op.
-    stu_sampled, sampled_lp, _is_stop = _term_event_fix_sampled(student_logits, lse, t_lp, sampled_lp, sampled_id, "k1_fire_gate")
+    stu_sampled, sampled_lp, _is_stop = _term_event_fix_sampled(student_logits, lse, t_lp, t_id, sampled_lp, sampled_id, "k1_fire_gate")
     raw = _weighted_sampled_token_loss(
         stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
     )
@@ -1309,18 +1365,7 @@ def compute_fire_components(student_logits, teacher_topk_log_probs, teacher_topk
     out["fire_s_ent"] = s_ent
     out["fire_tch_lp"] = sampled_lp
     out["fire_missing"] = (~finite).float()
-    if TERM_EVENT:
-        L = _term_event_fix_sampled.last
-        out["tf_stu_lp"] = stu_sampled
-        out["tf_tch_lp"] = sampled_lp
-        out["eos_sampled_is_stop"] = _is_stop.float()
-        out["eos_q"] = L["log_q"].exp().detach()
-        out["eos_p"] = L["log_p"].exp().detach()
-        out["eos_dstop"] = (L["log_q"].exp() - L["log_p"].exp()).detach()
-        out["eos_missing"] = torch.zeros_like(raw)
-        out["eos_dl_raw"] = (L["raw_tch"] - L["raw_stu"]).detach()      # vanilla's token-level Delta-ell
-        out["d_raw_k1"] = raw
-    return out
+    return _term_event_outputs(out, raw, stu_sampled, sampled_lp, _is_stop)
 
 
 # ---- N2: vanilla + an exact EOS-vs-rest calibration channel ---------------------
@@ -1371,7 +1416,7 @@ def _term_payload(student_logits, teacher_topk_log_probs, teacher_topk_ids, conf
     from simopd import eos_gather as EG
 
     lse, t_all, t_id_all, sampled_lp, sampled_id = _prepare_streaming(
-        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True, raw_block=True
     )
     stop = EG.stop_ids()
     extra = EG.extra_ids()
@@ -1501,32 +1546,50 @@ def compute_termfix_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     return out
 
 
-def _term_event_fix_sampled(student_logits, lse, t_all, sampled_lp, sampled_id, name):
-    """For a top-k kernel riding the N0 carrier under SIMOPD_TERM_EVENT=1: return the
-    sampled column (student, teacher) with the terminal-token identity fix applied, using
-    the gathered block at the end of `t_all` (layout [top-(K-n) | E_S, E_T\\E_S, diag]).
-    Returns (stu_sampled, sampled_lp, is_stop). No-op when the flag is off (the caller's own
-    values are returned unchanged)."""
+def _term_event_fix_sampled(student_logits, lse, t_lp, t_id, sampled_lp, sampled_id, name):
+    """Path 1 of the identity fix for a top-k kernel riding the N0 carrier under
+    SIMOPD_TERM_EVENT=1: return the sampled column (student, teacher) with the EVENT-level
+    values at the student's stop tokens. The teacher's termination mass is read off the
+    COLLAPSED support (the column whose id is E_S[0] carries log sum_{E_T} q -- see
+    _collapse_terminator_support), the student's off its logits at E_S. Returns
+    (stu_sampled, sampled_lp, is_stop); a no-op when the flag is off."""
     stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
     if not TERM_EVENT:
         return stu_sampled, sampled_lp, torch.zeros_like(sampled_id, dtype=torch.bool)
     from simopd import eos_gather as EG
     if not EG.enabled():
         raise RuntimeError(f"{name}: SIMOPD_TERM_EVENT=1 needs the N0 carrier (SIMOPD_GATHER_EOS=1)")
-    n = EG.n_extra()
-    K = t_all.shape[-1]
-    extra_lp = t_all[..., K - n:]
-    if not bool(torch.isfinite(extra_lp).all()):
-        raise RuntimeError(f"{name}: -inf in the gathered block -- refusing a fabricated q=0")
-    t_cols = torch.tensor(EG.teacher_cols(), device=extra_lp.device, dtype=torch.long)
-    log_q = torch.logsumexp(torch.index_select(extra_lp, -1, t_cols).float(), dim=-1).clamp(max=0.0)
-    stop_idx = torch.tensor(EG.stop_ids(), device=student_logits.device, dtype=torch.long)
+    stop = EG.stop_ids()
+    hit = (t_id == stop[0])
+    if not bool(hit.any(dim=-1).all()):
+        raise RuntimeError(f"{name}: the collapsed support has no STOP column (id {stop[0]}) on some position -- "
+                           "the payload is not the N0 carrier's")
+    log_q = torch.gather(t_lp, -1, hit.float().argmax(dim=-1, keepdim=True)).squeeze(-1).float()
+    stop_idx = torch.tensor(stop, device=student_logits.device, dtype=torch.long)
     log_p = torch.logsumexp(torch.index_select(student_logits, -1, stop_idx).float(), dim=-1) - lse
     is_stop = torch.isin(sampled_id, stop_idx)
     tch = torch.where(is_stop, log_q.to(sampled_lp.dtype), sampled_lp)
     stu = torch.where(is_stop, log_p.to(stu_sampled.dtype), stu_sampled)
     _term_event_fix_sampled.last = dict(log_q=log_q, log_p=log_p, raw_stu=stu_sampled, raw_tch=sampled_lp)
     return stu, tch, is_stop
+
+
+def _term_event_outputs(out, raw, stu_sampled, sampled_lp, is_stop):
+    """Under SIMOPD_TERM_EVENT=1: hand the event-fixed sampled column and the panel
+    receipts to the registry layer (same keys the termfix kernel emits)."""
+    if not TERM_EVENT:
+        return out
+    L = _term_event_fix_sampled.last
+    out["tf_stu_lp"] = stu_sampled
+    out["tf_tch_lp"] = sampled_lp
+    out["eos_sampled_is_stop"] = is_stop.float()
+    out["eos_q"] = L["log_q"].exp().detach()
+    out["eos_p"] = L["log_p"].exp().detach()
+    out["eos_dstop"] = (L["log_q"].exp() - L["log_p"].exp()).detach()
+    out["eos_missing"] = torch.zeros_like(raw)
+    out["eos_dl_raw"] = (L["raw_tch"] - L["raw_stu"]).detach()          # vanilla's token-level Delta-ell
+    out.setdefault("d_raw_k1", raw)
+    return out
 
 
 def _term_event_values(P):

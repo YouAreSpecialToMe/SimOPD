@@ -95,6 +95,7 @@ EXPECT_PG = {
     "n0_f2_clip2.3": True, "n0_f4_posclip": True, "n0_f5_tanh": True, "n0_b5_k2": False,
     "n0_h1_firstseg": True, "n0_h3_randseg": True, "n0_h4_randscatter": True, "n0_g5_rgopd": True,
     "n0_g2_fire": True,
+    "n0_d1_tip": True, "n0_d2_selectkd": True, "n0_d3_teachability": True,
     "g1_verified_only": True, "g1_quota": True, "g2_fire_likelihood": True,
     "g4_failure_only": True, "g4_quota": True, "g5_rgopd_gate": True,
     "g6_seqmean": True,

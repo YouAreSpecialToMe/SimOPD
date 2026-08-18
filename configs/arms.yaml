@@ -2191,7 +2191,8 @@ arms:
       SIMOPD_FIRE_BETA: "1.0"
       SIMOPD_FIRE_MODE: both
       # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
-      DISTILLATION_TOPK: 66
+      # 32 real top-k (g2's own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
       # g2 is a KEEP_SAMPLED [T,V] kernel: the 4-GPU family (teacher pool on separate cards)
       NGPUS_PER_NODE: "2"
       TEACHER_WORLD_SIZE: "2"
@@ -2202,6 +2203,115 @@ arms:
       SIMOPD_STOP_IDS: "off"
       SIMOPD_SHADOW: "0"
       # ---- the knob: event-level sampled log-probs at the student's own stop tokens
+      SIMOPD_TERM_EVENT: "1"
+
+  - run_id: n0_d1_tip
+    axis: N
+    cohort: supplement
+    desc: "[OURS] N0 + d1: TIP soft-OR selection (retention .5) on the corrected base and the collapsed support"
+    status: stock
+    note: "REGISTERED 2026-08-19, corrected-rerun (D group, wave 2 -- 4-GPU lanes). = d1_tip with
+           the terminal-token identity fix as an ORTHOGONAL knob (SIMOPD_TERM_EVENT=1), BOTH
+           paths: Path 1 -- the sampled-column base reads the event-level values at the
+           student's stop tokens; Path 2 -- the selector runs on the COLLAPSED support
+           (_collapse_terminator_support: the teacher's termination mass log q(E_T) sits on
+           the student's stop id inside the rank-ordered top-k, other terminator columns
+           floored). The selector's own rule is untouched. QUESTION: does TIP still collapse once its divergence input no longer carries the fake terminator outlier?
+           Audit (selector_stop_audit, 2026-08-19): before the collapse the stop position
+           was TIP-selected 100% with a 24-nat fake divergence that pinned min-max
+           normalization (TIP degenerated toward entropy-only); SelecTKD rejected the stop
+           (.01) only while the student's top-1 was e_S; teachability selected it 7%.
+           Judged against n0_termfix and the banked d1_tip row, seed-paired. Legacy
+           rollout contract pinned (SIMOPD_STOP_IDS off)."
+    env:
+      DISTILLATION_LOSS_MODE: tip_select
+      SIMOPD_D_RETENTION: "0.5"
+      # ---- the N0 carrier: 32 real top-k (the D arms' own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # the D kernels materialize [T,V]: the 4-GPU family, as their bases
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
+      # ---- the knob: Path 1 (event-level sampled column) + Path 2 (support collapsed onto the student's stop id)
+      SIMOPD_TERM_EVENT: "1"
+
+
+  - run_id: n0_d2_selectkd
+    axis: N
+    cohort: supplement
+    desc: "[OURS] N0 + d2: SelecTKD student-proposes/teacher-verifies (k=5, beta=.01) on the corrected base and the collapsed support"
+    status: stock
+    note: "REGISTERED 2026-08-19, corrected-rerun (D group, wave 2 -- 4-GPU lanes). = d2_selectkd with
+           the terminal-token identity fix as an ORTHOGONAL knob (SIMOPD_TERM_EVENT=1), BOTH
+           paths: Path 1 -- the sampled-column base reads the event-level values at the
+           student's stop tokens; Path 2 -- the selector runs on the COLLAPSED support
+           (_collapse_terminator_support: the teacher's termination mass log q(E_T) sits on
+           the student's stop id inside the rank-ordered top-k, other terminator columns
+           floored). The selector's own rule is untouched. QUESTION: does the metastable plateau survive once 'student wants to stop, teacher wants to stop' counts as agreement (STOP ranks in the teacher's top-5 at natural ends)?
+           Audit (selector_stop_audit, 2026-08-19): before the collapse the stop position
+           was TIP-selected 100% with a 24-nat fake divergence that pinned min-max
+           normalization (TIP degenerated toward entropy-only); SelecTKD rejected the stop
+           (.01) only while the student's top-1 was e_S; teachability selected it 7%.
+           Judged against n0_termfix and the banked d2_selectkd row, seed-paired. Legacy
+           rollout contract pinned (SIMOPD_STOP_IDS off)."
+    env:
+      DISTILLATION_LOSS_MODE: selectkd_verify
+      SIMOPD_SELECTKD_K: "5"
+      SIMOPD_SELECTKD_BETA: "0.01"
+      # ---- the N0 carrier: 32 real top-k (the D arms' own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # the D kernels materialize [T,V]: the 4-GPU family, as their bases
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
+      # ---- the knob: Path 1 (event-level sampled column) + Path 2 (support collapsed onto the student's stop id)
+      SIMOPD_TERM_EVENT: "1"
+
+
+  - run_id: n0_d3_teachability
+    axis: N
+    cohort: supplement
+    desc: "[OURS] N0 + d3: teachability = disagreement x compatibility (top-5%) on the corrected base and the collapsed support"
+    status: stock
+    note: "REGISTERED 2026-08-19, corrected-rerun (D group, wave 2 -- 4-GPU lanes). = d3_teachability with
+           the terminal-token identity fix as an ORTHOGONAL knob (SIMOPD_TERM_EVENT=1), BOTH
+           paths: Path 1 -- the sampled-column base reads the event-level values at the
+           student's stop tokens; Path 2 -- the selector runs on the COLLAPSED support
+           (_collapse_terminator_support: the teacher's termination mass log q(E_T) sits on
+           the student's stop id inside the rank-ordered top-k, other terminator columns
+           floored). The selector's own rule is untouched. QUESTION: does teachability selection still collapse once the stop coordinate is aligned in both factors?
+           Audit (selector_stop_audit, 2026-08-19): before the collapse the stop position
+           was TIP-selected 100% with a 24-nat fake divergence that pinned min-max
+           normalization (TIP degenerated toward entropy-only); SelecTKD rejected the stop
+           (.01) only while the student's top-1 was e_S; teachability selected it 7%.
+           Judged against n0_termfix and the banked d3_teachability row, seed-paired. Legacy
+           rollout contract pinned (SIMOPD_STOP_IDS off)."
+    env:
+      DISTILLATION_LOSS_MODE: teachability_select
+      SIMOPD_TEACH_K: "16"
+      SIMOPD_D_RETENTION: "0.05"
+      # ---- the N0 carrier: 32 real top-k (the D arms' own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # the D kernels materialize [T,V]: the 4-GPU family, as their bases
+      NGPUS_PER_NODE: "2"
+      TEACHER_WORLD_SIZE: "2"
+      # ---- the knob: Path 1 (event-level sampled column) + Path 2 (support collapsed onto the student's stop id)
       SIMOPD_TERM_EVENT: "1"
 
   - run_id: n2_termcal
