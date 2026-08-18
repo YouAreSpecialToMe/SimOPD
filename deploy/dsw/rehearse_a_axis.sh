@@ -44,7 +44,10 @@ export WANDB_MODE=offline                 # 彩排不进仪表板,指标看控�
 export DATA_DIR=$D/simopd_math
 export CKPT_ROOT=$D/ckpt                  # 3 步 < SAVE_FREQ,不落盘,只为路径合法
 export TOTAL_TRAINING_STEPS=3
-export MAX_RESPONSE_LENGTH=16384
+# :- 尊重臂设值(2026-08-18,h7/h8 彩排启用):固定深度臂经 arm.py env 携带自己的
+# 响应帽,此前的硬 export 会把它们覆写成香草 16k——彩排跑了个寂寞。A 臂不设此
+# 值,行为逐字节不变。
+export MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-16384}
 export ROLLOUT_GPU_MEM_UTIL=${ROLLOUT_GPU_MEM_UTIL:-0.45}
 export PYTHONUNBUFFERED=1
 
@@ -108,8 +111,13 @@ case "$ARM" in
   h10_task_subset)
     grep -q 'train_sub50.parquet' "$LOG"           || fail "subset parquet absent from launch config"
     ;;
-  h7_gen512|h8_gen2048)
-    : ;;   # h5 的已证机制换剂量,无横幅可验;判据即上方的步数与退出码
+  h7_gen512)
+    # 无横幅可验,但配置必须携带臂的帽——恰好抓"launcher 覆写臂设值"这类雷。
+    grep -q "max_response_length=512" "$LOG"       || fail "resp cap 512 absent from launch config"
+    ;;
+  h8_gen2048)
+    grep -q "max_response_length=2048" "$LOG"      || fail "resp cap 2048 absent from launch config"
+    ;;
   *)
     grep -q 'gkd_mix armed' "$LOG"                 || fail "gkd_mix wrapper never armed"
     grep -q 'gkd_mix: cache loaded' "$LOG"         || fail "teacher cache not loaded"
