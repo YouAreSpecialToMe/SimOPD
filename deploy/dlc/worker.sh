@@ -367,7 +367,30 @@ startable_rows() {  # "count maxwidth" aggregated across every served namespace 
     echo "$n $w"
 }
 
-FEED_TAGS=${FEED_TAGS:-"16k w"}   # p4b joins via env once its gate opens
+FEED_TAGS=${FEED_TAGS:-"16k w code16k"}   # p4b joins via env once its gate opens
+# What a tag's checkpoints are measured on. Empty = the 5-benchmark MATH suite,
+# emitted as the historical two-field line. Non-empty = one four-field line per
+# benchmark, "<bench>:<max_tokens>".
+#
+# A domain tag MUST have a spec. Feeding code16k as a bare two-field line would
+# send a code checkpoint through eval_suite's aime/amc23/minerva/math500 -- the
+# math metric, cheerfully produced, entirely meaningless for that run. That is
+# why feed_evalq refused domain tags outright until now.
+#
+# Caps equal each domain's TRAINING cap, not the benchmark's natural length.
+# The teacher needs ~300 tokens on HumanEval+, but a collapsed code arm will
+# generate to whatever ceiling it is given, and an eval cap below the training
+# cap would make part of the recorded truncation ours rather than the model's --
+# and truncation rate is Finding 1's central observable. The 2026-08-18 probe
+# measured exactly this: at 4096 the TEACHER already truncated 21.5% of codeval,
+# which fell to 5.0% at 16384.
+feed_spec() {
+    case "$1" in
+        code16k) echo "codeval:16384 humanevalplus:16384 mbppplus:16384" ;;
+        if4k)    echo "ifeval:4096" ;;   # ready; if4k joins FEED_TAGS with its campaign
+        *)       echo "" ;;
+    esac
+}
 FEED_SEC=${FEED_SEC:-1800}
 feed_evalq() {
     local stamp="$EVALQ/last_feed" lock="$EVALQ/feed.lock" now age ck run step tag added=0
@@ -397,15 +420,31 @@ feed_evalq() {
             # settled = the step dir stopped moving >=10 min ago; a bank still
             # being written must not be evaluated mid-copy
             [ $((now - $(stat -c %Y "${ck%/actor}" 2>/dev/null || echo "$now"))) -lt 600 ] && continue
-            local n=0 b
-            for b in aime24 aime25 amc23 minerva math500; do
-                compgen -G "$DATA/evals/${run}__${b}__step${step}__seed*" >/dev/null && n=$((n+1))
-            done
-            [ "$n" -ge 5 ] && continue                            # already measured
-            [ -d "$EVALQ/claims/${run}__${step}" ] && continue    # in flight
-            grep -qx "$run $step" "$EVALQ/pending.txt" && continue # already queued
-            echo "$run $step" >> "$EVALQ/pending.txt"
-            added=$((added+1))
+            local n=0 b spec item mt line
+            spec=$(feed_spec "$tag")
+            if [ -z "$spec" ]; then
+                for b in aime24 aime25 amc23 minerva math500; do
+                    compgen -G "$DATA/evals/${run}__${b}__step${step}__seed*" >/dev/null && n=$((n+1))
+                done
+                [ "$n" -ge 5 ] && continue                            # already measured
+                [ -d "$EVALQ/claims/${run}__${step}" ] && continue    # in flight
+                grep -qx "$run $step" "$EVALQ/pending.txt" && continue # already queued
+                echo "$run $step" >> "$EVALQ/pending.txt"
+                added=$((added+1))
+            else
+                # One line per benchmark, each with its own claim key, so a domain
+                # cell is worked by as many cards as it has benchmarks instead of
+                # one card running them back to back.
+                for item in $spec; do
+                    b=${item%%:*}; mt=${item##*:}
+                    compgen -G "$DATA/evals/${run}__${b}__step${step}__seed*" >/dev/null && continue
+                    [ -d "$EVALQ/claims/${run}__${step}__${b}" ] && continue
+                    line="$run $step $b $mt"
+                    grep -qxF "$line" "$EVALQ/pending.txt" && continue
+                    echo "$line" >> "$EVALQ/pending.txt"
+                    added=$((added+1))
+                done
+            fi
         done
     done
     rmdir "$lock" 2>/dev/null

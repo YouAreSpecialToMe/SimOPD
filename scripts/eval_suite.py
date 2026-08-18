@@ -77,9 +77,27 @@ def newest(out_dir, run_id, bench, step, k=None):
 
 
 def cmd_run(a):
+    # --bench splits one cell into per-benchmark units. The suite runs its five
+    # benchmarks serially inside one process, so a cell is as long as their sum --
+    # fine when the queue has more cells than cards, useless when it has fewer.
+    # On 2026-08-18 the backlog fell to 181 cells against 58 cards and the cards
+    # became the constraint; one benchmark per queue line turns the same work into
+    # ~5x the units at ~1/5 the wall clock each. Each benchmark keeps the k its
+    # SUITE entry gives it, so a split cell and a whole cell produce identical
+    # artifacts -- this changes scheduling granularity, never numbers.
+    want = None
+    if getattr(a, "bench", None):
+        want = {b.strip() for b in a.bench.split(",") if b.strip()}
+        known = {b for _, bs, _ in SUITE for b in bs}
+        unknown = want - known
+        if unknown:
+            sys.exit(f"--bench: not in the suite: {','.join(sorted(unknown))}; "
+                     f"known: {','.join(sorted(known))}")
     by_n = {}
     for _, benches, k in SUITE:
-        by_n.setdefault(k, []).extend(benches)
+        sel = [b for b in benches if want is None or b in want]
+        if sel:
+            by_n.setdefault(k, []).extend(sel)
     for k, benches in sorted(by_n.items(), reverse=True):
         # Per-bench resume (2026-08-13): a cell interrupted mid-way keeps its
         # finished benchmarks (the sweep left 156 such partials -- "aime24 is
@@ -171,6 +189,8 @@ def main():
         sp.add_argument("--step", type=int, default=None if name == "acc" else -1)
         sp.add_argument("--out-dir", default=os.environ.get("SIMOPD_EVALS",
                         os.path.expanduser("~/data/simopd_evals")))
+        sp.add_argument("--bench", help="comma-separated subset of the suite to run "
+                                        "(run only); default = the whole suite")
         sp.add_argument("--weights", help='JSON, e.g. \'{"aime":0.4,"amc23":0.2,...}\'; must sum to 1')
         sp.add_argument("--write", action="store_true", help="acc: persist the curve parquet")
         if name == "run":
