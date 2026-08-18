@@ -81,6 +81,9 @@ _bucket = {"step": None, "lam_target": 0.0, "hit": 0, "decline": 0, "miss": 0,
            "teacher_tokens": 0, "student_tokens": 0, "miss_tokens": 0}
 
 
+_flush_state = {"at": 0.0}
+
+
 def _flush_bucket():
     if _bucket["step"] is None or (_bucket["hit"] + _bucket["decline"] + _bucket["miss"]) == 0:
         return
@@ -92,10 +95,85 @@ def _roll_bucket(step, lam):
     # first request of a new step flushes the finished one; a straggler landing
     # after the roll would leak into the next bucket -- tolerated, this is a
     # monitoring channel and the sync loop does not pipeline steps.
+    #
+    # SNAPSHOT BELT (2026-08-18, empty-sideband incident): Ray SIGKILLs actors at
+    # teardown, so the final bucket's atexit flush is not guaranteed -- a short
+    # run whose steps never rolled over (or whose last rows died with the actor)
+    # leaves an empty file. Every 120s inside a step, append a CUMULATIVE
+    # snapshot of the live bucket: rows within one step are monotone supersets,
+    # the reader takes the last one, nothing downstream changes.
+    import time
+
+    now = time.monotonic()
     if step != _bucket["step"]:
         _flush_bucket()
         _bucket.update(step=step, lam_target=lam, hit=0, decline=0, miss=0,
                        teacher_tokens=0, student_tokens=0, miss_tokens=0)
+        _flush_state["at"] = now
+    elif now - _flush_state["at"] > 120.0:
+        _flush_bucket()
+        _flush_state["at"] = now
+
+
+def _flush_if_stale(limit=30.0):
+    # Completion-time belt: token counts land when awaits COMPLETE, minutes
+    # after the step's submission burst -- and Ray SIGKILLs the serving actor
+    # at teardown without running atexit, so the final step's bucket must
+    # reach disk while requests are still finishing. Cumulative snapshots;
+    # the reader takes the last row per step.
+    import time
+
+    now = time.monotonic()
+    if now - _flush_state["at"] > limit:
+        _flush_bucket()
+        _flush_state["at"] = now
+
+
+# CLOSURE/STATE SEAM (2026-08-18, zero-row sideband incident): the wrapper
+# built in install() is a DYNAMIC function, so when verl exports the wrapped
+# server class to its Ray actor, cloudpickle ships the closure BY VALUE -- and
+# the bare-dict globals it referenced arrived as private pickled COPIES.
+# Increments made directly inside the closure landed on those copies; the real
+# module's bucket stayed empty, every flush early-returned, and three rehearsal
+# rounds produced ZERO sideband rows under green banners and healthy mixing
+# (realised lambda tracked target throughout -- only telemetry split-brained;
+# /tmp/sbprobe micro-repro on gpu193 confirmed the mechanism). Module-level
+# FUNCTIONS are pickled by reference and execute against the real module of
+# the serving process, so the closure mutates state ONLY through the helpers
+# below; the battery pins this shape (co_names guard). a5_aggrevate follows
+# the same law.
+def _mark_pass():
+    _stats["pass"] += 1
+
+
+def _mark_nonhit(kind, lam, step):
+    """kind in {miss, decline}. Owns the periodic realised-mix print so the
+    closure never reads _stats directly."""
+    _stats[kind] += 1
+    _bucket[kind] += 1
+    seen = _stats["hit"] + _stats["decline"] + _stats["miss"]
+    if seen % 500 == 1:
+        elig = _stats["hit"] + _stats["decline"]
+        real = _stats["hit"] / elig if elig else 0.0
+        print(f"[simopd] gkd_mix: realised lambda {real:.3f} over {elig} eligible "
+              f"(hit {_stats['hit']} / declined {_stats['decline']}); "
+              f"{_stats['miss']} cache misses (val/unseen); "
+              f"target lambda {lam:.3f} @ step {step}", file=sys.stderr, flush=True)
+
+
+def _mark_nonhit_tokens(eligible, n):
+    _bucket["student_tokens" if eligible else "miss_tokens"] += n
+    _flush_if_stale()
+
+
+def _mark_hit_attempt():
+    _stats["hit"] += 1
+
+
+def _mark_hit_delivered(n):
+    _bucket["hit"] += 1
+    _bucket["teacher_tokens"] += n
+    _flush_if_stale()
 
 
 def _load_cache():
@@ -187,14 +265,18 @@ def install():
     # path() first and OUTSIDE the IO helpers: an unresolvable sideband path is a
     # config error and must kill the lane HERE at bringup -- the IO layer below
     # deliberately swallows everything (verification NEW-ISSUE 1).
+    # NO reset_file() here (2026-08-18 empty-sideband incident): sitecustomize
+    # arms this module in EVERY process that imports the server module, and
+    # late-spawning actors (agent-loop workers) were truncating the rows the
+    # actual serving process had already flushed. The sideband is append-only;
+    # launchers wanting a fresh file delete it before the run (rehearse does).
     gkd_stats.path()
     atexit.register(_flush_bucket)
-    gkd_stats.reset_file()
 
     async def generate(self, prompt_ids, sampling_params, request_id, *a, **kw):
         # Teacher-side scoring calls pass through untouched.
         if isinstance(sampling_params, dict) and sampling_params.get("prompt_logprobs") is not None:
-            _stats["pass"] += 1
+            _mark_pass()
             return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
         cache = _load_cache()
         key = prompt_key(prompt_ids)
@@ -203,26 +285,17 @@ def install():
         lam = _lam_at(step)
         _roll_bucket(step, lam)
         if cached is None or not coin(key, step, lam):
-            _stats["miss" if cached is None else "decline"] += 1
-            _bucket["miss" if cached is None else "decline"] += 1
-            seen = _stats["hit"] + _stats["decline"] + _stats["miss"]
-            if seen % 500 == 1:
-                elig = _stats["hit"] + _stats["decline"]
-                real = _stats["hit"] / elig if elig else 0.0
-                print(f"[simopd] gkd_mix: realised lambda {real:.3f} over {elig} eligible "
-                      f"(hit {_stats['hit']} / declined {_stats['decline']}); "
-                      f"{_stats['miss']} cache misses (val/unseen); "
-                      f"target lambda {lam:.3f} @ step {step}", file=sys.stderr, flush=True)
+            _mark_nonhit("miss" if cached is None else "decline", lam, step)
             out = await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
             tok = getattr(out, "token_ids", None)
             if tok is not None:
                 # Misses are val/unseen prompts: kept out of student_tokens so
                 # gkd_teacher_token_frac measures the TRAINING mix, not diluted
                 # by validation generations on val-frequency steps.
-                _bucket["student_tokens" if cached is not None else "miss_tokens"] += len(tok)
+                _mark_nonhit_tokens(cached is not None, len(tok))
             return out
 
-        _stats["hit"] += 1
+        _mark_hit_attempt()
         max_tokens = sampling_params.get("max_tokens") if isinstance(sampling_params, dict) else None
         resp = cached if max_tokens is None else cached[:max_tokens]
         # This verl's agent loop sends no max_tokens, so clamp against the engine
@@ -250,8 +323,7 @@ def install():
             # Aborted hits deliver nothing, so the bucket counts nothing: the
             # telemetry reports tokens that actually reached the batch.
             return scored
-        _bucket["hit"] += 1
-        _bucket["teacher_tokens"] += len(resp)
+        _mark_hit_delivered(len(resp))
         lps = tail_logprobs(extra, len(resp))
         extra.pop("prompt_logprobs", None); extra.pop("prompt_ids", None)
         # "completed" is verl's vocabulary for a finished generation ("stop" was ours

@@ -160,4 +160,24 @@ ok(True, "clean install no-ops without verl")
 for v in ("SIMOPD_GKD_CACHE", "SIMOPD_GKD_LAMBDA"):
     os.environ.pop(v, None)
 
+# 8. Structural guard (2026-08-18 zero-row sideband incident): the wrapped
+#    generate() is cloudpickled BY VALUE into the serving actor, where bare-dict
+#    globals it references become private copies -- increments vanish, flushes
+#    early-return on the real module's empty bucket, and the sideband stays
+#    empty under green banners. The closure may therefore touch state ONLY
+#    through module-level functions (pickled by reference). Enforced on the
+#    code object; no install()/verl needed, and reintroduction fails HERE.
+def _code_names(code):
+    names = set(code.co_names)
+    for c in code.co_consts:
+        if hasattr(c, "co_names"):
+            names |= _code_names(c)
+    return names
+
+
+_gen = next(c for c in gkd_mix.install.__code__.co_consts
+            if getattr(c, "co_name", "") == "generate")
+_bad = {"_bucket", "_stats", "_flush_state"} & _code_names(_gen)
+ok(not _bad, f"gkd_mix closure touches bare state globals directly: {_bad}")
+
 print(f"gkd_schedule battery {PASS}/{PASS} pass")

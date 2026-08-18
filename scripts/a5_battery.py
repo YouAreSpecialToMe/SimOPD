@@ -259,11 +259,14 @@ out = run(P1)
 ok(out.token_ids == [1, 2, 3, 4, 5, 6] and a5._bucket["degraded"] == 3,
    "teacher exception -> deliver student prefix, counted degraded")
 
-# ... and with no prefix to fall back to, a synthetic abort -- never None.
+# ... and with no prefix (kappa=0): a COUNTED student-fallback generation --
+# an empty/aborted output would crash verl's as_dict (rm_scores[-1] on size 0,
+# measured 2026-08-18, 110x, killed the first a5 rehearsal batch).
 force_kappa(0)
+SCRIPT.append(lambda p, sp: TokenOutput(token_ids=[42, 43], stop_reason="completed"))
 out = run(P1)
-ok(out is not None and out.stop_reason == "aborted" and a5._bucket["aborted"] == 2,
-   "teacher exception at kappa=0 -> synthetic aborted TokenOutput, not None")
+ok(out.token_ids == [42, 43] and a5._bucket["degraded"] == 4,
+   "teacher exception at kappa=0 -> counted student generation, never empty")
 
 # outcome-sum invariant: every eligible request lands in exactly one bucket.
 b = a5._bucket
@@ -286,5 +289,53 @@ ok(abs(rows[-2]["tail_token_frac"] - (rows[-2]["tail_tokens"] /
        (rows[-2]["tail_tokens"] + rows[-2]["prefix_tokens"]))) < 1e-12
    and "pid" in rows[-1], "derived fields + writer pid present")
 
+# TeacherRouteDead pass-through (round 4, 2026-08-18): a DEAD route (registry
+# unresolvable) must kill the request, not degrade -- the measured alternative
+# was 331/331 sequences silently training as vanilla under a green exit.
+# Transient per-request failures keep the degrade path (tested above).
+_saved_handles, _real_resolve = a5._handles, a5.teacher_registry.resolve
+a5._handles = None
+
+
+async def _dead_resolve(*a, **kw):
+    raise a5.teacher_registry.TeacherRouteDead("route dead (battery)")
+
+
+a5.teacher_registry.resolve = _dead_resolve
+force_kappa(2)
+SCRIPT.append(lambda p, sp: TokenOutput(token_ids=[1, 2, 3], stop_reason="completed"))
+try:
+    run(P1)
+    ok(False, "dead teacher route degraded instead of dying (kappa>0)")
+except a5.teacher_registry.TeacherRouteDead:
+    ok(True, "")
+force_kappa(0)
+try:
+    run(P1)
+    ok(False, "dead route at kappa=0 fell back to student instead of dying")
+except a5.teacher_registry.TeacherRouteDead:
+    ok(True, "")
+a5.teacher_registry.resolve = _real_resolve
+a5._handles = _saved_handles
+
 a5.kappa = _real_kappa
+
+# Structural guard (2026-08-18 zero-row sideband incident; twin of the gkd_mix
+# battery's): the closure is cloudpickled BY VALUE into the actor, bare-dict
+# globals become private copies -- all state mutations must route through
+# module-level functions (pickled by reference). Recurses into nested code
+# objects, so _student_fallback is covered too.
+def _code_names(code):
+    names = set(code.co_names)
+    for c in code.co_consts:
+        if hasattr(c, "co_names"):
+            names |= _code_names(c)
+    return names
+
+
+_gen = next(c for c in a5.install.__code__.co_consts
+            if getattr(c, "co_name", "") == "generate")
+_bad = {"_bucket", "_stats", "_flush_state"} & _code_names(_gen)
+ok(not _bad, f"a5 closure touches bare state globals directly: {_bad}")
+
 print(f"a5 battery {PASS}/{PASS} pass")

@@ -50,9 +50,11 @@ so their sum equals n_seen -- the lost-sequence detector.
   degraded      teacher tail or scoring failed; the student prefix was delivered
   aborted       nothing usable delivered (abort surfaced to the caller)
 
-Failure posture: teacher unreachable at first mix -> RuntimeError (an a5 that
-cannot mix must die, not train as vanilla); a single failed tail degrades THAT
-sequence and is counted, never silent.
+Failure posture: teacher route DEAD (registry unresolvable after full retry)
+-> TeacherRouteDead raised out of the rollout request, the lane dies -- round 4
+measured the alternative (331/331 sequences silently degraded to student-only,
+tail_token_frac 0, exit 0: a vanilla arm under a green banner). A single failed
+tail degrades THAT sequence and is counted, never silent.
 """
 
 import atexit
@@ -104,6 +106,9 @@ def kappa(key, step, tmax):
     return int(h[:12], 16) % (tmax + 1)
 
 
+_flush_state = {"at": 0.0}
+
+
 def _flush_bucket():
     b = _bucket
     # miss-only steps (val sweeps) still flush, matching gkd_mix (review #7).
@@ -123,11 +128,62 @@ def _roll_bucket(step, tmax):
     # Requests that awaited across a step boundary credit the NEW bucket --
     # misattribution only, tolerated; the sync loop's generate->train barrier
     # keeps it rare (same argument as gkd_mix's bucket).
+    # SNAPSHOT BELT: same as gkd_mix (2026-08-18 empty-sideband incident) --
+    # Ray SIGKILLs actors, the atexit flush is not guaranteed, so every 120s a
+    # cumulative snapshot of the live bucket lands; the reader takes the last.
+    import time
+
+    now = time.monotonic()
     if step != _bucket["step"]:
         _flush_bucket()
         _bucket.update(step=step, tmax=tmax, kappa_sum=0, n_seen=0, mixed=0,
                        pure_student=0, full_teacher=0, cap_full=0, degraded=0,
                        aborted=0, prefix_tokens=0, tail_tokens=0, miss=0)
+        _flush_state["at"] = now
+    elif now - _flush_state["at"] > 120.0:
+        _flush_bucket()
+        _flush_state["at"] = now
+
+
+def _flush_if_stale(limit=30.0):
+    # Completion-time belt (see gkd_mix._flush_if_stale): the final step's
+    # bucket must reach disk while requests are still completing, because Ray
+    # SIGKILLs the actor at teardown and atexit never runs there.
+    import time
+
+    now = time.monotonic()
+    if now - _flush_state["at"] > limit:
+        _flush_bucket()
+        _flush_state["at"] = now
+
+
+# CLOSURE/STATE SEAM: same law as gkd_mix (2026-08-18 zero-row sideband
+# incident) -- the wrapper closure is cloudpickled BY VALUE into the serving
+# actor, so bare-dict globals it touches directly are private copies invisible
+# to the real module. All state mutation routes through module-level functions
+# (pickled by reference); the battery pins this shape (co_names guard).
+def _mark_miss():
+    _stats["miss"] += 1
+    _bucket["miss"] += 1
+
+
+def _mark_seen(k, step, tmax):
+    _bucket["n_seen"] += 1
+    _bucket["kappa_sum"] += k
+    seen = sum(_stats.values())
+    if seen % 500 == 1:
+        print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
+              file=sys.stderr, flush=True)
+
+
+def _add_tokens(where, n):
+    if n:
+        _bucket[where] += n
+    _flush_if_stale()
+
+
+def _degraded_seen():
+    return _stats["degraded"] > 0
 
 
 def _outcome(name, ntok=0, where=None):
@@ -135,6 +191,7 @@ def _outcome(name, ntok=0, where=None):
     _bucket[name] += 1
     if where and ntok:
         _bucket[where] += ntok
+    _flush_if_stale()
 
 
 async def _teacher_generate(prompt_ids, budget, request_id):
@@ -174,10 +231,12 @@ def install():
                                "moved it; the arm cannot mix and would train as vanilla")
         return
     # Config errors (unresolvable sideband path) die HERE at bringup; the IO
-    # helpers below swallow everything (verification NEW-ISSUE 1).
+    # helpers below swallow everything (verification NEW-ISSUE 1). NO
+    # reset_file() (2026-08-18): late-spawning armed processes were truncating
+    # the serving process's rows -- the sideband is append-only, launchers
+    # delete it before a fresh run.
     gkd_stats.path()
     atexit.register(_flush_bucket)
-    gkd_stats.reset_file()
 
     async def generate(self, prompt_ids, sampling_params, request_id, *a, **kw):
         params_is_dict = isinstance(sampling_params, dict)
@@ -194,8 +253,7 @@ def install():
         tmax = _tmax_at(step)
         _roll_bucket(step, tmax)
         if key not in _load_keys():
-            _stats["miss"] += 1
-            _bucket["miss"] += 1
+            _mark_miss()
             return await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
 
         # The window discipline: never ask either engine to overflow. cap is the
@@ -211,14 +269,25 @@ def install():
         if mt_in:
             cap = min(cap, int(mt_in))
         k = min(kappa(key, step, tmax), max(cap, 0))
-        _bucket["n_seen"] += 1
-        _bucket["kappa_sum"] += k
+        _mark_seen(k, step, tmax)
         sp = dict(sampling_params) if params_is_dict else {}
 
-        seen = sum(_stats.values())
-        if seen % 500 == 1:
-            print(f"[simopd] a5_aggrevate: {_stats} (step {step}, tmax {tmax})",
-                  file=sys.stderr, flush=True)
+        async def _student_fallback(reason):
+            # kappa=0 infra failure has no student prefix to deliver, and an
+            # EMPTY output crashes verl's as_dict (rm_scores[-1] on a size-0
+            # response -- measured 2026-08-18, 110x, killed the first a5
+            # rehearsal batch). The honest degrade is a COUNTED on-policy
+            # student generation: this sequence trains as vanilla, the
+            # telemetry says so, and the lane lives.
+            if not _degraded_seen():
+                print(f"[simopd] a5_aggrevate: {reason}; delivering a counted "
+                      f"student generation instead", file=sys.stderr, flush=True)
+            _outcome("degraded")
+            fb = await fn(self, prompt_ids, sampling_params, request_id, *a, **kw)
+            ftok = getattr(fb, "token_ids", None)
+            if ftok:
+                _add_tokens("prefix_tokens", len(ftok))
+            return fb
 
         if cap <= 0 or k >= cap:
             # kappa consumed the whole window (or there is none): the student
@@ -261,8 +330,13 @@ def install():
         # NEW-ISSUE 2 -- the docstring promised this, now the code delivers it).
         try:
             tail = await _teacher_generate(list(prompt_ids) + prefix, budget, request_id)
+        except teacher_registry.TeacherRouteDead:
+            # Route dead (resolve exhausted its retry): die loudly, never train
+            # as vanilla -- kappa=0's student fallback is for transient infra,
+            # not for a run whose teacher can never arrive.
+            raise
         except Exception as e:
-            if _stats["degraded"] == 0:
+            if not _degraded_seen():
                 print(f"[simopd] a5_aggrevate: teacher call failed ({e!r}); degrading "
                       f"this and any further failures to the student prefix",
                       file=sys.stderr, flush=True)
@@ -270,13 +344,7 @@ def install():
         tail_ids = list(getattr(tail, "token_ids", None) or [])
         if tail is None or getattr(tail, "stop_reason", None) == "aborted" or not tail_ids:
             if prefix_out is None:
-                _outcome("aborted")
-                if tail is None:
-                    from verl.workers.rollout.replica import TokenOutput
-
-                    tail = TokenOutput(token_ids=[], log_probs=[], routed_experts=None,
-                                       stop_reason="aborted", extra_fields={})
-                return tail
+                return await _student_fallback("teacher tail unavailable at kappa=0")
             # The k+1-token student output is a valid capped on-policy sample;
             # deliver it rather than fail the request (counted, never silent).
             _outcome("degraded", len(prefix_out.token_ids or []), "prefix_tokens")
@@ -296,8 +364,7 @@ def install():
         extra = dict(getattr(scored, "extra_fields", None) or {})
         if getattr(scored, "stop_reason", None) == "aborted" or "prompt_logprobs" not in extra:
             if prefix_out is None:
-                _outcome("aborted")
-                return scored
+                return await _student_fallback("scoring unavailable at kappa=0")
             _outcome("degraded", len(prefix_out.token_ids or []), "prefix_tokens")
             return prefix_out
 
@@ -305,8 +372,8 @@ def install():
         extra.pop("prompt_logprobs", None)
         extra.pop("prompt_ids", None)
         _outcome("mixed" if prefix else "full_teacher")
-        _bucket["prefix_tokens"] += len(prefix)
-        _bucket["tail_tokens"] += len(tail_ids)
+        _add_tokens("prefix_tokens", len(prefix))
+        _add_tokens("tail_tokens", len(tail_ids))
         from verl.workers.rollout.replica import TokenOutput
 
         return TokenOutput(token_ids=[int(t) for t in stitched], log_probs=lps,

@@ -1248,6 +1248,114 @@ arms:
     env:
       MAX_RESPONSE_LENGTH: "100"
 
+  - run_id: h7_gen512
+    axis: H
+    cohort: supplement
+    desc: "[OURS] generate only K=512 tokens and supervise all -- h5's mechanism at a mid dose (depth dose line)"
+    status: stock
+    note: "ADDED 2026-08-18 (efficiency-survey expansion wave 1; zero new code --
+           h5's exact env-cap mechanism at a different dose, kept deliberately
+           IDENTICAL in form so the depth dose line {100, 512, 2048, 16384-full}
+           stays mechanism-pure; it is the H-axis mirror of axis A's lambda dose
+           line. Same recorded confound as h5: in-loop val generates under the
+           same cap (greedy@512, not main-table comparable), judge is the offline
+           suite on saved checkpoints. Survey anchors: FastOPD 2602.15260 / ESR
+           2605.27028 / TOPD 2605.31490 all live on this line; TOPD's claim that
+           ~10% of full horizon matches full OPD is bracketed by 512/16384~=3%
+           and h8's 2048/16384=12.5%. Fingerprint-split via resp=512."
+    env:
+      MAX_RESPONSE_LENGTH: "512"
+
+  - run_id: h8_gen2048
+    axis: H
+    cohort: supplement
+    desc: "[OURS] generate only K=2048 tokens and supervise all -- h5's mechanism at a high dose (depth dose line)"
+    status: stock
+    note: "ADDED 2026-08-18 with h7 (same design, same recorded val confound, same
+           offline-suite judge). 2048 sits just above TOPD's ~10%-of-full claim
+           (12.5%) and at the response-length p25..p50 region of early training
+           (measured s0 step-25 mean ~5.6-6.9k), so unlike h5's 100 it caps only
+           the long tail early on -- the dose line's gentlest cut. Fingerprint-split
+           via resp=2048."
+    env:
+      MAX_RESPONSE_LENGTH: "2048"
+
+  - run_id: h10_task_subset
+    axis: H
+    cohort: supplement
+    desc: "[OURS] train on a deterministic 50% prompt subset at FULL depth -- the task-allocation anchor ('some tasks need not roll at all')"
+    status: stock
+    note: "ADDED 2026-08-18 (efficiency-survey expansion wave 1). The survey's
+           second efficiency dimension is prompt/task allocation (PACED 2603.11178
+           et al.); competence-frontier weighting needs pass-rate estimates that
+           our n=1 protocol cannot fund, so wave 1 plants the ANCHOR instead:
+           halve the task set, keep everything else protocol-identical (same 250
+           steps, same batch 128, same full 16k depth -- the subset is revisited
+           ~2x more often, ~4.4 epochs vs ~2.2). Reads: if h10 ~= vanilla on the
+           offline suite, task coverage is not where the tokens earn their keep
+           (prompt-skipping is nearly free efficiency); if h10 < vanilla, coverage
+           is load-bearing and smart task selection has real headroom. Zero new
+           training code: TRAIN_FILE_BASENAME is a stock launcher knob and enters
+           the resume fingerprint via data=; subset built by
+           scripts/gen_task_subset.py (sha1(prompt-key) parity, frac=0.5, seeded,
+           provenance columns) -> simopd_data/simopd_math/train_sub50.parquet."
+    env:
+      TRAIN_FILE_BASENAME: train_sub50.parquet
+
+  - run_id: h6_gen_sched
+    axis: H
+    cohort: supplement
+    desc: "[OURS: POPD 2605.31490 / FastOPD-schedule 2602.15260 form] rollout horizon H(step) linear 128->16384; val exempt via membership gate"
+    status: stock
+    note: "ADDED 2026-08-18 (efficiency-survey expansion wave 1). Progressive
+           horizon: per-request max_tokens clamped to H(step) at the same
+           vLLMHttpServer.generate seam as gkd_mix/a5 (src/simopd/h_horizon.py),
+           schedule machinery = gkd_schedule verbatim, bounds [1,16384] enforced
+           at install (H=0 is the empty-rollout as_dict crash class). REGISTERED
+           IMPROVEMENT over h5's recorded confound: membership gate (SIMOPD_H_KEYS
+           = the a5 .dry key file) exempts val/unseen prompts, so in-loop val
+           generates at FULL budget and stays main-table comparable -- the clamp
+           only ever touches training rollouts (h_miss in telemetry counts the
+           exemptions working). Mutual exclusion with A-arm knobs refused at
+           install. Telemetry: per-step sideband h_* fields (target, realized
+           mean, cap-hit frac, gen tokens) relayed to wandb via the losses h key
+           set. The matched-budget pair vs a fixed-H arm (axis-A R2's design on
+           the depth axis; ramp mean ~8256) is a registered follow-up config,
+           not this arm. Reads against h5/h7/h8: schedule-vs-fixed at the depth
+           axis; against vanilla: the accuracy-vs-generated-tokens frontier."
+    env:
+      SIMOPD_H_SCHEDULE: "mode=linear,start=128,end=16384,warmup=0,decay=250"
+      SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+
+  - run_id: h9_prune_adapt
+    axis: H
+    cohort: supplement
+    desc: "[OURS: Prune-OPD 2605.07804 lite] response budget adapted from teacher-lost-the-thread reliable lengths"
+    status: stock
+    note: "ADDED 2026-08-18 (wave 1). PROVENANCE HONESTY: Prune-OPD's published
+           controller consumes per-position teacher/student TOP-K SET overlap;
+           our protocol loss is sampled-token k1 -- the trainer sees log-prob
+           SCALARS, no distributions at the seam -- so the lite controller keeps
+           the architecture (compatibility events -> reliable length -> adapted
+           budget) and swaps the event signal for what the protocol measures:
+           log pi_T(student token) < -9.2 (~1e-4; the ESR 2605.27028 off-policy
+           teacher-decay story, the same quantity the delta-ell position panels
+           chart). The M=8th lost event marks a sequence's reliable length;
+           budget = EMA(0.7) of the micro-batch q90 * 1.25 margin, clipped
+           [256, 16384]; STARTS at the full window and adapts DOWN (Prune's
+           posture: shorten only on evidence; high compatibility keeps the
+           window long). Constants are code-documented in h9_controller.py, not
+           knobs -- wave 1 registers exactly one curve. Pipeline: k1_rec hook
+           (losses._h9_observe, exceptions never propagate; a frozen budget is
+           visible in the h9_* panel) -> h_budget reverse sideband (append-only,
+           EXPERIMENT_NAME-keyed) -> h_horizon budget mode clamps the NEXT
+           rollouts. Same membership gate as h6: val/unseen exempt at full
+           budget. Single-rank assumption recorded (protocol lanes train
+           n_gpus_per_node=1; DP>1 would need a single-writer rule)."
+    env:
+      SIMOPD_H9_ADAPT: "1"
+      SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
     axis: I

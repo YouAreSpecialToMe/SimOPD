@@ -5,8 +5,16 @@
 #             per-request seed ⇒ 重跑逐 token 一致;分片各自幂等跳过)
 #   彩排  R  每臂 3 步 rehearse_a_axis.sh,机器判据自动裁定(判据见该脚本头);
 #             任一臂 FAIL → 挂起待查,绝不带病发射
-#   发射  L  a1/a3/a4/a5 × s0,每臂 2 卡一条 lane,250 步,ckpt 落
-#             $D/ckpt/simopd/{arm}_s0_16k → post-eval 流水线的 *_16k glob 自动接管
+#   发射  L  a1/a3/a4/a5 × s${SEED},每臂 2 卡一条 lane,250 步,ckpt 落
+#             $D/ckpt/simopd/{arm}_s${SEED}_16k → post-eval 流水线的 *_16k glob 自动接管
+#
+# SEED 参数化(2026-08-18,全量 4 臂 × 3 seed):一个 seed 一个 DLC 作业(各
+# 1 worker × 8 GPU),三次提交 —— 故障域隔离(单作业 AIMaster 重启不殃及别的
+# seed),排 8 卡也比一次排 24 卡容易。SEED 从执行命令环境进载荷,缺省 0 时与
+# 旧单 seed 行为逐字节一致。Phase P/R 皆 seed 无关:P 的教师缓存全 seed 共享
+# (混合币本就按 (prompt,step) 确定),R 彩排验证机制不验证 seed —— seed!=0
+# 的作业只等 .OK 标记,绝不自己彩排(两作业并发彩排会撞 rehearsal_* 日志与
+# ckpt 命名空间)。
 #
 # 为什么走 DLC:DSW pod 说没就没(2026-08-15 gpu141 死于预计算 20 分钟处),
 # DLC 任务被回收会重启 → 本脚本重入:P 见 parquet 即跳,R 见 .OK 标记即跳,
@@ -27,18 +35,33 @@ ROOT=/mgfs/shared/Group_GY/changhao/SimOPD
 D=/mgfs/shared/Group_GY/changhao/simopd_data
 ARMS=(a1_gkd_mix0.5 a3_offpolicy a4_dagger_anneal a5_aggrevate)
 PAIRS=(0,1 2,3 4,5 6,7)
+SEED=${SEED:-0}
+
+# 远程中止开关(bug 11 运维产物):所有挂起/等待循环每轮检查此标记,存在即
+# exit 17 → AIMaster 重启 → 新 pod 从 /mgfs 重读脚本,自动拾取修复——挂死的
+# 作业从此不必进控制台手停。用法:touch $D/a_axis/fleet_abort_s<N>;用后必删,
+# 否则重启风暴。
+_abort_check() {
+    if [ -f "$D/a_axis/fleet_abort_s${SEED}" ]; then
+        echo "abort marker $D/a_axis/fleet_abort_s${SEED} found; exiting 17 for AIMaster restart"
+        exit 17
+    fi
+}
 
 # ---------------------------------------------------------------- submitter --
 if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; then
     cat <<CARD
-================ DLC 控制台表单(1 worker × 8 GPU) ================
-  任务名称   simopd-a-axis-4lane
+======== DLC 控制台表单(每个 seed 一个作业,各 1 worker × 8 GPU) ========
+  任务名称   simopd-a-axis-4lane-s<N>      (N = 0 / 1 / 2,共三次提交)
   节点数量   1
   单节点GPU  8      CPU 64      内存 512Gi(照 eval 舰队成功任务的规格填)
   镜像/资源组/数据集挂载:照抄上一个成功的 EVAL_ONLY 任务表单(挂载须含 /mgfs)
-  执行命令:
-    bash $ROOT/deploy/dlc/a_axis_fleet.sh
-====================================================================
+  执行命令(三个作业各填一条):
+    SEED=0 bash $ROOT/deploy/dlc/a_axis_fleet.sh
+    SEED=1 bash $ROOT/deploy/dlc/a_axis_fleet.sh
+    SEED=2 bash $ROOT/deploy/dlc/a_axis_fleet.sh
+  前置:$D/a_axis/ 下须已有四个 rehearsal_*.OK(seed!=0 只等标记,不自彩排)
+==========================================================================
 本机不是 DLC 容器(无 rank env),以上为提交卡片;容器内执行同一脚本即运行载荷。
 CARD
     exit 0
@@ -49,13 +72,13 @@ fi
 # lane/分片再跑一遍(ckpt 目录撞车)。rank 取值沿用 exp worker.sh 的优先序。
 _rank=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-0}}}
 if [ "${_rank}" != "0" ]; then
-    while true; do echo "rank ${_rank}: single-worker job, idling ($(date))"; sleep 600; done
+    while true; do _abort_check; echo "rank ${_rank}: single-worker job, idling ($(date))"; sleep 600; done
 fi
 cd "$ROOT"
 LOGD=$D/a_axis
 mkdir -p "$LOGD"
 exec > >(tee -a "$LOGD/fleet_$(date +%Y%m%d_%H%M%S).log") 2>&1
-echo "== a_axis_fleet on $(hostname), git $(git log --oneline -1 2>/dev/null | head -1)"
+echo "== a_axis_fleet on $(hostname), seed ${SEED}, git $(git log --oneline -1 2>/dev/null | head -1)"
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
 nvidia-smi -L | head -8
 source simopd/bin/activate
@@ -68,6 +91,27 @@ source simopd/bin/activate
 
 export DATA_DIR=$D/simopd_math
 export CKPT_ROOT=$D/ckpt                 # -> $D/ckpt/simopd/<EXPERIMENT_NAME>,post-eval glob 范围内
+# NCCL/GLOO 接口选择(bug 11 真终版):首个 DLC 作业死于 "Bootstrap : no socket
+# interface found",第二次开机回显暴露真根因——**DLC 平台在容器里预注入
+# NCCL_SOCKET_IFNAME=bond1**,把 NCCL 钉死在本 pod 不存在的接口上;此前的
+# "尊重已有环境"(:-)恰好让位给了这个坏注入。tools/dlc/exp*.sh 无条件强写
+# bond0 正是前辈踩过同一坑的痕迹。所以:绝不信任容器预注入,按存在性在
+# {bond0,bond1,eth0} 里选第一个真实接口,全无则 lo(所有 lane 单节点、世界
+# 大小 1,bootstrap 有接口即可,数据面走 SHM/P2P);NCCL/GLOO 双 pin、
+# NET_PLUGIN=none 一律无条件覆盖。手工指定走 SIMOPD_NET_IFACE(专用变量,
+# 不与平台注入同名)。开机回显 /sys/class/net 全量,任何意外一眼可诊。
+_ifs=$(ls /sys/class/net 2>/dev/null | tr "\n" " ")
+_pick=${SIMOPD_NET_IFACE:-}
+if [ -z "$_pick" ]; then
+    for _c in bond0 bond1 eth0; do
+        [ -e "/sys/class/net/$_c" ] && { _pick=$_c; break; }
+    done
+    [ -n "$_pick" ] || _pick=lo
+fi
+export NCCL_SOCKET_IFNAME=$_pick GLOO_SOCKET_IFNAME=$_pick
+export NCCL_NET_PLUGIN=none
+export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
+echo "== net ifaces: picked $_pick (pod has: $_ifs) NCCL_NET_PLUGIN=none"
 export MAX_RESPONSE_LENGTH=16384
 export ROLLOUT_GPU_MEM_UTIL=0.45         # campaign 钉值(见 deploy/campaign.sh 的论证)
 export PYTHONUNBUFFERED=1
@@ -77,6 +121,11 @@ export PYTHONUNBUFFERED=1
 # 输出留档;只有"关于本任务四臂、且非战役簿记类"的问题才拦发射——env/旋钮/
 # 分支漂移是 lane 安全问题,清单行覆盖与 verdict 名单是簿记,重复行属协作者
 # 名册状态。失败改挂起待查:重启永远修不了注册表,不再烧重启配额。
+# 只有 seed-0 作业跑 lint(2026-08-18 实测):注册表由 git 钉死、三 seed 同码,
+# seed 作业重复 lint 零收益;且 s1/s2 与 s0 训练流量同抢 /mgfs 时,lint 的
+# venv 导入(数千次 NFS stat)曾把两个作业钉死在开机 20 分钟+。lint 日志也
+# 因此不再三作业互相截断。
+if [ "$SEED" = 0 ]; then
 LINT_LOG=$LOGD/arm_lint.log
 python scripts/arm_lint.py > "$LINT_LOG" 2>&1 || true
 BAD=$(grep 'PROBLEM' "$LINT_LOG" \
@@ -84,12 +133,16 @@ BAD=$(grep 'PROBLEM' "$LINT_LOG" \
       | grep -vE 'campaign\.tsv row|verdict\.py ARMS' || true)
 if [ -n "$BAD" ]; then
     while true; do
+        _abort_check
         echo "ARM_LINT (scoped) FAILED -- lanes NOT launched ($(date)):"
         echo "$BAD"
         sleep 600
     done
 fi
 echo "== arm_lint: scoped gate clean (full report: $LINT_LOG)"
+else
+echo "== arm_lint: skipped for seed ${SEED} (registry git-pinned; seed-0 gates for the fleet)"
+fi
 
 # ------------------------------------------------------------ Phase P 预计算 --
 if [ ! -f "$D/gkd_offpolicy.parquet" ]; then
@@ -136,13 +189,30 @@ echo "== Phase P done: $(ls -la "$D/gkd_offpolicy.parquet" | awk '{print $5}') b
 
 # -------------------------------------------------------------- Phase R 彩排 --
 echo "== Phase R: 3-step rehearsals (4 arms parallel, one 2-GPU pair each)"
+if [ "$SEED" != 0 ]; then
+    # seed!=0 只等标记:并发彩排会互撞日志与 rehearsal ckpt 命名空间。标记由
+    # seed-0 作业或手工彩排(gpu193 实践)落盘,seed 无关可复用。
+    until [ -f "$LOGD/rehearsal_${ARMS[0]}.OK" ] && [ -f "$LOGD/rehearsal_${ARMS[1]}.OK" ] \
+       && [ -f "$LOGD/rehearsal_${ARMS[2]}.OK" ] && [ -f "$LOGD/rehearsal_${ARMS[3]}.OK" ]; do
+        _abort_check
+        echo "seed $SEED: waiting for 4/4 rehearsal .OK markers in $LOGD ($(date))"
+        sleep 600
+    done
+    echo "== Phase R done (markers found; rehearsed elsewhere)"
+else
+_rpids=()
 for i in 0 1 2 3; do
     ARM=${ARMS[$i]}
     [ -f "$LOGD/rehearsal_${ARM}.OK" ] && { echo "rehearsal $ARM already OK, skip"; continue; }
     ( bash deploy/dsw/rehearse_a_axis.sh "$ARM" "${PAIRS[$i]}" \
         && touch "$LOGD/rehearsal_${ARM}.OK" ) &
+    _rpids+=($!)
 done
-wait
+# 裸 wait 是禁忌(2026-08-18 实测:四臂全跳过后任务在此无限挂死):此 bash 的
+# 无参 wait 连 exec 的 tee 进程替换一起等,而 tee 到脚本终结才退——08-17 的
+# "Phase P wait 挂死"同根因,当时的文件屏障恰好绕开。显式 pid 数组只等真子
+# 任务;空数组必须整个跳过(wait 空参数又退化成裸 wait)。
+[ ${#_rpids[@]} -gt 0 ] && wait "${_rpids[@]}"
 FAILED=""
 for ARM in "${ARMS[@]}"; do
     [ -f "$LOGD/rehearsal_${ARM}.OK" ] || FAILED="$FAILED $ARM"
@@ -150,19 +220,22 @@ done
 if [ -n "$FAILED" ]; then
     # 挂起待查而非退出:DLC 对非零退出可能重启风暴,而彩排失败需要人看日志。
     while true; do
+        _abort_check
         echo "REHEARSAL FAILED:$FAILED -- lanes NOT launched. logs: $LOGD/rehearsal_*.log ($(date))"
         sleep 600
     done
 fi
 echo "== Phase R done: 4/4 rehearsals OK"
+fi
 
 # -------------------------------------------------------------- Phase L 发射 --
-echo "== Phase L: 4 lanes x 250 steps (TEST/SAVE freq 25, auto-resume from ckpt)"
+echo "== Phase L: 4 lanes x 250 steps, seed ${SEED} (TEST/SAVE freq 25, auto-resume from ckpt)"
 # 无 wandb 凭证时降级 offline:DLC pod 的 /root 是易失的,凭证只可能来自任务
 # 环境面板或镜像;缺了它 wandb.init 会在 step 0 前杀死 lane。offline 下步级
 # 指标仍在控制台日志里(gkd_* 走同一通道),post-eval 流水线不受影响。
 [ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
 
+_lpids=()
 for i in 0 1 2 3; do
     ARM=${ARMS[$i]}
     (
@@ -174,25 +247,39 @@ for i in 0 1 2 3; do
                 set -e
                 _arm_env=$(python scripts/arm.py env "$ARM")   # 拒绝臂在此死,绝不静默 vanilla
                 eval "$_arm_env"
-                export EXPERIMENT_NAME="${ARM}_s0_16k"
+                export EXPERIMENT_NAME="${ARM}_s${SEED}_16k"
                 export CUDA_VISIBLE_DEVICES=${PAIRS[$i]}
                 export TOTAL_TRAINING_STEPS=250
-                export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s0"
-                export WANDB_TAGS="${ARM},A,seed0,dlc_a_axis"
+                export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s${SEED}"
+                export WANDB_TAGS="${ARM},A,seed${SEED},dlc_a_axis"
                 bash scripts/run_opd_baseline.sh \
-                    data.seed=0 \
-                    actor_rollout_ref.rollout.seed=0
+                    data.seed="$SEED" \
+                    actor_rollout_ref.rollout.seed="$SEED"
             ) && { echo "lane ${ARM}: attempt $attempt completed"; break; }
             echo "lane ${ARM}: attempt $attempt failed ($(date)); resume-retry"
             sleep 30
         done
-    ) > "$LOGD/lane_${ARM}.log" 2>&1 &
-    echo "lane ${ARM} -> GPUs ${PAIRS[$i]}, log $LOGD/lane_${ARM}.log"
+    ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 &
+    _lpids+=($!)
+    echo "lane ${ARM} (seed ${SEED}) -> GPUs ${PAIRS[$i]}, log $LOGD/lane_${ARM}_s${SEED}.log"
 done
-wait
+# 同 Phase R:显式 pid,绝不裸 wait(tee 进程替换死锁)。
+wait "${_lpids[@]}"
 echo "== Phase L done"
+ok=0
 for ARM in "${ARMS[@]}"; do
-    ck=$(ls -d "$D/ckpt/simopd/${ARM}_s0_16k/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
-    echo "  ${ARM}_s0_16k: last checkpoint step ${ck:-NONE}"
+    ck=$(ls -d "$D/ckpt/simopd/${ARM}_s${SEED}_16k/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
+    echo "  ${ARM}_s${SEED}_16k: last checkpoint step ${ck:-NONE}"
+    [ -n "$ck" ] && ok=$((ok+1))
 done
+# 全灭防假成功(bug 11 连带发现):四 lane 重试烧光后脚本曾照常打 DONE 退出 0,
+# DLC 记"成功"且不再重启,8 卡任务零产出静默终结。零存档一律挂起待查(重启
+# 修不了环境错;挂起让失败可见、不烧重启配额)。
+if [ "$ok" -eq 0 ]; then
+    while true; do
+        _abort_check
+        echo "ALL LANES DEAD, zero checkpoints banked -- NOT declaring success; inspect $LOGD/lane_*_s${SEED}.log ($(date))"
+        sleep 600
+    done
+fi
 echo "A_AXIS_FLEET_DONE"

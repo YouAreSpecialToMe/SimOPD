@@ -79,13 +79,25 @@ protocol-defining, not compared against.
 | `g4_failure_only` | **OURS** · g1's predicate negated; counterpoint read: [2607.23731](https://arxiv.org/abs/2607.23731) | idea source (sign-family third point) | — |
 | `g5_rgopd_gate` | RG-OPD — [2607.04037](https://arxiv.org/abs/2607.04037) | audited (Eq.2 verbatim, δ=0) | repo 404 at audit time (recorded; paper wins) |
 
-## H · supervision horizon
+## H · supervision & rollout horizon (efficiency)
 
 | arm | source | role | code witness |
 |---|---|---|---|
 | `h1_first_segment` | ESR Less-is-More — [2605.27028](https://arxiv.org/abs/2605.27028) | audited (K=100 default per r5; loss-mask form is a **declared** deformation — their original truncates the rollout, which would contaminate axis A) | no official code (recorded) |
 | `h2_last_segment` | **OURS** · falsification mirror of ESR [2605.27028](https://arxiv.org/abs/2605.27028) | idea source (position vs budget deconfound) | — |
 | `h3_random_segment` | **OURS** · same, position-agnostic budget control | idea source | — |
+| `h4_random_scatter` | **OURS** · window-vs-scatter split of h3 | idea source (contiguity deconfound; added 2026-08-11, row backfilled 2026-08-18) | — |
+| `h5_gen100` | ESR — [2605.27028](https://arxiv.org/abs/2605.27028) | audited (the paper's **own** rollout-truncation form, K=100; h1's declared form-pair, so mask-vs-truncation is a measured pair; in-loop val capped — recorded, offline suite judges) | no official code (recorded) |
+| `h6_gen_sched` | POPD "Are Full Rollouts Necessary" — [2605.31490](https://arxiv.org/abs/2605.31490) + FastOPD schedule — [2602.15260](https://arxiv.org/abs/2602.15260) | audited (progressive-horizon family; **declared deviations**: continuous per-step linear ramp 128→16384 rather than their coarse staircases (+ΔH each Δk / +256 chunks) — same monotone family, finer grain; our membership-gated val exemption is house bookkeeping, not from the papers) | no official code confirmed for either (recorded, survey 2026-08-17) |
+| `h7_gen512` | ESR [2605.27028](https://arxiv.org/abs/2605.27028) / TOPD [2605.31490](https://arxiv.org/abs/2605.31490) | audited (fixed-depth dose line with h5/h8; 512 = 3.1% of the window, brackets TOPD's "~10% suffices" from below) | no official code (recorded) |
+| `h8_gen2048` | same pair | audited (2048 = 12.5%, brackets TOPD's claim from above; h5's exact mechanism, dose-line purity) | — |
+| `h9_prune_adapt` | Prune-OPD — [2605.07804](https://arxiv.org/abs/2605.07804) | audited-lite (**declared signal swap**: their per-position top-k SET overlap does not exist at our sampled-token-k1 seam — events are teacher-lost-the-thread log-prob thresholds, the Δℓ position panels' own quantity; their supervision down-weighting deliberately NOT reproduced — the H axis moves rollout allocation only, loss surgery would confound with B/D; the budget architecture conforms: events → reliable length → adaptive budget, starts long, adapts down on evidence) | official repo yangzhch6/Prune-OPD exists — **flagged for line-audit** before any paper-facing verdict |
+| `h10_task_subset` | **OURS** · provocation: PACED — [2603.11178](https://arxiv.org/abs/2603.11178) | idea source (task-allocation anchor; PACED's pass-rate weighting needs multi-rollout estimates the n=1 protocol cannot fund — recorded) | — |
+
+_Wave-1 efficiency expansion (2026-08-18) driven by
+`simopd_data/opd_rollout_efficiency_survey.md`; excluded with reasons there:
+PG-OPD (needs n>1 candidates), ADWIN (async full-rollout probe infra),
+Relay-OPD (wave 2; would reuse a5's online-teacher route)._
 
 ## J · KD × RL coupling
 
