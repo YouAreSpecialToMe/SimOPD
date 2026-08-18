@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 os.environ.setdefault("SIMOPD_GATHER_EOS", "1")
 os.environ.setdefault("SIMOPD_EOS_IDS", "7")
+os.environ.setdefault("SIMOPD_MODEL_EOS_ID", "7")     # toy vocab: the 'model eos' is id 7
 os.environ.setdefault("SIMOPD_EOS_TEACHER_IDS", "7,9")
 os.environ.setdefault("SIMOPD_EOS_DIAG_IDS", "11")
 os.environ["SIMOPD_SHADOW"] = "0"
@@ -66,6 +67,20 @@ ok(EXTRA == UNION + DIAG and UNION[:len(STOP)] == STOP and set(UNION) == set(STO
    f"env parsed: E_S={STOP} E_T={TCH} diag={DIAG} -> block {EXTRA}")
 ok(all(EXTRA[c] in TCH for c in EG.teacher_cols()) and sorted(EXTRA[c] for c in EG.teacher_cols()) == sorted(TCH),
    "teacher_cols index exactly E_T inside the block")
+# the contract guard: E_S must equal what ends a rollout (model eos + SIMOPD_STOP_IDS)
+_saved = os.environ.get("SIMOPD_STOP_IDS")
+os.environ["SIMOPD_STOP_IDS"] = ",".join(map(str, STOP + [13]))        # a contract id E_S does not name
+try:
+    EG.stop_ids(); ok(False, f"guard must refuse E_S={STOP} under stop contract {STOP + [13]}")
+except RuntimeError as e:
+    ok("rollout stop set" in str(e), "guard refuses E_S that misses a contract stop id")
+os.environ["SIMOPD_STOP_IDS"] = ",".join(map(str, STOP[1:])) or "off"  # exactly E_S beyond the model eos
+ok(EG.rollout_stop_set() == STOP and EG.stop_ids() == STOP,
+   f"contract {os.environ['SIMOPD_STOP_IDS']!r} -> rollout stop set == E_S == {STOP}, accepted")
+if _saved is None:
+    del os.environ["SIMOPD_STOP_IDS"]
+else:
+    os.environ["SIMOPD_STOP_IDS"] = _saved
 
 # ------------------------------------------------------------------ A. math ---
 from simopd.topk_losses import stop_margin, _log1mexp  # noqa: E402
@@ -214,8 +229,11 @@ if HAVE_VERL:
     ok(out["eos_sampled_is_stop"][0].sum() == 1, "sampled-EOS event counted once")
     g, = torch.autograd.grad(out["eos_term"].sum(), z)
     p_stop = log_p.exp()
-    ok(torch.allclose(g[0][:, STOP[0]], (p_stop - q_exact), atol=1e-4), "d term / d z_stop == p - q exactly (bounded in [-1,1])")
     p_full = torch.softmax(z.float()[0], -1)
+    for e_ in STOP:   # inside E_S the push is distributed by the student's own conditional p(e|stop)
+        want_g = (p_stop - q_exact) * p_full[:, e_] / p_stop
+        ok(torch.allclose(g[0][:, e_], want_g, atol=1e-4),
+           f"d term / d z_{e_} == (p - q) * p(e|stop) exactly (single-member E_S: == p - q, bounded in [-1,1])")
     for tid_ in [t for t in TCH if t not in STOP]:
         want_g = -(p_stop - q_exact) * p_full[:, tid_] / (1 - p_stop)
         ok(torch.allclose(g[0][:, tid_], want_g, atol=1e-4),

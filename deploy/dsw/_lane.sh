@@ -108,6 +108,16 @@ for entry in $LANE_RUNS; do
         _arm_env=$(python "$SNAP"/scripts/arm.py env "$ARM")
         eval "$_arm_env"
         export EXPERIMENT_NAME="$NAME"
+        # Rollout stop CONTRACT for campaign launches (simopd.stop_set, A-AXIS R5
+        # appendix, 2026-08-19). run_opd_baseline.sh defaults NEW runs to the dual
+        # set {151643,151645}; a campaign BATCH must carry one contract, so unless
+        # the arm's own env pinned it, the batch's is used: .campaign/STOP_CONTRACT
+        # (default off = the legacy single-eos contract every banked row trained
+        # under). Flipping a batch to v2 is therefore an explicit, logged act
+        # (write the file), never a side effect of pulling the launcher.
+        _batch_contract=$(cat "$SIMOPD_ROOT/${CLAIM_DIR:-.campaign}/STOP_CONTRACT" 2>/dev/null || echo off)
+        export SIMOPD_STOP_IDS="${SIMOPD_STOP_IDS:-$_batch_contract}"
+        echo "stop contract for $NAME: $SIMOPD_STOP_IDS (arm env or batch default; run_opd_baseline.sh pins per run)"
         # The wandb GROUP is the cell a run belongs to: model pair x seed. Runs
         # inside one group are the OPD methods being compared; groups are what you
         # compare across. verl's tracking.py calls wandb.init() with no group=

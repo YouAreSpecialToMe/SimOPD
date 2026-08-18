@@ -118,6 +118,26 @@ def _derived_max_len(model_path):
         return 1 << 30
 
 
+def resolve_stop_contract(model_path):
+    """The stop set a checkpoint TRAINED under. run_opd_baseline.sh pins it per run at
+    <run_dir>/simopd_stop_contract.txt ('off' or a comma list); the eval --model path
+    is <run_dir>/global_step_N/actor[/huggingface], so walk up a few levels. No pin
+    (pre-contract runs, hub ids) -> 'off' = the legacy single-eos protocol every
+    banked cell was produced under. Returns (raw_value, source)."""
+    if isinstance(model_path, str) and os.path.isdir(model_path):
+        d = os.path.abspath(model_path)
+        for _ in range(4):
+            pin = os.path.join(d, "simopd_stop_contract.txt")
+            if os.path.isfile(pin):
+                v = open(pin).read().strip() or "off"
+                return v, "pin"
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+    return "off", "legacy"
+
+
 def resolve_model(path):
     """Point at loadable weights, given a verl checkpoint directory.
 
@@ -193,13 +213,19 @@ def main():
                    help="enable_thinking=True in the chat template (thinking-regime ceilings "
                         "and the annex cells; pair with --max-tokens 16384)")
     p.add_argument("--tp", type=int, default=1)
-    p.add_argument("--stop-token-ids", default="151643,151645",
-                   help="comma-separated extra stop ids; 'off' = model default only. "
-                        "Default is the dual-terminator contract (A-AXIS R5 appendix, "
-                        "2026-08-19): base-student eos 151643 + instruct-teacher eos "
-                        "151645 -- OPD teaches the teacher's terminator, and refusing "
-                        "it at eval scores 'answered then could not stop' as length-"
-                        "truncated wrong. Every artifact row records the set used.")
+    p.add_argument("--stop-token-ids", default="auto",
+                   help="comma-separated extra stop ids; 'off' = model default only; "
+                        "'auto' (default) = the contract the checkpoint TRAINED under: the "
+                        "run's pin file simopd_stop_contract.txt (written by "
+                        "run_opd_baseline.sh) if one is found above --model, else 'off' "
+                        "(pre-contract runs and hub ids: the legacy single-eos protocol). "
+                        "The dual-terminator contract {151643,151645} (A-AXIS R5 appendix, "
+                        "2026-08-19) therefore reaches eval automatically for v2 runs and "
+                        "never re-scores a v1 run under a different protocol -- the ongoing "
+                        "post-hoc drain reads these defaults from shared disk, so a global "
+                        "flip would have split the campaign ledger mid-drain. Pass ids "
+                        "explicitly for a cross-contract re-eval (R5 three-way verdict) -- "
+                        "every artifact row records the set used and where it came from.")
     # 0.85 left ~10 GiB of an 80 GiB card unused, and KV capacity is the binding
     # constraint of this suite: at 32k per request the cache admits only 18
     # concurrent sequences, so decode runs at ~80 tok/s x 18 while the 1.7B model
@@ -245,11 +271,15 @@ def main():
         seed=args.seed,
     )
     _stop_raw = (args.stop_token_ids or "").strip()
+    _stop_src = "explicit"
+    if _stop_raw.lower() == "auto":
+        _stop_raw, _stop_src = resolve_stop_contract(args.model)
     _stop_ids = None
     if _stop_raw and _stop_raw.lower() != "off":
         _stop_ids = [int(x) for x in _stop_raw.split(",") if x.strip()]
         if not _stop_ids:
             raise SystemExit(f"--stop-token-ids parsed to zero ids: {_stop_raw!r}")
+    print(f"stop contract for this eval: {_stop_ids or 'off'} (source: {_stop_src})", flush=True)
     sampling = SamplingParams(
         n=args.n,
         temperature=args.temperature,
@@ -364,6 +394,7 @@ def main():
                         # stop sets are different protocols and must never be compared
                         # unstated (mixed-ledger hazard, A-AXIS R5 appendix).
                         "stop_token_ids": ",".join(map(str, _stop_ids)) if _stop_ids else "off",
+                        "stop_contract_source": _stop_src,   # pin | legacy | explicit
                         "sample_idx": sample_idx,
                         "resp_len": len(comp.token_ids),
                         "truncated": int(comp.finish_reason == "length"),

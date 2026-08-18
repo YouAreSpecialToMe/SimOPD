@@ -1569,6 +1569,13 @@ arms:
       SIMOPD_GATHER_EOS: "1"
       SIMOPD_EOS_IDS: "151643"
       SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      # Rollout stop CONTRACT (simopd.stop_set, A-AXIS R5 appendix, 2026-08-19): the
+      # launcher now defaults NEW runs to the dual set {151643,151645}. This arm is a
+      # single-knob comparison against the banked vanilla rows, which trained under the
+      # legacy single-eos contract, so it pins "off" explicitly (E_S = {151643} above must
+      # equal the rollout stop set; eos_gather refuses a mismatch at import). A v2 pair
+      # of this cell needs a vanilla_v2 control first; then E_S becomes "151643,151645".
+      SIMOPD_STOP_IDS: "off"
       SIMOPD_SHADOW: "0"
 
   - run_id: n2_termcal
@@ -1662,5 +1669,12 @@ arms:
       SIMOPD_GATHER_EOS: "1"
       SIMOPD_EOS_IDS: "151643"
       SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      # Rollout stop CONTRACT (simopd.stop_set, A-AXIS R5 appendix, 2026-08-19): the
+      # launcher now defaults NEW runs to the dual set {151643,151645}. This arm is a
+      # single-knob comparison against the banked vanilla rows, which trained under the
+      # legacy single-eos contract, so it pins "off" explicitly (E_S = {151643} above must
+      # equal the rollout stop set; eos_gather refuses a mismatch at import). A v2 pair
+      # of this cell needs a vanilla_v2 control first; then E_S becomes "151643,151645".
+      SIMOPD_STOP_IDS: "off"
       SIMOPD_EOS_AUX_COEF: "1.0"
       SIMOPD_SHADOW: "0"

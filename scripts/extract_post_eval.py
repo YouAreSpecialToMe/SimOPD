@@ -29,7 +29,7 @@ Q = os.path.join(ROOT, "evalq")
 BENCH = ["aime24", "aime25", "amc23", "minerva", "math500"]
 COMP = [("aime", ["aime24", "aime25"]), ("amc23", ["amc23"]),
         ("minerva", ["minerva"]), ("math500", ["math500"])]
-COLS = ["problem_id", "sample_idx", "resp_len", "truncated", "finish_reason", "correct"]
+COLS = ["problem_id", "sample_idx", "resp_len", "truncated", "finish_reason", "correct", "stop_token_ids"]
 
 roster = set(l.strip() for l in open(os.path.join(Q, "roster.txt")) if l.strip())
 pat = re.compile(
@@ -89,6 +89,11 @@ for i, ((run, step, bench), (ts, path)) in enumerate(sorted(newest.items()), 1):
         "fr_stop": float((fr == "stop").mean()),
         "fr_length": float((fr == "length").mean()),
         "has_text": int("response" in names),
+        # measurement contract of the cell (A-AXIS R5 appendix): the stop set the eval
+        # sampled under. Legacy artifacts predate the column -> "off" (single model eos).
+        # Cells under different contracts are different protocols; the tables must
+        # never pool them unstated.
+        "stop_set": (str(df["stop_token_ids"].iloc[0]) if "stop_token_ids" in df and len(df) else "off"),
     })
 
 cells = pd.DataFrame(rows)
@@ -102,6 +107,11 @@ print("wrote post_eval_cells.csv  rows=%d" % len(cells))
 out = []
 for (run, step), g in cells.groupby(["run", "step"]):
     if set(g.bench) != set(BENCH):
+        continue
+    # one contract per (run, step): a composite over cells sampled under different stop
+    # sets would be a mixed-protocol number (A-AXIS R5 appendix) -- refuse loudly
+    if g.stop_set.nunique() > 1:
+        print("MIXED CONTRACT %s step %s: %s -- composite skipped" % (run, step, sorted(set(g.stop_set))), flush=True)
         continue
     comp = {}
     for name, bs in COMP:
@@ -120,6 +130,7 @@ for (run, step), g in cells.groupby(["run", "step"]):
         "len_mean_wrong": float((g.len_mean_wrong * w).sum() / w.sum()),
         "pass_minus_avg": float(((g.pass_at_k - g.avg_at_k) * w).sum() / w.sum()),
         "n_samples": int(w.sum()), "has_text": int(g.has_text.min()),
+        "stop_set": g.stop_set.iloc[0],
     })
 bystep = pd.DataFrame(out).sort_values(["arm", "seed", "step"])
 bystep.to_csv(os.path.join(ROOT, "post_eval_bystep.csv"), index=False)

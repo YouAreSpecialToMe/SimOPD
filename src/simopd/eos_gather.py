@@ -56,7 +56,10 @@ Env (all SIMOPD_-prefixed so they enter the run fingerprint):
   SIMOPD_EOS_IDS=151643            comma list: E_S, the STUDENT stop set = the
                                    token(s) that actually END a student rollout
                                    (Qwen3-1.7B-Base under verl: generation_config
-                                   eos 151643 <|endoftext|>). Required.
+                                   eos 151643 <|endoftext|>). Required, and checked
+                                   against the rollout stop contract: with
+                                   SIMOPD_STOP_IDS=151643,151645 (contract v2,
+                                   simopd.stop_set) it must be "151643,151645".
   SIMOPD_EOS_TEACHER_IDS=151643,151645
                                    comma list: E_T, the TEACHER termination set =
                                    the token(s) the teacher ends a response with.
@@ -95,15 +98,49 @@ def _parse(raw):
     return out
 
 
+# The protocol student's own eos (Qwen3-1.7B-Base tokenizer/generation_config): the one
+# token that ends a rollout when no stop contract is active. The contract (simopd.stop_set,
+# SIMOPD_STOP_IDS, A-AXIS R5 appendix) ADDS ids at the rollout seam; E_S must then equal
+# the union, or the arm would calibrate/read an event that is not what ends rollouts.
+_MODEL_EOS = 151643
+
+
+def model_eos():
+    """151643 for the protocol student; SIMOPD_MODEL_EOS_ID overrides for the CPU battery
+    (toy vocab) only -- no arm sets it."""
+    raw = os.environ.get("SIMOPD_MODEL_EOS_ID", "")
+    return int(raw) if raw.strip() else _MODEL_EOS
+
+
+def rollout_stop_set():
+    """The token ids that actually end a student rollout under the current contract:
+    the model eos, plus SIMOPD_STOP_IDS when the dual-terminator contract is armed."""
+    ids = [model_eos()]
+    raw = os.environ.get("SIMOPD_STOP_IDS", "")
+    if raw.strip() and raw.strip().lower() != "off":
+        for i in _parse(raw):
+            if i not in ids:
+                ids.append(i)
+    return ids
+
+
 def stop_ids():
     """E_S, the STUDENT stop set: token ids whose summed student mass is 'stop'.
-    Must be the token(s) that actually end a student rollout. Required when enabled."""
+    Must be the token(s) that actually end a student rollout. Required when enabled,
+    and when enabled it must EQUAL rollout_stop_set() -- a loss set that names a token
+    the sampler does not honor (or misses one it does) is refused at import."""
     ids = _parse(os.environ.get("SIMOPD_EOS_IDS", ""))
     if _ENABLED and not ids:
         raise RuntimeError("SIMOPD_GATHER_EOS=1 but SIMOPD_EOS_IDS is empty -- the student stop set "
                            "must name the token(s) that actually end a student rollout.")
     if len(set(ids)) != len(ids):
         raise RuntimeError(f"SIMOPD_EOS_IDS has duplicates: {ids}")
+    if _ENABLED and set(ids) != set(rollout_stop_set()):
+        raise RuntimeError(f"SIMOPD_EOS_IDS={ids} != the tokens that end a rollout under the active "
+                           f"stop contract {rollout_stop_set()} (SIMOPD_STOP_IDS="
+                           f"{os.environ.get('SIMOPD_STOP_IDS', '')!r}). E_S must be exactly the "
+                           "rollout stop set: under the legacy contract '151643', under the dual "
+                           "contract '151643,151645'.")
     return ids
 
 

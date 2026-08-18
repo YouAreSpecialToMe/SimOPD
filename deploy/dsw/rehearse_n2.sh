@@ -56,6 +56,11 @@ fi
 
 fail() { echo "REHEARSAL FAIL [$ARM]: $1"; tail -5 "$LOG" | sed 's/^/    /'; exit 1; }
 
+# The rollout stop contract this rehearsal ran under (run_opd_baseline.sh pins it per run):
+# the termination family reads E_S off the same set, so print it next to the verdict.
+_pin="$CKPT_ROOT/simopd/rehearsal_${ARM}/simopd_stop_contract.txt"
+[ -f "$_pin" ] && echo "stop contract pinned for this rehearsal: $(cat "$_pin")  (E_S must equal model eos + this set)"
+
 [ "$rc" -eq 0 ] || fail "run exited $rc"
 steps=$(grep -c "step:" "$LOG" || true)
 [ "${steps:-0}" -ge 3 ] || fail "only ${steps:-0}/3 training steps in log"

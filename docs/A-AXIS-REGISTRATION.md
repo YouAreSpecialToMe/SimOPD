@@ -121,3 +121,47 @@ grandfather 为 off 且环境不设、指纹与历史逐字节一致);评测 `ev
 默认双停,每行产物落 `stop_token_ids` 列。**跨契约比较必须显式声明**。在跑
 A/H wave 的处置(按旧契约跑完 vs 推倒按 v2 重训)与 vanilla/a2 是否补训 v2
 版,待判定实验结果后决定;该选择不影响本条预测的效力。
+
+### R5 附录补记(2026-08-19 追加,append-only;测量方 = ch-dev 终止章工作)
+
+**"未见"一栏现在有数据了**——token 级 `<|im_end|>` / `<|endoftext|>` 直接测量,
+CPU 上对真实 checkpoint 与真实 rollout 做的(脚本 `scripts/analysis/eos_stop_probe.py`
+/ `eos_stop_audit.py` / `a2_coldstart_probe.py`,回执 `docs/data/eos_stop_*.txt`、
+`docs/data/a2_coldstart_probe.txt`;机制正文 `docs/MECHANISMS.md` §M-I):
+
+- 学生停止位(30 条真实已停止 rollout,vanilla@125/225、c4@100):教师 q(`<|im_end|>`)
+  中位 0.95、q(`<|endoftext|>`) 中位 1.4e-11(秩 ~2×10⁴);base 学生 p(`<|endoftext|>`)
+  中位 0.98、p(`<|im_end|>`) ~1e-11。vanilla 采样列 k1 在每次停止事件给停止 token
+  Δℓ = −25 nats(中位),教师终止 token 永远采不到——**M-drift 的 P1 病理("句号被压")
+  逐 token 证实**:vanilla@250 自然停止位 p(`<|endoftext|>`) 中位 6e-5,p(`<|im_end|>`)
+  ~1e-13。
+- **M-drift 的 P2 病理("学了采样器不认的句号",a2 型)在 token 级不成立**:冷启动 SFT
+  目标确以 `<|im_end|>\n` 收尾且 0/6358 行含 `<|endoftext|>`,但 98 步 SFT 只把
+  p(`<|im_end|>`) 从 1e-11 抬到 ~1e-3(每 ~2.3k token 一个目标),同时把 base 的
+  p(`<|endoftext|>`) 从 0.98 压到 ~1e-3(从不是目标、正是那些位置的 CE 竞争者),质量落
+  在续写(`\n\n` 0.52 → 教师收尾模板"---\n\n**Answer:** \boxed{}",即终末循环);
+  a2@25 p(`<|im_end|>`) 4e-6~8e-4、@50 起两个终止符都 <1e-7。它不是"想用 `<|im_end|>`
+  停而停不下",是"两个句号都没有"。因此**预测 P1(a2@25 双停重评截断率至少减半)
+  预计不成立**,且这一"不成立"不推翻 M-drift 的训练时机制——它只说明错位的伤害发生
+  在训练时(SFT 学不到采样器认的句号;OPD 惩罚学生的句号),事后换停止集重评救不回
+  v1 checkpoint。**P2(vanilla 基本不动)预计成立**(同上,`<|im_end|>` ~1e-13);P3
+  未测。建议把三方判定的读法从"重评救回多少"改为"token 级两个终止符各在何处、
+  何时被压/被教"。
+- 原配方差异:LlamaFactory `qwen3` 模板 `replace_eos=True`、`stop_words=[<|im_end|>]`
+  → Rethinking 的 SFT 学生 eos = `<|im_end|>`,其 OPD rollout 停在那儿;我们的
+  verl-sft_trainer 移植保留 Base tokenizer,丢了这一步。a2 修正格见 RESULTS-GAPS A1'。
+
+**契约 v2 的落地口径(与本条实现同日,`stop_set` 之上的三处防护)**:
+(1) `eval_offline.py --stop-token-ids` 默认改为 `auto` = 该 checkpoint **训练时**的
+契约(读 run 目录 `simopd_stop_contract.txt`;无 pin 的 pre-contract run 与 hub id
+= `off`)——正在跑的 post-hoc drain 从共享盘读默认值,全局翻到双停会把 819 格 v1 与
+余下格子 v2 混进同一张表;每行产物仍落 `stop_token_ids` + `stop_contract_source`,
+`extract_post_eval.py` 把 `stop_set` 带进 cells/bystep 并拒绝跨契约合成 composite。
+(2) 数学 campaign 的 `_lane.sh`:未在臂 env 里指定时用 batch 契约
+`.campaign/STOP_CONTRACT`(默认 off = 该 batch 登记时的契约;把 batch 翻到 v2 =
+写文件,而不是拉一次 launcher 的副作用)。DLC A/H fleet 启动器**不覆盖**——A 轴
+v2 重启波(`stop2` 标记,legacy 同名 run 已移侧)按 launcher 的新 run 默认走 v2,
+是登记方的明确决定。(3) 终止族臂(n0_termfix / n2_termcal)env 显式钉
+`SIMOPD_STOP_IDS: off`(与 v1 vanilla 单旋钮可比;v2 配对需先有 vanilla_v2),
+`eos_gather` 在 import 时校验 E_S == 当前契约下真正终止 rollout 的集合,arm_lint 同查。
+

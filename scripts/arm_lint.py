@@ -38,6 +38,31 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Audit r5's faithful optimizer branch, per arm (True = PG). The lint fails if
 # arms.yaml drifts from this table without the table being updated -- which is
 # exactly the ceremony a branch change should cost.
+# Termination family (n0_termfix / n2_termcal): the loss-side student stop set E_S must be
+# exactly what ends a rollout under the arm's stop contract -- model eos 151643 plus
+# SIMOPD_STOP_IDS when that contract is on (simopd.eos_gather.rollout_stop_set mirrors this).
+_MODEL_EOS = "151643"
+
+
+def _term_family_problems(run_id, env):
+    out = []
+    if env.get("DISTILLATION_LOSS_MODE") not in ("k1_termfix", "k1_termcal"):
+        return out
+    raw = str(env.get("SIMOPD_STOP_IDS", "")).strip()
+    want = {_MODEL_EOS}
+    if raw and raw.lower() != "off":
+        want |= {x.strip() for x in raw.split(",") if x.strip()}
+    if raw == "":
+        out.append(f"[{run_id}] termination arm without an explicit SIMOPD_STOP_IDS -- the launcher "
+                   "defaults NEW runs to the dual contract, which would silently make this a two-knob "
+                   "comparison against the legacy vanilla rows; pin 'off' or the dual set")
+    have = {x.strip() for x in str(env.get("SIMOPD_EOS_IDS", "")).split(",") if x.strip()}
+    if have != want:
+        out.append(f"[{run_id}] SIMOPD_EOS_IDS={sorted(have)} != rollout stop set {sorted(want)} under "
+                   f"SIMOPD_STOP_IDS={raw!r} (eos_gather would refuse this at import)")
+    return out
+
+
 EXPECT_PG = {
     "vanilla": True, "a1_gkd_mix0.5": True, "a3_offpolicy": True, "a2_coldstart": True,
     "a4_dagger_anneal": True, "a5_aggrevate": True,
@@ -158,6 +183,7 @@ def main():
                             f"rename to env: or the arm runs with none")
         if rid == "j1_kdrl" and env.get("USE_TASK_REWARDS") != "True":
             problems.append(f"{tag} KDRL without USE_TASK_REWARDS=True is pure KD")
+        problems.extend(_term_family_problems(rid, env))
 
         # --- manifest and ledger wiring ---
         if tsv_names.count(rid) == 0:
