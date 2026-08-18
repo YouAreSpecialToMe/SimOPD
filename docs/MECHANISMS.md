@@ -203,6 +203,15 @@ ladder = the two registered adjudicators.
   receipts: `eos_n_stop` (N0's correction-opportunity count per micro-batch)
   next to the truncation trajectory; `eos_ravail_500up` (N2's available
   restoration).
+  Contract: both cells run under the legacy single-eos rollout contract
+  (`SIMOPD_STOP_IDS: off` pinned in their env — E_S = {151643} must equal what
+  ends a rollout; `eos_gather` refuses otherwise) so they stay single-knob
+  against the banked vanilla rows. The dual-terminator contract v2
+  (`simopd.stop_set`, A-AXIS R5 appendix) is the launcher's default for NEW
+  runs and the A-axis v2 restart wave runs under it; a v2 pair of N0/N2 needs
+  a vanilla_v2 control first, and then E_S = {151643, 151645} — the symmetric
+  union (under v2 the sampled-`<|im_end|>` corner disappears because it stops
+  the rollout). Eval follows the run's own contract (`--stop-token-ids auto`).
 - M1 measured-magnitude harvest (registered) and its top-k extension.
 - Waves 9/10 execution.
 - a1/a3 length predictions: registered in spirit (teacher-short ⇒ a3 should be
