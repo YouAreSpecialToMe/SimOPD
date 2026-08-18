@@ -1,0 +1,100 @@
+
+### student(1.7B-Base): vocab_size=151669 eos='<|endoftext|>'/151643 pad='<|endoftext|>'/151643 bos=None
+   '<|endoftext|>'                          -> [151643]   special:[True]  decode:'<|endoftext|>'
+   '<|im_start|>'                           -> [151644]   special:[True]  decode:'<|im_start|>'
+   '<|im_end|>'                             -> [151645]   special:[True]  decode:'<|im_end|>'
+   '<think>'                                -> [151667]   special:[False]  decode:'<think>'
+   '</think>'                               -> [151668]   special:[False]  decode:'</think>'
+   '<tool_call>'                            -> [151657]   special:[False]  decode:'<tool_call>'
+   '<|object_ref_start|>'                   -> [151646]   special:[True]  decode:'<|object_ref_start|>'
+   '\n<|im_end|>\n'                         -> [198, 151645, 198]   special:[False, True, False]  decode:'\n<|im_end|>\n'
+   'assistant\n<think>\n\n</think>\n\n'     -> [77091, 198, 151667, 271, 151668, 271]   special:[False, False, False, False, False, False]  decode:'assistant\n<think>\n\n</think>\n\n'
+   '<think>\n\n</think>\n\n'                -> [151667, 271, 151668, 271]   special:[False, False, False, False]  decode:'<think>\n\n</think>\n\n'
+   '<|im_end|>\n<|im_start|>assistant\n'    -> [151645, 198, 151644, 77091, 198]   special:[True, False, True, False, False]  decode:'<|im_end|>\n<|im_start|>assistant\n'
+   id 151643: '<|endoftext|>' special=True
+   id 151644: '<|im_start|>' special=True
+   id 151645: '<|im_end|>' special=True
+   id 151667: '<think>' special=False
+   id 151668: '</think>' special=False
+   all_special_ids: [151643, 151644, 151645, 151646, 151647, 151648, 151649, 151650, 151651, 151652, 151653, 151654] ... n= 14
+
+### teacher(4B-Instruct-2507): vocab_size=151669 eos='<|im_end|>'/151645 pad='<|endoftext|>'/151643 bos=None
+   '<|endoftext|>'                          -> [151643]   special:[True]  decode:'<|endoftext|>'
+   '<|im_start|>'                           -> [151644]   special:[True]  decode:'<|im_start|>'
+   '<|im_end|>'                             -> [151645]   special:[True]  decode:'<|im_end|>'
+   '<think>'                                -> [151667]   special:[False]  decode:'<think>'
+   '</think>'                               -> [151668]   special:[False]  decode:'</think>'
+   '<tool_call>'                            -> [151657]   special:[False]  decode:'<tool_call>'
+   '<|object_ref_start|>'                   -> [151646]   special:[True]  decode:'<|object_ref_start|>'
+   '\n<|im_end|>\n'                         -> [198, 151645, 198]   special:[False, True, False]  decode:'\n<|im_end|>\n'
+   'assistant\n<think>\n\n</think>\n\n'     -> [77091, 198, 151667, 271, 151668, 271]   special:[False, False, False, False, False, False]  decode:'assistant\n<think>\n\n</think>\n\n'
+   '<think>\n\n</think>\n\n'                -> [151667, 271, 151668, 271]   special:[False, False, False, False]  decode:'<think>\n\n</think>\n\n'
+   '<|im_end|>\n<|im_start|>assistant\n'    -> [151645, 198, 151644, 77091, 198]   special:[True, False, True, False, False]  decode:'<|im_end|>\n<|im_start|>assistant\n'
+   id 151643: '<|endoftext|>' special=True
+   id 151644: '<|im_start|>' special=True
+   id 151645: '<|im_end|>' special=True
+   id 151667: '<think>' special=False
+   id 151668: '</think>' special=False
+   all_special_ids: [151643, 151644, 151645, 151646, 151647, 151648, 151649, 151650, 151651, 151652, 151653, 151654] ... n= 14
+
+vocab identical: True | sizes 151669 151669
+differing entries: []
+Qwen/Qwen3-1.7B-Base         tokenizer.json         md5=3f99a313c3 size=7031645
+Qwen/Qwen3-1.7B-Base         vocab.json             md5=613b8e4a62 size=2776833
+Qwen/Qwen3-1.7B-Base         merges.txt             md5=72dacf1de4 size=1671853
+Qwen/Qwen3-1.7B-Base         tokenizer_config.json  md5=5a655ca787 size=9678
+Qwen/Qwen3-1.7B-Base         generation_config.json md5=d3b11cefdd size=138
+Qwen/Qwen3-1.7B-Base         config.json            md5=e9aec70c2d size=727
+Qwen/Qwen3-1.7B-Base         vocab_size(model)=151936 tie=True
+Qwen/Qwen3-1.7B-Base         tokenizer_config: eos=<|endoftext|> pad=<|endoftext|> chat_template_len=4116 add_bos=False
+Qwen/Qwen3-4B-Instruct-2507  tokenizer.json         md5=6423133b9c size=11422654
+Qwen/Qwen3-4B-Instruct-2507  vocab.json             md5=613b8e4a62 size=2776833
+Qwen/Qwen3-4B-Instruct-2507  merges.txt             md5=e78882c2e2 size=1671839
+Qwen/Qwen3-4B-Instruct-2507  tokenizer_config.json  md5=ffefa8fefe size=9377
+Qwen/Qwen3-4B-Instruct-2507  generation_config.json md5=7f4bb06eca size=238
+Qwen/Qwen3-4B-Instruct-2507  config.json            md5=ae68e4b6c7 size=727
+Qwen/Qwen3-4B-Instruct-2507  vocab_size(model)=151936 tie=True
+Qwen/Qwen3-4B-Instruct-2507  tokenizer_config: eos=<|im_end|> pad=<|endoftext|> chat_template_len=2630 add_bos=False
+
+[student(1.7B-Base)] enable_thinking=False:
+"<|im_start|>user\nWhat is 1+1? Let's think step by step and output the final answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+[student(1.7B-Base)] enable_thinking=True:
+"<|im_start|>user\nWhat is 1+1? Let's think step by step and output the final answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n"
+
+[teacher(4B-Instruct-2507)] enable_thinking=False:
+"<|im_start|>user\nWhat is 1+1? Let's think step by step and output the final answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n"
+
+[teacher(4B-Instruct-2507)] enable_thinking=True:
+"<|im_start|>user\nWhat is 1+1? Let's think step by step and output the final answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n"
+
+[teacher template with assistant turn]: "<|im_start|>user\nWhat is 1+1? Let's think step by step and output the final answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n2<|im_end|>\n"
+[student template with assistant turn]: "<|im_start|>user\nWhat is 1+1? Let's think step by step and output the final answer within \\boxed{}.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n2<|im_end|>\n"
+=====================
+merges lines: 151388 151387 | first lines: ['#version: 0.2'] ['Ġ Ġ']
+merges diff (first 12 lines): ['--- ', '+++ ', '@@ -1 +0,0 @@', '-#version: 0.2']
+tokenizer.json[normalizer] equal: True
+tokenizer.json[pre_tokenizer] equal: True
+tokenizer.json[post_processor] equal: True
+tokenizer.json[decoder] equal: True
+model.type: BPE BPE | model keys equal except merges/vocab: {'type': True, 'dropout': True, 'unk_token': True, 'continuing_subword_prefix': True, 'end_of_word_suffix': True, 'fuse_unk': True, 'byte_fallback': True}
+merges equal: False | n merges: 151387 151387 | merge item type: str list
+added_tokens equal: False
+encode equality over 1500 real responses: 1500 equal, 0 differ; first diff: None
+
+teacher scoring of the SAME student response under (a) the training prompt = student Base template (has <think>\n\n</think>\n\n) vs (b) the teacher's own template (no think tags)
+pid                          | mean log q per resp token: (a) student-tpl  (b) teacher-tpl | terminal: q(im_end) a/b   q(eot) a/b   | tokens with |Δ log q|>2: frac
+test/prealgebra/1784.json    |   -1.009     -1.045   | 0.993/0.990   5.4e-12/1.9e-11 | 0.003
+test/prealgebra/1458.json    |   -1.082     -1.089   | 0.816/0.753   4.0e-12/5.3e-12 | 0.000
+test/counting_and_probability/389.json |   -1.016     -1.031   | 0.988/0.951   1.0e-12/2.1e-12 | 0.003
+test/algebra/1303.json       |   -1.034     -1.050   | 0.797/0.561   6.9e-12/1.8e-11 | 0.003
+test/geometry/221.json       |   -0.610     -0.626   | 0.957/0.866   7.4e-11/7.1e-11 | 0.001
+test/algebra/1934.json       |   -0.460     -0.477   | 0.998/0.995   6.5e-12/1.2e-11 | 0.000
+test/geometry/353.json       |   -0.633     -0.647   | 0.973/0.976   1.3e-10/1.9e-10 | 0.000
+test/algebra/864.json        |   -0.607     -0.625   | 0.980/0.976   1.1e-10/5.6e-10 | 0.000
+MEAN: -0.806 -0.824 0.938 0.884 0.001
+===================== added_tokens diff
+tokenizer.json added_tokens: base 22 entries, instruct 26 -- the four extra in the Instruct file are
+<tool_response> </tool_response> <think> </think> (151665-151668, special=False); the Base declares
+them in tokenizer_config.json added_tokens_decoder instead, so AutoTokenizer (verl, vLLM, eval) encodes
+them identically (see 'encode equality 1500/1500' above). Only a raw tokenizer.json consumer would differ.
