@@ -3,8 +3,9 @@
 # (same shape as rehearse_a_axis.sh; exit 0 = every criterion passed, .OK is yours
 # to touch).
 #
-#   bash deploy/dsw/rehearse_n2.sh 0,1                 # ARM=n2_termcal (default)
-#   ARM=n0_termfix bash deploy/dsw/rehearse_n2.sh 0,1  # the N0 cell, same payload
+#   bash deploy/dsw/rehearse_n2.sh 0,1                        # ARM=vanilla_corr (default; the new vanilla)
+#   ARM=n2_corr bash deploy/dsw/rehearse_n2.sh 0,1             # N2 on the corrected base
+#   ARM=h2_last_segment_corr bash deploy/dsw/rehearse_n2.sh 0,1  # any *_corr cell (same carrier)
 #
 # What it proves that the CPU battery cannot: the sitecustomize hook fires inside
 # vLLM's engine-core process of the TEACHER server (Sampler.gather_logprobs
@@ -16,7 +17,7 @@
 # (wrong ids / -inf), so 3 green steps imply the whole chain worked.
 set -euo pipefail
 GPUS=${1:?gpu pair, e.g. 0,1}
-ARM=${ARM:-n2_termcal}
+ARM=${ARM:-vanilla_corr}
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 D=/mgfs/shared/Group_GY/changhao/simopd_data
 LOGD=$D/n2
@@ -72,16 +73,30 @@ elif [ -n "$first_tb" ]; then
     echo "note [$ARM]: teardown-phase traceback tolerated (line $first_tb > last step $last_step, exit 0)"
 fi
 # The trainer-side install banner is visible (same Ray job as the driver).
-if [ "$ARM" = n2_termcal ]; then
+# what the arm's registry function emits: 'cal' (k1_termcal: BCE term + panels), 'family'
+# (termfix / the sampled-k1 family / D / FiRe under SIMOPD_TERM_EVENT=1: panels), 'none'
+# (verl-side or distributional registry fns: b2/e2/c3 corrected -- green run + 3 steps only)
+PANEL_MODE=none
+case "${DISTILLATION_LOSS_MODE:-k1_rec}" in
+    k1_termcal) PANEL_MODE=cal ;;
+    k1_termfix|k1_rec|k1_softlog|k1_power|k1_posclip|k1_tanh|k1_verified_only|k1_failure_only|k1_firstseg|k1_lastseg|k1_randseg|k1_randscatter|skew_kl_a0.1|k2_kdrl|k1_rgopd_gate|k1_fire_gate|tip_select|selectkd_verify|teachability_select)
+        [ "${SIMOPD_TERM_EVENT:-0}" = 1 ] || [ "${DISTILLATION_LOSS_MODE:-}" = k1_termfix ] && PANEL_MODE=family ;;
+esac
+if [ "$PANEL_MODE" = cal ]; then
     grep -q 'b3_additive armed' "$LOG" || fail "additive-term wrapper never armed (N2's stop term would be dropped)"
 fi
+echo "panel mode for $ARM: $PANEL_MODE"
 # The kernel refuses a payload without the exact block, so a green run is the proof;
 # the panels are the second witness: every eos_* key must be present, eos_missing 0.
-python - "$LOG" "$ARM" <<'PY' || exit 1
+if [ "$PANEL_MODE" = none ]; then
+    echo "REHEARSAL PASS [$ARM]  (green run, $steps steps; this registry function emits no eos_* panels)  ->  touch $LOGD/rehearsal_${ARM}.OK"
+    exit 0
+fi
+python - "$LOG" "$ARM" "$PANEL_MODE" "${SIMOPD_TERM_EVENT:-0}" <<'PY' || exit 1
 import re, sys
 log = open(sys.argv[1], errors="replace").read()
-ARM = sys.argv[2]
-key0 = "eos_aux_term" if ARM == "n2_termcal" else "eos_dl_at_stop"
+ARM, MODE, TE = sys.argv[2], sys.argv[3], sys.argv[4] == "1"
+key0 = "eos_aux_term" if MODE == "cal" else "eos_dl_at_stop"
 steps = [l for l in log.splitlines() if "step:" in l and key0 in l]
 if not steps:
     sys.exit(f"REHEARSAL FAIL [{ARM}]: no step line carries distillation/{key0}")
@@ -93,7 +108,8 @@ need = ["eos_missing", "eos_sampled_is_stop", "eos_q_mean", "eos_p_mean",
         "eos_ravail_500up", "eos_frac_rep", "eos_qm_0", "eos_qm_1", "eos_pm_0", "eos_pm_1",
         "eos_n_stop", "eos_dl_at_stop", "eos_q_at_stop", "eos_p_at_stop",
         "eos_q_pos0_100", "eos_dstop_pos0_100", "eos_q_pos2k_up", "eos_dstop_pos2k_up"]
-need += ["eos_aux_term"] if ARM == "n2_termcal" else ["eos_dl_at_stop_raw"]
+need += ["eos_aux_term"] if MODE == "cal" else []
+need += ["eos_dl_at_stop_raw"]
 missing = [k for k in need if get(k) is None]
 if missing:
     sys.exit(f"REHEARSAL FAIL [{ARM}]: panels missing from step line: {missing}")
@@ -102,7 +118,7 @@ if get("eos_missing") != 0.0:
 q, p = get("eos_q_mean"), get("eos_p_mean")
 if not (0.0 <= q <= 1.0 and 0.0 <= p <= 1.0):
     sys.exit(f"REHEARSAL FAIL [{ARM}]: q/p out of [0,1]: {q} {p}")
-head = f"eos_aux_term={get('eos_aux_term'):.4g}" if ARM == "n2_termcal" else f"dl_at_stop_raw={get('eos_dl_at_stop_raw'):.3g}"
+head = f"eos_aux_term={get('eos_aux_term'):.4g}" if MODE == "cal" else f"dl_at_stop_raw={get('eos_dl_at_stop_raw'):.3g}"
 print(f"panels ok [{ARM}]: {head} q_mean={q:.4g} p_mean={p:.4g} "
       f"ravail_500up={get('eos_ravail_500up'):.4g} q(eot)={get('eos_qm_0'):.3g} q(im_end)={get('eos_qm_1'):.3g} "
       f"p(eot)={get('eos_pm_0'):.3g} p(im_end)={get('eos_pm_1'):.3g} | at student stops: n={get('eos_n_stop'):.3g} "
@@ -112,11 +128,11 @@ print(f"panels ok [{ARM}]: {head} q_mean={q:.4g} p_mean={p:.4g} "
 # token-level Delta-ell at the student's own stop tokens is deeply negative (teacher's terminator is
 # <|im_end|>). N2 applies it (eos_dl_at_stop); N0 shows it in eos_dl_at_stop_raw and applies the
 # event-level value instead.
-raw_key = "eos_dl_at_stop" if ARM == "n2_termcal" else "eos_dl_at_stop_raw"
+raw_key = "eos_dl_at_stop_raw"
 if get("eos_n_stop") and get("eos_n_stop") > 0:
     if get(raw_key) > -5.0:
         print(f"NOTE: {raw_key}={get(raw_key):.3g} is not the audit's ~-25 -- inspect before launching wave 17")
-    if ARM == "n0_termfix" and get("eos_dl_at_stop") < -5.0:
+    if (TE or MODE == "family") and get("eos_dl_at_stop") < -5.0:
         sys.exit(f"REHEARSAL FAIL [{ARM}]: applied eos_dl_at_stop={get('eos_dl_at_stop'):.3g} still token-level -- the fix did not engage")
 PY
 echo "REHEARSAL PASS [$ARM]  ->  touch $LOGD/rehearsal_${ARM}.OK"

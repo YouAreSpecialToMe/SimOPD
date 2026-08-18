@@ -38,7 +38,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Audit r5's faithful optimizer branch, per arm (True = PG). The lint fails if
 # arms.yaml drifts from this table without the table being updated -- which is
 # exactly the ceremony a branch change should cost.
-# Termination family (n0_termfix / n2_termcal): the loss-side student stop set E_S must be
+# Termination family (vanilla_corr / n2_termcal): the loss-side student stop set E_S must be
 # exactly what ends a rollout under the arm's stop contract -- model eos 151643 plus
 # SIMOPD_STOP_IDS when that contract is on (simopd.eos_gather.rollout_stop_set mirrors this).
 _MODEL_EOS = "151643"
@@ -87,15 +87,16 @@ EXPECT_PG = {
     "e2_set_coverage_a0": False, "e3_zvalue": False,
     "f1_soft_log": True, "f2_hard_clip": True, "f3_power": True,
     "f2_clip2.3": True, "f4_posclip": True, "f5_tanh": True,
-    "n0_termfix": True,
+    "vanilla_corr": True,
     "n2_termcal": True,
-    "n02_termfix_cal": True, "n0_f1_softlog": True, "n0_f2_clip10": True, "n0_f3_power": True,
-    "n0_h2_lastseg": True, "n0_b1_skew": True, "n0_g1_verified": True, "n0_g4_failure": True,
-    "n0_g6_seqmean": True,
-    "n0_f2_clip2.3": True, "n0_f4_posclip": True, "n0_f5_tanh": True, "n0_b5_k2": False,
-    "n0_h1_firstseg": True, "n0_h3_randseg": True, "n0_h4_randscatter": True, "n0_g5_rgopd": True,
-    "n0_g2_fire": True,
-    "n0_d1_tip": True, "n0_d2_selectkd": True, "n0_d3_teachability": True,
+    "n2_corr": True, "f1_soft_log_corr": True, "f2_hard_clip_corr": True, "f3_power_corr": True,
+    "h2_last_segment_corr": True, "b1_skew_kl_corr": True, "g1_verified_only_corr": True, "g4_failure_only_corr": True,
+    "g6_seqmean_corr": True,
+    "f2_clip2.3_corr": True, "f4_posclip_corr": True, "f5_tanh_corr": True, "b5_k2_corr": False,
+    "h1_first_segment_corr": True, "h3_random_segment_corr": True, "h4_random_scatter_corr": True, "g5_rgopd_gate_corr": True,
+    "g2_fire_likelihood_corr": True,
+    "d1_tip_corr": True, "d2_selectkd_corr": True, "d3_teachability_corr": True,
+    "b2_forward_kl_corr": False, "e2_set_coverage_a0_corr": False, "c3_intersection_corr": False,
     "g1_verified_only": True, "g1_quota": True, "g2_fire_likelihood": True,
     "g4_failure_only": True, "g4_quota": True, "g5_rgopd_gate": True,
     "g6_seqmean": True,
@@ -184,7 +185,7 @@ def main():
         wants_sampled = mode in WANT_SAMPLED_MODES or (_te and (mode in T.TERM_EVENT_FAMILY or mode == "k1_fire_gate"))
         if wants_sampled and env.get("SIMOPD_KEEP_SAMPLED") != "1":
             problems.append(f"{tag} kernel unpacks the sampled column but SIMOPD_KEEP_SAMPLED != 1")
-        if not wants_sampled and env.get("SIMOPD_KEEP_SAMPLED") == "1":
+        if not wants_sampled and env.get("SIMOPD_KEEP_SAMPLED") == "1" and str(env.get("SIMOPD_GATHER_EOS", "")) != "1":
             notes.append(f"{tag} KEEP_SAMPLED set but kernel does not consume the column (harmless width)")
 
         # --- optimizer branch vs the r5 verdict ---

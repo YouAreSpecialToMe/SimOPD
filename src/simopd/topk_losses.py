@@ -218,8 +218,25 @@ def _prepare(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, w
         t_id = slice_input_tensor(t_id, dim=1)
     assert t_lp.shape[:2] == t_id.shape[:2] == student_logits.shape[:2]
 
+    t_lp, t_id, sampled_lp, sampled_id = _split_and_collapse(t_lp, t_id, config, want_sampled, raw_block=False)
+
+    student_log_probs = F.log_softmax(student_logits, dim=-1)
+    return student_log_probs, t_lp, t_id, sampled_lp, sampled_id
+
+
+def _carrier_on():
+    from simopd import eos_gather as EG
+    return EG.enabled()
+
+
+def _split_and_collapse(t_lp, t_id, config, want_sampled, raw_block):
+    """Shared tail of _prepare / _prepare_streaming: split the trailing sampled column
+    off the teacher payload (always present when the N0 carrier is on -- teacher_patch's
+    reader emits K+1 rows under SIMOPD_GATHER_EOS -- and when a kernel asks for it), then,
+    under SIMOPD_TERM_EVENT=1 and unless the caller wants the raw gathered block, collapse
+    the terminator coordinate of the support (Path 2)."""
     sampled_lp = sampled_id = None
-    if want_sampled:
+    if want_sampled or _carrier_on():
         k_cfg = config.distillation_loss.topk
         if t_lp.shape[-1] != k_cfg + 1:
             raise RuntimeError(
@@ -227,11 +244,13 @@ def _prepare(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, w
                 f"got {t_lp.shape[-1]}. Without it the sampled token's teacher logprob is dropped "
                 "by verl and the arm cannot keep vanilla's objective."
             )
-        t_lp, sampled_lp = t_lp[..., :k_cfg], t_lp[..., k_cfg]
-        t_id, sampled_id = t_id[..., :k_cfg], t_id[..., k_cfg].long()
-
-    student_log_probs = F.log_softmax(student_logits, dim=-1)
-    return student_log_probs, t_lp, t_id, sampled_lp, sampled_id
+        t_lp, s_lp = t_lp[..., :k_cfg], t_lp[..., k_cfg]
+        t_id, s_id = t_id[..., :k_cfg], t_id[..., k_cfg].long()
+        if want_sampled:
+            sampled_lp, sampled_id = s_lp, s_id
+    if TERM_EVENT and not raw_block:
+        t_lp, t_id = _collapse_terminator_support(t_lp, t_id)
+    return t_lp, t_id, sampled_lp, sampled_id
 
 
 def _prepare_streaming(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled, raw_block=False):
@@ -260,20 +279,7 @@ def _prepare_streaming(student_logits, teacher_topk_log_probs, teacher_topk_ids,
         t_id = slice_input_tensor(t_id, dim=1)
     assert t_lp.shape[:2] == t_id.shape[:2] == student_logits.shape[:2]
 
-    sampled_lp = sampled_id = None
-    if want_sampled:
-        k_cfg = config.distillation_loss.topk
-        if t_lp.shape[-1] != k_cfg + 1:
-            raise RuntimeError(
-                f"D-axis arms need SIMOPD_KEEP_SAMPLED=1: expected teacher width {k_cfg + 1}, "
-                f"got {t_lp.shape[-1]}. Without it the sampled token's teacher logprob is dropped "
-                "by verl and the arm cannot keep vanilla's objective."
-            )
-        t_lp, sampled_lp = t_lp[..., :k_cfg], t_lp[..., k_cfg]
-        t_id, sampled_id = t_id[..., :k_cfg], t_id[..., k_cfg].long()
-
-    if TERM_EVENT and not raw_block:
-        t_lp, t_id = _collapse_terminator_support(t_lp, t_id)
+    t_lp, t_id, sampled_lp, sampled_id = _split_and_collapse(t_lp, t_id, config, want_sampled, raw_block)
 
     lse = _lse_chunked(student_logits)
     return lse, t_lp, t_id, sampled_lp, sampled_id
@@ -1480,6 +1486,41 @@ def _term_common_out(P, student_logits, raw):
     return out
 
 
+def compute_forward_kl_topk_collapsed(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """b2 corrected (`b2_forward_kl_corr`): verl's forward_kl_topk kernel math, verbatim --
+    sum over the teacher's top-k of q (log q - log p), student mass / teacher mass /
+    overlap diagnostics, the same log_prob_min_clamp -- but on the COLLAPSED support
+    (Path 2), so the teacher's termination mass sits on the student's stop id inside
+    the support instead of the student's <|endoftext|> mass being pushed out as
+    out-of-support probability (audit: b2 p(eot) 1.6e-4 at natural stops by step 175).
+    Streaming on the student side (no [T, V] log_softmax). verl's own registry
+    function (clamp_min(0), mass panels) consumes the outputs unchanged. Dispatched
+    for loss_mode 'forward_kl_topk' only under SIMOPD_TERM_EVENT=1; the legacy b2 keeps
+    verl's kernel bit-for-bit."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+
+    lse, t_lp, t_id, _, _ = _prepare_streaming(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    K = t_lp.shape[-1]
+    stu_at_teacher = torch.gather(student_logits, dim=-1, index=t_id) - lse.unsqueeze(-1)
+    student_topk_ids = _student_topk_ids(student_logits, k=K)
+    student_mass = stu_at_teacher.exp().sum(dim=-1)
+    teacher_mass = t_lp.exp().sum(dim=-1)
+    s_lp, t_lp_c = stu_at_teacher, t_lp
+    if config.distillation_loss.log_prob_min_clamp is not None:
+        s_lp = s_lp.clamp_min(config.distillation_loss.log_prob_min_clamp)
+        t_lp_c = t_lp_c.clamp_min(config.distillation_loss.log_prob_min_clamp)
+    losses = kl_divergence(log_q=s_lp, log_p=t_lp_c)
+    overlap_mask = (t_id.unsqueeze(-1) == student_topk_ids.unsqueeze(-2)).any(dim=-1)
+    overlap_count = overlap_mask.sum(dim=-1)
+    token_kl = t_lp_c.exp() * (t_lp_c - s_lp)
+    adv = (-token_kl * overlap_mask).sum(dim=-1) / overlap_count.clamp_min(1)
+    adv = torch.where(overlap_count > 0, adv, torch.zeros_like(adv))
+    return {"distillation_losses": losses, "student_mass": student_mass, "teacher_mass": teacher_mass,
+            "overlap_count": overlap_count.to(losses.dtype), "overlap_token_advantage": adv}
+
+
 def compute_termcal_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     """N2 kernel (termination-marginal calibration). Returns vanilla's sampled-k1 as
     `distillation_losses` (the PG base, bit-identical to the D-axis kernels' `raw`)
@@ -1629,3 +1670,6 @@ if TERM_EVENT:
     # termfix kernel; losses.py registers those modes with use_topk under the same flag.
     for _name in TERM_EVENT_FAMILY:
         TOPK_DISPATCH.setdefault(_name, compute_termfix_topk)
+    # b2: verl's own forward-KL kernel bypasses _prepare_streaming, so it gets a twin that
+    # runs the same math on the collapsed support (Path 2)
+    TOPK_DISPATCH.setdefault("forward_kl_topk", compute_forward_kl_topk_collapsed)

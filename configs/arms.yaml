@@ -1507,7 +1507,7 @@ arms:
     env:
       SIMOPD_LOSS_AGG_MODE: seq-mean-token-mean
 
-  - run_id: n0_termfix
+  - run_id: vanilla_corr
     axis: N
     cohort: supplement
     desc: "[OURS] semantic alignment of the target representation: STOP token ratio -> STOP event ratio. Vanilla with ONE change -- at the student's own stop tokens the per-token signal is the EVENT-level Delta-ell (log q_T(E_T) - log p_theta(E_S)) instead of the token-level log q(<|endoftext|>) - log p(<|endoftext|>); no new loss, no new gradient channel; the artifact-isolation cell of the termination chapter"
@@ -1578,7 +1578,7 @@ arms:
       SIMOPD_STOP_IDS: "off"
       SIMOPD_SHADOW: "0"
 
-  - run_id: n02_termfix_cal
+  - run_id: n2_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + N2: the termination-marginal calibration channel ON the corrected base (event-level terminal Delta-ell + dense stop-vs-continue BCE)"
@@ -1589,8 +1589,8 @@ arms:
            the N0 carrier (top-k payload + gathered terminators, streaming kernel, 2-GPU
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
-           bit-identical inputs. QUESTION: once the mismatch is fixed, does dense stopping SUPPLY still have independent value? (2x2 with n0_termfix / n2_termcal / vanilla)
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           bit-identical inputs. QUESTION: once the mismatch is fixed, does dense stopping SUPPLY still have independent value? (2x2 with vanilla_corr / n2_termcal / vanilla)
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            n2_termcal row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1601,7 +1601,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_termcal
       SIMOPD_EOS_AUX_COEF: "1.0"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1613,7 +1613,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_f1_softlog
+  - run_id: f1_soft_log_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + f1: sign(d) log(1+|d|) soft-log shaping on the corrected base"
@@ -1625,7 +1625,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: is the soft-log effect independent of the stop artifact (or was it mostly compressing the -25)?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            f1_soft_log row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1635,7 +1635,7 @@ arms:
            eos_n_stop, q/p by position)."
     env:
       DISTILLATION_LOSS_MODE: k1_softlog
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1647,7 +1647,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_f2_clip10
+  - run_id: f2_hard_clip_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + f2: hard clip |k1| <= 10 (verl loss_max_clamp) on the corrected base"
@@ -1659,7 +1659,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: is the clipping effect independent of the stop artifact?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            f2_hard_clip row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1669,7 +1669,7 @@ arms:
            eos_n_stop, q/p by position). No DISTILLATION_LOSS_MODE: the launcher default k1_rec rides the carrier under the knob (== N0's signal) and verl's loss_max_clamp applies downstream exactly as for f2_hard_clip."
     env:
       LOSS_MAX_CLAMP: "10.0"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1681,7 +1681,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_f3_power
+  - run_id: f3_power_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + f3: probability-scale power reward (alpha=1) on the corrected base"
@@ -1693,7 +1693,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: does the probability geometry still stabilize independently once the artifact is gone?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            f3_power row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1704,7 +1704,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_power
       SIMOPD_POWER_ALPHA: "1.0"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1716,7 +1716,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_h2_lastseg
+  - run_id: h2_last_segment_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + h2: supervise only the last 100 tokens, on the corrected base"
@@ -1728,7 +1728,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: is LATE supervision dangerous per se, or was h2's fast lock the -25 it necessarily included in every naturally-ended rollout?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            h2_last_segment row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1739,7 +1739,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_lastseg
       SIMOPD_FIRST_SEGMENT_K: "100"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1751,7 +1751,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_b1_skew
+  - run_id: b1_skew_kl_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + b1: skew-KL (alpha 0.1) sampled estimator on the corrected base"
@@ -1763,7 +1763,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: does the bounded/skew geometry still help once its 'bounded -25' is no longer the reason?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            b1_skew_kl row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1773,7 +1773,7 @@ arms:
            eos_n_stop, q/p by position)."
     env:
       DISTILLATION_LOSS_MODE: skew_kl_a0.1
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1785,7 +1785,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_g1_verified
+  - run_id: g1_verified_only_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + g1: verified-only trajectory gate on the corrected base"
@@ -1797,7 +1797,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: does the verified-only pathology (early crater / famine) survive? -- correct trajectories are exactly the ones that stop, so g1 concentrated the -25
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            g1_verified_only row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1807,7 +1807,7 @@ arms:
            eos_n_stop, q/p by position)."
     env:
       DISTILLATION_LOSS_MODE: k1_verified_only
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1819,7 +1819,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_g4_failure
+  - run_id: g4_failure_only_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + g4: failure-only trajectory gate on the corrected base"
@@ -1831,7 +1831,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: the failure-only control of the g1 pair on the corrected base
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            g4_failure_only row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1841,7 +1841,7 @@ arms:
            eos_n_stop, q/p by position)."
     env:
       DISTILLATION_LOSS_MODE: k1_failure_only
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1853,7 +1853,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_g6_seqmean
+  - run_id: g6_seqmean_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + g6: per-sequence-mean aggregation on the corrected base"
@@ -1865,7 +1865,7 @@ arms:
            lane) and reads the EVENT-level sampled log-probs at the student's stop tokens
            (log q_T(E_T), log p_S(E_S)) instead of the token-level ones -- everywhere else
            bit-identical inputs. QUESTION: with the -25 gone, does removing the length-proportional cross-sequence weighting still act as an independent stabilizer?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            g6_seqmean row (same knob-less arm, legacy carrier): the pair reads whether the
            arm's old effect survives once the -25 stop artifact is gone. Legacy rollout
            contract pinned (SIMOPD_STOP_IDS off) so the comparison stays single-knob
@@ -1875,7 +1875,7 @@ arms:
            eos_n_stop, q/p by position). No DISTILLATION_LOSS_MODE: k1_rec on the carrier (== N0's signal); the launcher knob flips verl's loss_agg_mode exactly as for g6_seqmean."
     env:
       SIMOPD_LOSS_AGG_MODE: seq-mean-token-mean
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1886,7 +1886,7 @@ arms:
       # ---- the knob: event-level sampled log-probs at the student's own stop tokens
       SIMOPD_TERM_EVENT: "1"
 
-  - run_id: n0_f2_clip2.3
+  - run_id: f2_clip2.3_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + f2_clip2.3: hard clip |k1| <= 2.303 on the corrected base (matched-bound rung)"
@@ -1898,7 +1898,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: the matched-bound hypothesis (clip 2.3 ~ b1's implicit bound) re-adjudicated without the artifact
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            f2_clip2.3 row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -1908,7 +1908,7 @@ arms:
            eos_n_stop, q/p by position). No DISTILLATION_LOSS_MODE: k1_rec on the carrier (== N0's signal); verl's loss_max_clamp applies downstream exactly as for f2_clip2.3."
     env:
       LOSS_MAX_CLAMP: "2.303"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1920,7 +1920,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_f4_posclip
+  - run_id: f4_posclip_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + f4: clip the POSITIVE tail only (M=10) on the corrected base"
@@ -1932,7 +1932,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: which tail is actually harmful once the negative -25 outlier is gone?
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            f4_posclip row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -1943,7 +1943,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_posclip
       SIMOPD_CLIP_M: "10.0"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1955,7 +1955,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_f5_tanh
+  - run_id: f5_tanh_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + f5: M*tanh(k1/M), M=10, on the corrected base"
@@ -1967,7 +1967,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: boundedness vs the clipping kink, without the artifact
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            f5_tanh row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -1978,7 +1978,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_tanh
       SIMOPD_CLIP_M: "10.0"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -1990,7 +1990,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_b5_k2
+  - run_id: b5_k2_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + b5: k2 estimator (direct branch) on the corrected base"
@@ -2002,7 +2002,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: the k1/k2 realization-estimator contrast once both read the corrected sampled values
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            b5_k2 row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -2013,7 +2013,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k2_kdrl
       USE_POLICY_GRADIENT: "False"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -2025,7 +2025,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_h1_firstseg
+  - run_id: h1_first_segment_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + h1: supervise only the first 100 tokens, on the corrected base"
@@ -2037,7 +2037,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: does front-only stability still hold? (audit: h1's window contains the stop in 0.07% of stopped rollouts, so the banked h1 is already ~corrected -- this is the cheap confirmation)
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            h1_first_segment row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -2048,7 +2048,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_firstseg
       SIMOPD_FIRST_SEGMENT_K: "100"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -2060,7 +2060,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_h3_randseg
+  - run_id: h3_random_segment_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + h3: one random contiguous 100-token window, on the corrected base"
@@ -2072,7 +2072,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: does the random-position effect survive? (audit: a random 100-window contains the stop in ~17-22% of stopped rollouts)
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            h3_random_segment row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -2083,7 +2083,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_randseg
       SIMOPD_FIRST_SEGMENT_K: "100"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -2095,7 +2095,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_h4_randscatter
+  - run_id: h4_random_scatter_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + h4: 100 randomly scattered tokens, on the corrected base"
@@ -2107,7 +2107,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: window vs scatter, without the artifact
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            h4_random_scatter row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -2117,7 +2117,7 @@ arms:
            eos_n_stop, q/p by position)."
     env:
       DISTILLATION_LOSS_MODE: k1_randscatter
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -2129,7 +2129,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_g5_rgopd
+  - run_id: g5_rgopd_gate_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + g5: RG-OPD directional gate on the corrected base"
@@ -2141,7 +2141,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: substitute lane (D slot): the gate's likelihood sums L_T/L_S are built from the event-fixed sampled values (audit: the -25 flipped 0/30 gates; the sums are ~-340), so gate and base are both event-correct
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            g5_rgopd_gate row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -2152,7 +2152,7 @@ arms:
     env:
       DISTILLATION_LOSS_MODE: k1_rgopd_gate
       SIMOPD_RGOPD_DELTA: "0.0"
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       DISTILLATION_TOPK: 66
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
@@ -2164,7 +2164,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_g2_fire
+  - run_id: g2_fire_likelihood_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + g2: FiRe likelihood filter + entropy weights on the corrected base"
@@ -2176,7 +2176,7 @@ arms:
            sampled log-probs at the student's stop tokens (log q_T(E_T), log p_S(E_S))
            instead of the token-level ones -- everywhere else bit-identical inputs.
            QUESTION: substitute lane (D slot): FiRe's Eq.4 trajectory statistic (mean teacher logprob) and its k1 base both read the event-fixed sampled column (audit: the raw terminal shifts the statistic by 25/T and moves 1/6 of the bottom-20% set), entropy weights untouched. 4-GPU lane
-           Judged against n0_termfix (same carrier, no knob) AND against the banked
+           Judged against vanilla_corr (same carrier, no knob) AND against the banked
            g2_fire_likelihood row (same knob-less arm, legacy carrier), seed-paired: reads whether
            the arm's old effect survives once the -25 stop artifact is gone. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off) so the comparison stays
@@ -2190,7 +2190,7 @@ arms:
       SIMOPD_FIRE_ALPHA: "1.0"
       SIMOPD_FIRE_BETA: "1.0"
       SIMOPD_FIRE_MODE: both
-      # ---- the N0 carrier (identical to n0_termfix): gathered terminators + sampled column
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
       # 32 real top-k (g2's own K) + 2 gathered terminators
       DISTILLATION_TOPK: 34
       # g2 is a KEEP_SAMPLED [T,V] kernel: the 4-GPU family (teacher pool on separate cards)
@@ -2205,7 +2205,7 @@ arms:
       # ---- the knob: event-level sampled log-probs at the student's own stop tokens
       SIMOPD_TERM_EVENT: "1"
 
-  - run_id: n0_d1_tip
+  - run_id: d1_tip_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + d1: TIP soft-OR selection (retention .5) on the corrected base and the collapsed support"
@@ -2221,7 +2221,7 @@ arms:
            was TIP-selected 100% with a 24-nat fake divergence that pinned min-max
            normalization (TIP degenerated toward entropy-only); SelecTKD rejected the stop
            (.01) only while the student's top-1 was e_S; teachability selected it 7%.
-           Judged against n0_termfix and the banked d1_tip row, seed-paired. Legacy
+           Judged against vanilla_corr and the banked d1_tip row, seed-paired. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off)."
     env:
       DISTILLATION_LOSS_MODE: tip_select
@@ -2241,7 +2241,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_d2_selectkd
+  - run_id: d2_selectkd_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + d2: SelecTKD student-proposes/teacher-verifies (k=5, beta=.01) on the corrected base and the collapsed support"
@@ -2257,7 +2257,7 @@ arms:
            was TIP-selected 100% with a 24-nat fake divergence that pinned min-max
            normalization (TIP degenerated toward entropy-only); SelecTKD rejected the stop
            (.01) only while the student's top-1 was e_S; teachability selected it 7%.
-           Judged against n0_termfix and the banked d2_selectkd row, seed-paired. Legacy
+           Judged against vanilla_corr and the banked d2_selectkd row, seed-paired. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off)."
     env:
       DISTILLATION_LOSS_MODE: selectkd_verify
@@ -2278,7 +2278,7 @@ arms:
       SIMOPD_TERM_EVENT: "1"
 
 
-  - run_id: n0_d3_teachability
+  - run_id: d3_teachability_corr
     axis: N
     cohort: supplement
     desc: "[OURS] N0 + d3: teachability = disagreement x compatibility (top-5%) on the corrected base and the collapsed support"
@@ -2294,7 +2294,7 @@ arms:
            was TIP-selected 100% with a 24-nat fake divergence that pinned min-max
            normalization (TIP degenerated toward entropy-only); SelecTKD rejected the stop
            (.01) only while the student's top-1 was e_S; teachability selected it 7%.
-           Judged against n0_termfix and the banked d3_teachability row, seed-paired. Legacy
+           Judged against vanilla_corr and the banked d3_teachability row, seed-paired. Legacy
            rollout contract pinned (SIMOPD_STOP_IDS off)."
     env:
       DISTILLATION_LOSS_MODE: teachability_select
@@ -2312,6 +2312,105 @@ arms:
       NGPUS_PER_NODE: "2"
       TEACHER_WORLD_SIZE: "2"
       # ---- the knob: Path 1 (event-level sampled column) + Path 2 (support collapsed onto the student's stop id)
+      SIMOPD_TERM_EVENT: "1"
+
+  - run_id: b2_forward_kl_corr
+    axis: N
+    cohort: supplement
+    desc: "[OURS] b2 corrected: unnormalized teacher-top-k forward KL on the collapsed support (direct branch)"
+    status: stock
+    note: "REGISTERED 2026-08-19, corrected-rerun wave 1 (user lane plan, support-corrected group). =
+           b2_forward_kl with the terminal-token identity fix as an ORTHOGONAL knob (SIMOPD_TERM_EVENT=1),
+           which for this arm means Path 2 only: the objective's support is the COLLAPSED teacher
+           top-k -- the teacher's termination mass log q(E_T) sits on the student's stop id inside
+           the rank-ordered support, other terminator columns floored -- so the student's
+           <|endoftext|> mass is inside the support at the teacher's true stop mass instead of
+           being out-of-support probability the objective pushes down. The arm's own math is
+           untouched. QUESTION: does event-aligned FKL still collapse? (verl's own kernel bypasses _prepare_streaming, so under the flag loss_mode forward_kl_topk dispatches to compute_forward_kl_topk_collapsed: verl's math verbatim on the collapsed support, streaming on the student side; verl's registry fn -- clamp_min(0), mass panels -- unchanged)
+           Audit (selector_stop_audit, 2026-08-19): at its latest checkpoint the banked arm had
+           p(eot) at natural stops = 1.6e-4 (@175); c1/c2/c4/e1/e3/b4/h5 kept 0.86-1.0.
+           Judged against vanilla_corr and the banked b2_forward_kl row, seed-paired. Legacy rollout
+           contract pinned (SIMOPD_STOP_IDS off)."
+    env:
+      DISTILLATION_LOSS_MODE: forward_kl_topk
+      USE_POLICY_GRADIENT: "False"
+      # ---- the corrected carrier: 32 real top-k (the arm's own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # ---- the knob: for a support-only objective this is Path 2 -- the terminator coordinate of the
+      # teacher's top-k collapsed onto the student's stop id (rank-inserted); Path 1 is vacuous here
+      SIMOPD_TERM_EVENT: "1"
+
+
+  - run_id: e2_set_coverage_a0_corr
+    axis: N
+    cohort: supplement
+    desc: "[OURS] e2@0 corrected: set-coverage objective (anchor coef 0) on the collapsed support"
+    status: stock
+    note: "REGISTERED 2026-08-19, corrected-rerun wave 1 (user lane plan, support-corrected group). =
+           e2_set_coverage_a0 with the terminal-token identity fix as an ORTHOGONAL knob (SIMOPD_TERM_EVENT=1),
+           which for this arm means Path 2 only: the objective's support is the COLLAPSED teacher
+           top-k -- the teacher's termination mass log q(E_T) sits on the student's stop id inside
+           the rank-ordered support, other terminator columns floored -- so the student's
+           <|endoftext|> mass is inside the support at the teacher's true stop mass instead of
+           being out-of-support probability the objective pushes down. The arm's own math is
+           untouched. QUESTION: does set coverage still erase the stop once p_S(eot) counts as coverage of the teacher's STOP instead of out-of-set mass?
+           Audit (selector_stop_audit, 2026-08-19): at its latest checkpoint the banked arm had
+           p(eot) at natural stops = 0.005 (@250); c1/c2/c4/e1/e3/b4/h5 kept 0.86-1.0.
+           Judged against vanilla_corr and the banked e2_set_coverage_a0 row, seed-paired. Legacy rollout
+           contract pinned (SIMOPD_STOP_IDS off)."
+    env:
+      DISTILLATION_LOSS_MODE: set_coverage_anchor
+      USE_POLICY_GRADIENT: "False"
+      SIMOPD_PL_ANCHOR_COEF: "0"
+      # ---- the corrected carrier: 32 real top-k (the arm's own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # ---- the knob: for a support-only objective this is Path 2 -- the terminator coordinate of the
+      # teacher's top-k collapsed onto the student's stop id (rank-inserted); Path 1 is vacuous here
+      SIMOPD_TERM_EVENT: "1"
+
+
+  - run_id: c3_intersection_corr
+    axis: N
+    cohort: supplement
+    desc: "[OURS] c3 corrected: thunlp intersection support on the collapsed support (direct branch)"
+    status: stock
+    note: "REGISTERED 2026-08-19, corrected-rerun wave 1 (user lane plan, support-corrected group). =
+           c3_intersection with the terminal-token identity fix as an ORTHOGONAL knob (SIMOPD_TERM_EVENT=1),
+           which for this arm means Path 2 only: the objective's support is the COLLAPSED teacher
+           top-k -- the teacher's termination mass log q(E_T) sits on the student's stop id inside
+           the rank-ordered support, other terminator columns floored -- so the student's
+           <|endoftext|> mass is inside the support at the teacher's true stop mass instead of
+           being out-of-support probability the objective pushes down. The arm's own math is
+           untouched. QUESTION: intersection judged on its own once teacher <|im_end|> and student <|endoftext|> map to the same STOP coordinate before the intersection is taken
+           Audit (selector_stop_audit, 2026-08-19): at its latest checkpoint the banked arm had
+           p(eot) at natural stops = 0.56 (@250); c1/c2/c4/e1/e3/b4/h5 kept 0.86-1.0.
+           Judged against vanilla_corr and the banked c3_intersection row, seed-paired. Legacy rollout
+           contract pinned (SIMOPD_STOP_IDS off)."
+    env:
+      DISTILLATION_LOSS_MODE: intersection_topk
+      USE_POLICY_GRADIENT: "False"
+      # ---- the corrected carrier: 32 real top-k (the arm's own K) + 2 gathered terminators
+      DISTILLATION_TOPK: 34
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # ---- the knob: for a support-only objective this is Path 2 -- the terminator coordinate of the
+      # teacher's top-k collapsed onto the student's stop id (rank-inserted); Path 1 is vacuous here
       SIMOPD_TERM_EVENT: "1"
 
   - run_id: n2_termcal

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CPU battery for the termination family -- N2 (n2_termcal) and N0 (n0_termfix): the
+"""CPU battery for the termination family -- N2 (n2_termcal) and N0 (vanilla_corr): the
 exact termination payload contract end to end.
 
     PYTHONPATH=src SIMOPD_GATHER_EOS=1 SIMOPD_EOS_IDS=7 SIMOPD_EOS_TEACHER_IDS=7,9 \\
@@ -344,6 +344,20 @@ if HAVE_VERL:
         stu_at_raw = z.float()[0].log_softmax(-1).gather(1, raw_id[0]); stu_at_col = z.float()[0].log_softmax(-1).gather(1, c_id[0])
         d_raw = (raw_lp[0].exp() * (raw_lp[0] - stu_at_raw)).sum(-1); d_col = (c_lp[0].exp() * (c_lp[0] - stu_at_col)).sum(-1)
         ok(bool(torch.isfinite(d_col).all()), f"teacher-topk divergence finite on the collapsed support (stop pos: raw {float(d_raw[3]):.3f} -> collapsed {float(d_col[3]):.3f}; toy teacher, direction not asserted)")
+        # the shared split: with the carrier on, want_sampled=False still drops the trailing sampled column
+        full_lp = t_lps.values().unsqueeze(0); full_id = t_ids.values().unsqueeze(0)
+        s_lp, s_id, s_smp, _ = T._split_and_collapse(full_lp, full_id, cfg, want_sampled=False, raw_block=False)
+        ok(s_lp.shape[-1] == K and s_smp is None and torch.allclose(s_lp, c_lp), "_split_and_collapse(want_sampled=False) on the carrier: K columns, collapsed, sampled dropped")
+        # b2 corrected: forward KL on the collapsed support == verl's formula on (c_lp, c_id)
+        ok(T.TOPK_DISPATCH.get("forward_kl_topk") is T.compute_forward_kl_topk_collapsed, "forward_kl_topk dispatches to the collapsed twin under the flag")
+        ob = T.compute_forward_kl_topk_collapsed(z, t_lps, t_ids, cfg, None, data=None)
+        slp_full = z.float()[0].log_softmax(-1)
+        stu_c = slp_full.gather(1, c_id[0])
+        ref = (c_lp[0].exp() * (c_lp[0] - stu_c)).sum(-1)
+        ok(torch.allclose(ob["distillation_losses"][0], ref, atol=1e-4), "b2 corrected: sum_topk q (log q - log p) on the collapsed support")
+        ok(torch.allclose(ob["teacher_mass"][0], c_lp[0].exp().sum(-1), atol=1e-5) and torch.allclose(ob["student_mass"][0], stu_c.exp().sum(-1), atol=1e-4),
+           "b2 corrected: teacher/student mass over the collapsed support")
+        ok(set(ob) >= {"distillation_losses", "student_mass", "teacher_mass", "overlap_count", "overlap_token_advantage"}, "b2 corrected: verl's registry keys present")
     else:
         print("== G. skipped (SIMOPD_TERM_EVENT unset)")
 

@@ -163,7 +163,7 @@ ladder = the two registered adjudicators.
   kick on the stop logit is ~25·(1−p) per stop event. Both N1 and N2 stable ⇒
   two independent routes; one stable ⇒ the two forces are asymmetric and collapse
   answers only that remedy.
-- **N0 (registered 2026-08-19, `n0_termfix`, wave 17 — run FIRST): semantic
+- **N0 (registered 2026-08-19, `vanilla_corr`, wave 17 — run FIRST): semantic
   alignment of the target representation — STOP token ratio → STOP event
   ratio; no new loss, no new gradient channel.** As a knob (`SIMOPD_TERM_EVENT=1`)
   it repairs both routes of the mismatch: **Path 1** (sampled signal: e_S sampled
@@ -191,7 +191,7 @@ ladder = the two registered adjudicators.
   next to `eos_dl_at_stop_raw` (vanilla's, expect ≈ −25). Watched corner: a
   sampled `<|im_end|>` is not in E_S and keeps its token-level signal (+25 if it
   ever happens; `eos_pm_1` is the watch panel; at p ~1e-11 it does not). Same
-  payload and lane as N2 (`ARM=n0_termfix bash deploy/dsw/rehearse_n2.sh 0,1`).
+  payload and lane as N2 (`ARM=vanilla_corr bash deploy/dsw/rehearse_n2.sh 0,1`).
   Not the environment fix (letting the rollout stop on `<|im_end|>` too) — that
   changes the environment for every arm in the campaign and is a follow-up
   campaign's opening question, together with whether other Base/Instruct pairs

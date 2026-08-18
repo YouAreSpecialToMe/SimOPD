@@ -161,7 +161,7 @@ CPU 上对真实 checkpoint 与真实 rollout 做的(脚本 `scripts/analysis/eo
 `.campaign/STOP_CONTRACT`(默认 off = 该 batch 登记时的契约;把 batch 翻到 v2 =
 写文件,而不是拉一次 launcher 的副作用)。DLC A/H fleet 启动器**不覆盖**——A 轴
 v2 重启波(`stop2` 标记,legacy 同名 run 已移侧)按 launcher 的新 run 默认走 v2,
-是登记方的明确决定。(3) 终止族臂(n0_termfix / n2_termcal)env 显式钉
+是登记方的明确决定。(3) 终止族臂(vanilla_corr / n2_termcal)env 显式钉
 `SIMOPD_STOP_IDS: off`(与 v1 vanilla 单旋钮可比;v2 配对需先有 vanilla_v2),
 `eos_gather` 在 import 时校验 E_S == 当前契约下真正终止 rollout 的集合,arm_lint 同查。
 

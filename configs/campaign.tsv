@@ -393,27 +393,29 @@
 16	any	g6_seqmean	0	w length-proportionality: the one G-axis coordinate never varied; judged against vanilla x3
 16	any	g6_seqmean	1
 16	any	g6_seqmean	2
-17	any	n0_termfix	0	corrected-rerun wave 1 (user lane plan 2026-08-19): 20 one-seed cells, canonical seed 0, seed-paired against the banked arms; priority N0/N2 > F > H > G1/G4/G6 > B1/B5 > (D deferred until the selectors are event-aligned); J series and vanilla_n8 dropped; more seeds only for N0, N0+N2 and arms that diverge. #1 total gate: fix the STOP convention mismatch only
-17	any	n02_termfix_cal	0	#2 N0 + N2: dense termination calibration on the corrected base
-17	any	n0_f1_softlog	0	#3 N0 + f1
-17	any	n0_f2_clip10	0	#4 N0 + f2 (clip 10)
-17	any	n0_f3_power	0	#5 N0 + f3
-17	any	n0_f2_clip2.3	0	#6 N0 + f2_clip2.3 (matched bound)
-17	any	n0_f4_posclip	0	#7 N0 + f4
-17	any	n0_f5_tanh	0	#8 N0 + f5
-17	any	n0_h1_firstseg	0	#9 N0 + h1
-17	any	n0_h2_lastseg	0	#10 N0 + h2 (KEY: was old h2 just hitting STOP?)
-17	any	n0_h3_randseg	0	#11 N0 + h3
-17	any	n0_h4_randscatter	0	#12 N0 + h4
-17	any	n0_g1_verified	0	#13 N0 + g1
-17	any	n0_g4_failure	0	#14 N0 + g4
-17	any	n0_g6_seqmean	0	#15 N0 + g6 (KEY: seq-mean after the fix)
-17	any	n0_b1_skew	0	#16 N0 + b1
-17	any	n0_b5_k2	0	#17 N0 + b5
-17	any	n2_termcal	0	#18 raw N2 (substitute for the D slot: dense correction alone vs the pathology)
-17	any	n0_g5_rgopd	0	#19 N0 + g5 (substitute for the D slot; gate event-correct via tf values)
-17	any	n0_g2_fire	0	#20 N0 + g2 (substitute for the D slot; 4-GPU lane -- 19x2 + 1x4 = 42 cards, or drop one 2-GPU lane to fit 40)
-18	any	n0_d1_tip	0	corrected-rerun wave 2 (D group, 4-GPU lanes): selectors event-aligned via the support collapse (Path 2) + event-level base (Path 1); swap into wave 1 only at 4 cards each
-18	any	n0_d2_selectkd	0
-18	any	n0_d3_teachability	0
-
+17	any	vanilla_corr	0	corrected-rerun wave 1 (user lane plan 2026-08-19, final): 13 confirmed + 7 support/selector-corrected; ONE seed (0), seed-paired against the banked arms; every cell = the banked arm + SIMOPD_TERM_EVENT=1 (Path 1 sampled signal, Path 2 support); legacy stop contract pinned off; 17 x 2-GPU + 3 x 4-GPU lanes = 46 cards as listed. #1 the new vanilla: STOP token ratio -> STOP event ratio (Path 1) + collapsed support (Path 2)
+17	any	n2_corr	0	#2 N2 on the corrected base
+17	any	b1_skew_kl_corr	0	#3 B1 corrected
+17	any	b5_k2_corr	0	#4 B5 corrected
+17	any	f1_soft_log_corr	0	#5 F1 corrected
+17	any	f2_hard_clip_corr	0	#6 F2 corrected
+17	any	f3_power_corr	0	#7 F3 corrected
+17	any	g1_verified_only_corr	0	#8 G1 corrected
+17	any	g4_failure_only_corr	0	#9 G4 corrected
+17	any	g6_seqmean_corr	0	#10 G6 corrected (KEY)
+17	any	h2_last_segment_corr	0	#11 H2 corrected (KEY)
+17	any	h3_random_segment_corr	0	#12 H3 corrected
+17	any	h4_random_scatter_corr	0	#13 H4 corrected
+17	any	b2_forward_kl_corr	0	#14 B2 corrected: Path-2 victim (p(eot) 1.6e-4)
+17	any	e2_set_coverage_a0_corr	0	#15 E2@0 corrected: Path-2 victim (0.005)
+17	any	c3_intersection_corr	0	#16 C3 corrected: Path-2 (0.56)
+17	any	g2_fire_likelihood_corr	0	#17 G2 corrected: filter + base event-aware (4-GPU lane)
+17	any	g5_rgopd_gate_corr	0	#18 G5 corrected: gate likelihood sums event-correct
+17	any	d2_selectkd_corr	0	#19 D2 corrected: membership on the collapsed support (4-GPU lane)
+17	any	d3_teachability_corr	0	#20 D3 corrected: disagreement/compatibility on the collapsed support (4-GPU lane)
+18	any	n2_termcal	0	backlog after wave 1: launched only as lanes free up; more seeds for vanilla_corr / n2_corr and diverging arms are added here by decision. raw N2 on the legacy base (dense supply vs the punishing base) -- backlog
+18	any	f2_clip2.3_corr	0	matched-bound rung -- backlog
+18	any	f4_posclip_corr	0	positive-tail clip -- backlog
+18	any	f5_tanh_corr	0	tanh bound -- backlog
+18	any	h1_first_segment_corr	0	front window (audit: banked h1 already ~corrected, 0.07% exposure) -- backlog
+18	any	d1_tip_corr	0	TIP on the collapsed support (4-GPU) -- backlog

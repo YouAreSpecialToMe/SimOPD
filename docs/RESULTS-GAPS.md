@@ -148,7 +148,7 @@ extrapolated from the arm's own measured wall-h.
 | DH1 | **the D axis's missing random control**: `random-scatter @50%` and `@5%` — same mask-and-rescale kernel, criterion = random, so no KEEP_SAMPLED payload and **2-card lanes** (the d-family pays 4-card for its criteria) | (a) criterion vs random at matched budget — the selector literature's actual claim; (b) scatter-vs-window, deconfounding the position dose line's middle step; (c) if random matches the criteria, the d-family's entire 4-card premium bought nothing (`MECHANISMS.md` M-III) | 2 cells × 3 seeds, ~500 GPU·h |
 | N1 | **M-I causal keystone (amendment candidate)**: `vanilla + truncation-zeroing reward term`, nothing else — j1 fixes termination but moves three knobs; this cell moves one (`MECHANISMS.md` M-I) | closes the EOS-starvation loop causally | ~350 GPU·h |
 | N2 | **M-I keystone, supply side — REGISTERED 2026-08-19 as `n2_eos_aux`, RE-REGISTERED the same day (before any run) as `n2_termcal`, termination-marginal calibration (wave 17, stock)**: `vanilla + an exact full-softmax stop-vs-continue term` at every visited state, `BCEWithLogits(m_t, q_t)`, q_t = Σ_{E_T} p_T(e) over the TEACHER's terminators E_T={151643,151645}, m_t = log-odds of Σ_{E_S} p_θ(e) over the tokens that END the student's rollout E_S={151643}; dL/dm = p−q ∈ [−1,1], distributed inside E_S by the student's own conditional (lands on `<|endoftext|>`), student mass on a teacher-only terminator counts as CONTINUE; no 'which terminator' KL. Nothing else moves (sampled k1, PG, no renorm, token-mean). Payload contract: every id force-gathered from the teacher's full log_softmax (`simopd.eos_gather`, `teacher_patch` N2 reader) — a miss is refused, never read as q=0. WHY TWO SETS: the stop-token audit (`MECHANISMS.md` M-I, `docs/data/eos_stop_*.txt`) — the student ends rollouts only on `<|endoftext|>` (q_T there median 1.4e-11), the teacher ends on `<|im_end|>` (0.95); the single-token registration would have calibrated p(stop) toward 1e-11 | separates what exact top-k does in one move — the audit says it does NOT supply stopping, it exempts the student's stop from vanilla's −25-nat terminal punishment (c2/c4@250 keep p(eot) 0.997 and never learn `<|im_end|>`); N2 tests whether SUPPLY on top of the punishing base holds the fixed point. P-EOS / P-support / P-teacher preregistered in arms.yaml; secondary: splits c2/c4's gain into termination vs content. λ=1 canonical, ladder now {1,3,10,30} (upward — PG kick on the stop logit ≈ 25·(1−p) per stop event) sized by the forward audit; live receipt `eos_dl_at_stop`; not stacked with g6 until each moves the fixed point (then the 2×2 V/S/E/S+E) | ~350 GPU·h (2-GPU lane, streaming kernel); CPU battery 55/55 (asymmetric sets) + 52/52 (symmetric); 3-step rehearsal `deploy/dsw/rehearse_n2.sh` pending a GPU node |
-| N0 | **M-I artifact-isolation cell — REGISTERED 2026-08-19 as `n0_termfix` (wave 17, stock, run FIRST)**: vanilla with one change — at the sampled stop token, Δℓ is the event-level log Σ_{E_T} q − log Σ_{E_S} p (E_S={151643} student side, E_T={151643,151645} teacher side) instead of log q(`<|endoftext|>`) − log p(`<|endoftext|>`); every other token untouched; no coefficient, no channel; N2's payload (`SIMOPD_GATHER_EOS` + KEEP_SAMPLED, TOPK 66) | removes the −25-nat terminal punishment without adding supply, so it isolates the artifact: P-artifact (interior fixed point ⇒ vanilla's collapse is mostly the identity mismatch, exact top-k's stability is the exemption) vs P-drive (locks like vanilla ⇒ continuation drive real beyond the terminal token, N2's supply is the live question); with N2 reads the 2×2 {V, N0, N2, N0+N2}. Live receipt: `eos_dl_at_stop` (applied) vs `eos_dl_at_stop_raw` (vanilla's −25); watched corner: sampled `<|im_end|>` (`eos_pm_1`) | ~350 GPU·h (2-GPU lane); CPU battery section F; rehearsal `ARM=n0_termfix bash deploy/dsw/rehearse_n2.sh 0,1` pending a GPU node |
+| N0 | **M-I artifact-isolation cell — REGISTERED 2026-08-19 as `vanilla_corr` (wave 17, stock, run FIRST)**: vanilla with one change — at the sampled stop token, Δℓ is the event-level log Σ_{E_T} q − log Σ_{E_S} p (E_S={151643} student side, E_T={151643,151645} teacher side) instead of log q(`<|endoftext|>`) − log p(`<|endoftext|>`); every other token untouched; no coefficient, no channel; N2's payload (`SIMOPD_GATHER_EOS` + KEEP_SAMPLED, TOPK 66) | removes the −25-nat terminal punishment without adding supply, so it isolates the artifact: P-artifact (interior fixed point ⇒ vanilla's collapse is mostly the identity mismatch, exact top-k's stability is the exemption) vs P-drive (locks like vanilla ⇒ continuation drive real beyond the terminal token, N2's supply is the live question); with N2 reads the 2×2 {V, N0, N2, N0+N2}. Live receipt: `eos_dl_at_stop` (applied) vs `eos_dl_at_stop_raw` (vanilla's −25); watched corner: sampled `<|im_end|>` (`eos_pm_1`) | ~350 GPU·h (2-GPU lane); CPU battery section F; rehearsal `ARM=vanilla_corr bash deploy/dsw/rehearse_n2.sh 0,1` pending a GPU node |
 | S | suite completion: 555 checkpoint-evals remaining + the teacher suite row (eval queued) | every in-loop reading in this doc is a curve reading, not a verdict, until per-bench paired tests run on the full sweep | eval only |
 
 ### Priority order
@@ -251,25 +251,35 @@ id inside the rank-ordered support (e_S ∉ S_T no longer squeezes the student's
 and selectors no longer see a fake terminator divergence). Every corrected cell is "the
 same arm + the flag", judged seed-paired against its banked row and against N0.
 
-**Wave 1 (registered, `campaign.tsv` wave 17): 20 one-seed cells, canonical seed 0,
-2 GPUs/lane except `n0_g2_fire` (4)** — priority N0/N2 > F > H > G1/G4/G6 > B1/B5 >
-D-slot substitutes; J series and vanilla_n8 dropped; more seeds afterwards only for
-N0, N0+N2 and arms that visibly diverge. Legacy stop contract pinned (`SIMOPD_STOP_IDS
-off`) so nothing else moves. Cost: the bill is length-driven (report §2) — if the fix
-holds lengths at c1/h1 regimes a lane costs ~15–30 GPU·h, i.e. ~0.5k for the wave;
-if it does not, up to ~2.4k, and the wave has answered the question anyway.
+**Wave 1 (registered, `campaign.tsv` wave 17; final composition 2026-08-19): 20 one-seed
+cells, canonical seed 0, seed-paired against the banked arms** — 13 confirmed + 7
+support/selector-corrected; J series and vanilla_n8 dropped; more seeds afterwards only for
+`vanilla_corr`, `n2_corr` and arms that visibly diverge. Naming: `<banked run_id>_corr` = the
+same arm + the knob; `vanilla_corr` is the new vanilla (old "N0"). Legacy stop contract pinned
+(`SIMOPD_STOP_IDS off`) so nothing else moves. Lanes: 17 × 2 GPUs + 3 × 4 GPUs
+(`g2_fire_likelihood_corr`, `d2_selectkd_corr`, `d3_teachability_corr` are the KEEP_SAMPLED
+[T,V] family) = 46 cards as listed. Cost is length-driven (report §2): ~15–30 GPU·h per
+2-GPU lane if the fix holds lengths at c1/h1 regimes.
 
-| # | cell | = | question |
+| # | cell | what the knob repairs here | question |
 |---|---|---|---|
-| 1 | `n0_termfix` | vanilla + fix | is the STOP convention mismatch load-bearing (P-artifact vs P-drive) |
-| 2 | `n02_termfix_cal` | N2 + fix | does dense stopping supply still add value once the sign is right |
-| 3–8 | `n0_f1_softlog` `n0_f2_clip10` `n0_f3_power` `n0_f2_clip2.3` `n0_f4_posclip` `n0_f5_tanh` | F + fix | does any signal-geometry effect survive without the −25 outlier it was compressing |
-| 9–12 | `n0_h1_firstseg` `n0_h2_lastseg` `n0_h3_randseg` `n0_h4_randscatter` | H + fix | h2 (KEY): was late supervision dangerous per se, or was it the −25 in every naturally-ended rollout; h1: audit says the banked h1 already ≈ corrected (window holds the stop in 0.07%); h3/h4: ~17–22% exposure |
-| 13–15 | `n0_g1_verified` `n0_g4_failure` `n0_g6_seqmean` | G + fix | g1: was the crater STOP enrichment (correct trajectories are the ones that stop); g6 (KEY): is seq-mean still an independent stabilizer |
-| 16–17 | `n0_b1_skew` `n0_b5_k2` | B + fix | bounded/skew geometry and the k1/k2 estimator contrast without the artifact |
-| 18 | `n2_termcal` | raw N2 | D-slot substitute: dense correction alone against the pathology |
-| 19 | `n0_g5_rgopd` | g5 + fix | D-slot substitute; audit: the gate's L_T−L_S sums (~−340) never flipped on the −25 (0/30), and under the flag the sums are event-correct |
-| 20 | `n0_g2_fire` | g2 + fix | D-slot substitute (4-GPU lane); audit: the raw terminal shifts FiRe's statistic by 25/T and moves 1/6 of the bottom-20% set — the fire kernel reads the event-fixed column under the flag |
+| 1 | `vanilla_corr` | Path 1 (sampled signal); Path 2 only touches diagnostics | is the STOP convention mismatch load-bearing (P-artifact vs P-drive) |
+| 2 | `n2_corr` | Path 1 under the BCE channel | does dense stopping supply still add value once the sign is right |
+| 3–4 | `b1_skew_kl_corr` `b5_k2_corr` | Path 1 (both sampled log-probs event-fixed) | bounded/skew geometry, k1/k2 estimator contrast without the artifact |
+| 5–7 | `f1_soft_log_corr` `f2_hard_clip_corr` `f3_power_corr` | Path 1 | does any signal-geometry effect survive without the −25 outlier it was compressing |
+| 8–10 | `g1_verified_only_corr` `g4_failure_only_corr` `g6_seqmean_corr` | Path 1 | g1: was the crater STOP enrichment; g6 (KEY): is seq-mean still an independent stabilizer |
+| 11–13 | `h2_last_segment_corr` `h3_random_segment_corr` `h4_random_scatter_corr` | Path 1 | h2 (KEY): late supervision per se, or the −25 in every naturally-ended rollout; h3/h4 ~17–22% exposure |
+| 14 | `b2_forward_kl_corr` | Path 2 (verl's kernel gets a collapsed-support twin) | does event-aligned FKL still collapse (banked p(eot) 1.6e-4) |
+| 15 | `e2_set_coverage_a0_corr` | Path 2 (p_S(eot) counts as coverage of the teacher's STOP) | (banked 0.005) |
+| 16 | `c3_intersection_corr` | Path 2 (STOP is one coordinate before the intersection) | intersection judged on its own (banked 0.56) |
+| 17 | `g2_fire_likelihood_corr` (4 GPU) | Path 1 in the filter statistic and the base; Path 2 in the entropy weights' support | |
+| 18 | `g5_rgopd_gate_corr` | Path 1 in the gate's L_T/L_S sums and the base (audit: 0/30 flips) | |
+| 19 | `d2_selectkd_corr` (4 GPU) | Path 2 in the top-5 membership test; Path 1 in the base | does the metastable plateau survive once "student stops / teacher stops" counts as agreement |
+| 20 | `d3_teachability_corr` (4 GPU) | Path 2 in disagreement × compatibility; Path 1 in the base | |
+
+Backlog (`campaign.tsv` wave 18, launched only as lanes free up): `n2_termcal` (raw N2 on the
+legacy base), `f2_clip2.3_corr`, `f4_posclip_corr`, `f5_tanh_corr`, `h1_first_segment_corr`
+(banked h1 already ≈ corrected: 0.07% exposure), `d1_tip_corr` (4 GPU).
 
 **43-arm triage** (KEEP = banked data stands under the legacy contract; RERUN = in
 wave 1; AUDIT = measured, action stated; DROP = not rerun):
@@ -279,7 +289,7 @@ wave 1; AUDIT = measured, action stated; DROP = not rerun):
 | RERUN (wave 1) | b1, b5, f1, f2, f3, f2_clip2.3, f4, f5, g1, g4, g6, h1, h2, h3, h4, g5, g2, + N2 | sampled-k1 descendants; their stop erased at 250 (b1 2.8e-5, h2 4e-6, g2 0.06, f3 0.37 partial) |
 | KEEP | c1, c1_direct, c1_tailbucket, c2, c2_qb_fixed8, c2_qb_perseq, c4, e1, e1_a0, e3, b4, b4_b0.1, b4_b0.9, h5 | renormalized/anchored top-k objectives: p(eot) at natural stops 0.86–1.0 at their latest ckpt, `<|im_end|>` never learned (1e-12–1e-18) — exempt by construction and by measurement |
 | AUDIT → corrected variant = arm + flag (Path 2) | e2_set_coverage, c3_intersection (ready), b2_forward_kl (needs a thin dispatch wrapper: verl's own kernel bypasses `_prepare_streaming`) | NOT clean: unrenormalized forward KL / set coverage / intersection push out-of-support student mass down — p(eot) at natural stops b2 1.6e-4 (@175), e2 0.005, c3 0.56. Contaminated through the SUPPORT, not the sampled column. `SIMOPD_TERM_EVENT=1` now collapses the terminator coordinate of the support onto the student's stop id for every kernel that goes through `_prepare_streaming` (`_collapse_terminator_support`), so e2/c3 corrected cells are one env block away; not in wave 1. Banked rows stand as legacy-contract results |
-| RERUN wave 2 (`n0_d1_tip` `n0_d2_selectkd` `n0_d3_teachability`, 4-GPU lanes) | d1_tip, d2_selectkd, d3_teachability | audit: d1's stop position was selected 100% and its mismatch divergence (~24 nats) was the batch max — min-max normalization compressed every other token's divergence, TIP degenerated toward entropy-only; d2 rejected the stop (.01) only while student top-1 = eot, protection lapsing as top-1 drifts (g5@125: 60%); d3 selected it 7% ≈ its 5% budget. The selectors are now event-aligned by construction: under the flag they run on the collapsed support (STOP = teacher termination mass on the student's stop id, rank-inserted) and their base reads the event-level sampled column; the selector rules themselves are untouched. Registered as wave 18; swap into wave 1 only at 4 cards each |
+| RERUN wave 2 (`d1_tip_corr` `d2_selectkd_corr` `d3_teachability_corr`, 4-GPU lanes) | d1_tip, d2_selectkd, d3_teachability | audit: d1's stop position was selected 100% and its mismatch divergence (~24 nats) was the batch max — min-max normalization compressed every other token's divergence, TIP degenerated toward entropy-only; d2 rejected the stop (.01) only while student top-1 = eot, protection lapsing as top-1 drifts (g5@125: 60%); d3 selected it 7% ≈ its 5% budget. The selectors are now event-aligned by construction: under the flag they run on the collapsed support (STOP = teacher termination mass on the student's stop id, rank-inserted) and their base reads the event-level sampled column; the selector rules themselves are untouched. Registered as wave 18; swap into wave 1 only at 4 cards each |
 | AUDIT (done) | a2_coldstart | not a natural control: SFT init has neither terminator (~1e-3 each), the closing-template continuation instead; needs the SFT-target fix (A1') |
 | DROP | b3_eopd_gate, j1_kdrl, vanilla_n8, i0/i1 (shelved) | b3 scientifically dead + 1495 GPU·h; J/n8 dropped by the lane plan |
 | = N0 | vanilla | N0 is the corrected vanilla |

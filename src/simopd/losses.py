@@ -1034,7 +1034,7 @@ def _termination_panels(metrics, model_output, data, mask, losses):
     DistillationLossSettings(names=["k1_termfix"], use_topk=True)
 )  # type: ignore[arg-type]
 def _n0_registry_fn(config, distillation_config, model_output, data):
-    """N0 (n0_termfix, terminal-token identity fix): vanilla's sampled k1, except that
+    """N0 (vanilla_corr, terminal-token identity fix): vanilla's sampled k1, except that
     at the student's own stop tokens the signal is the EVENT-level Delta-ell
     (log q_T(E_T) - log p_theta(E_S)) instead of the token-level one. The kernel
     already returns the fixed signal as `distillation_losses`; this function adds
