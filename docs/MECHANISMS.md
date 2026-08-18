@@ -127,19 +127,30 @@ ladder = the two registered adjudicators.
   kick on the stop logit is ~25·(1−p) per stop event. Both N1 and N2 stable ⇒
   two independent routes; one stable ⇒ the two forces are asymmetric and collapse
   answers only that remedy.
-- **N0 (proposed 2026-08-19, not registered): the reward-level fix of the
-  mismatch itself.** Vanilla with ONE change: at the sampled stop token the
-  per-token signal is the event-level Δℓ_T = log Σ_{E_T} q − log Σ_{E_S} p
-  instead of the token-level log q(`<|endoftext|>`) − log p(`<|endoftext|>`);
-  every other token untouched. It removes the −25 without adding supply, so it
-  isolates the artifact: N0 stable ⇒ vanilla's collapse is (mostly) the identity
-  mismatch and the exact-top-k family's stability is the exemption; N0 locks ⇒
-  the continuation drive is real beyond the terminal token and N2's supply is
-  the live question. Same payload as N2 (the gathered `<|im_end|>` column), a
-  registry function of a dozen lines. Not the environment fix (letting the
-  rollout stop on `<|im_end|>` too) — that changes the environment for every arm
-  in the campaign and is a follow-up campaign's opening question, together with
-  whether other Base/Instruct pairs carry the same mismatch.
+- **N0 (registered 2026-08-19, `n0_termfix`, wave 17 — run FIRST): the
+  reward-level fix of the mismatch itself.** User's formulation: "when the student
+  samples `<|endoftext|>`, read the teacher's `<|im_end|>` probability" — made
+  exact as the event level: vanilla with ONE change, at the sampled stop token
+  the per-token signal is Δℓ_T = log Σ_{E_T} q − log Σ_{E_S} p instead of the
+  token-level log q(`<|endoftext|>`) − log p(`<|endoftext|>`); every other token
+  untouched, no coefficient, no channel. It removes the −25 without adding
+  supply, so it isolates the artifact: **P-artifact** — N0 holds an interior
+  fixed point ⇒ vanilla's collapse is (mostly) the identity mismatch and the
+  exact-top-k family's stability is the exemption, the practitioner finding of
+  the chapter (Base student + Instruct teacher under vLLM/verl defaults);
+  **P-drive** — N0 locks like vanilla ⇒ the continuation drive is real beyond the
+  terminal token and N2's supply is the live question; together they read the
+  2×2 {V, N0, N2, N0+N2}. The teacher's judgement about WHEN to stop survives
+  (q_T(E_T) is small mid-answer, so a premature stop is still punished). Live
+  receipt: `eos_dl_at_stop` (applied, event-level; expect ≈ log 0.95 − log 0.98)
+  next to `eos_dl_at_stop_raw` (vanilla's, expect ≈ −25). Watched corner: a
+  sampled `<|im_end|>` is not in E_S and keeps its token-level signal (+25 if it
+  ever happens; `eos_pm_1` is the watch panel; at p ~1e-11 it does not). Same
+  payload and lane as N2 (`ARM=n0_termfix bash deploy/dsw/rehearse_n2.sh 0,1`).
+  Not the environment fix (letting the rollout stop on `<|im_end|>` too) — that
+  changes the environment for every arm in the campaign and is a follow-up
+  campaign's opening question, together with whether other Base/Instruct pairs
+  carry the same mismatch.
 - M1 measured-magnitude harvest (registered) and its top-k extension.
 - Waves 9/10 execution.
 - a1/a3 length predictions: registered in spirit (teacher-short ⇒ a3 should be

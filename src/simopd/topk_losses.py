@@ -1331,16 +1331,89 @@ def stop_margin(log_p_stop):
     return lp - _log1mexp(lp)
 
 
+def _term_payload(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, name):
+    """Shared unwrap for the termination family (N0 k1_termfix, N2 k1_termcal).
+
+    Row layout from teacher_patch under SIMOPD_GATHER_EOS=1 (width K+1):
+        [ top-(K-n) non-extra | n extra ids: E_S, E_T \\ E_S, diag | sampled ]
+    _prepare_streaming(want_sampled=True) hands back the first K as t_lp/t_id and
+    the last as the sampled column; the extra block is sliced off the end of t_lp.
+    Returns everything both kernels need, with the payload contract enforced: the
+    block must carry the configured ids in order and no -inf (a miss is refused --
+    a silent q=0 would manufacture an anti-stop gradient exactly at collapse onset).
+    """
+    from simopd import eos_gather as EG
+
+    lse, t_all, t_id_all, sampled_lp, sampled_id = _prepare_streaming(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
+    )
+    stop = EG.stop_ids()
+    extra = EG.extra_ids()
+    diag = EG.diag_ids()
+    n = len(extra)
+    n_union = n - len(diag)
+    K = t_all.shape[-1]
+    if n == 0 or K <= n:
+        raise RuntimeError(f"{name}: need SIMOPD_GATHER_EOS=1 with a stop set and DISTILLATION_TOPK "
+                           f"> {n}; got K={K}, ids={extra}")
+    t_lp, t_id = t_all[..., : K - n], t_id_all[..., : K - n]
+    extra_lp, extra_id = t_all[..., K - n:], t_id_all[..., K - n:]
+    want = torch.tensor(extra, device=extra_id.device, dtype=extra_id.dtype)
+    if not bool((extra_id == want).all()):
+        raise RuntimeError(f"{name}: the extra-id block does not carry the configured ids in order -- "
+                           "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
+    if not bool(torch.isfinite(extra_lp).all()):
+        raise RuntimeError(f"{name}: -inf in the extra block -- the sampler patch failed to deliver "
+                           "an id; refusing to train on a fabricated q=0")
+
+    # teacher termination mass over E_T (exact, full-softmax); student stop mass over E_S
+    t_cols = torch.tensor(EG.teacher_cols(), device=extra_lp.device, dtype=torch.long)
+    log_q = torch.logsumexp(torch.index_select(extra_lp, -1, t_cols).float(), dim=-1).clamp(max=0.0)
+    stop_idx = torch.tensor(stop, device=student_logits.device, dtype=torch.long)
+    z_stop = torch.index_select(student_logits, -1, stop_idx).float()      # [..., n_stop]
+    log_p = torch.logsumexp(z_stop, dim=-1) - lse
+
+    # vanilla's k1 ingredients on the sampled column, exactly as the D-axis kernels form them
+    finite = torch.isfinite(sampled_lp)
+    if (~finite).sum() > 0:
+        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
+    stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
+
+    union_idx = torch.tensor(extra[:n_union], device=student_logits.device, dtype=torch.long)
+    p_members = (torch.index_select(student_logits, -1, union_idx).float() - lse.unsqueeze(-1)).exp()
+    return dict(lse=lse, t_lp=t_lp, t_id=t_id, extra_lp=extra_lp, n_union=n_union, diag=diag,
+                sampled_lp=sampled_lp, sampled_id=sampled_id, finite=finite, stu_sampled=stu_sampled,
+                log_q=log_q, log_p=log_p, stop_idx=stop_idx, p_members=p_members)
+
+
+def _term_common_out(P, student_logits, raw):
+    """Diagnostics shared by the termination family: overlap panels, the payload
+    receipts, per-member q/p over E_S u E_T, per-diagnostic-id q."""
+    stu_at_teacher = torch.gather(student_logits, dim=-1, index=P["t_id"]) - P["lse"].unsqueeze(-1)
+    stu_topk_ids = _student_topk_ids(student_logits, k=P["t_lp"].shape[-1])
+    s_ent = _entropy_from_logits(student_logits, P["lse"])
+    out = _overlap_diagnostics(None, P["t_lp"], P["t_id"], stu_topk_ids, stu_at_teacher=stu_at_teacher, s_ent=s_ent)
+    out["distillation_losses"] = raw
+    out["d_raw_k1"] = raw                       # delta_ell panel source (F6 convention): the signal actually used
+    q, p = P["log_q"].exp(), P["log_p"].exp()
+    out["eos_q"] = q.detach()
+    out["eos_p"] = p.detach()
+    out["eos_dstop"] = (q - p).detach()
+    out["eos_missing"] = (~P["finite"]).float()
+    out["eos_sampled_is_stop"] = torch.isin(P["sampled_id"], P["stop_idx"]).float()
+    for i in range(P["n_union"]):
+        out[f"eos_qm_{i}"] = P["extra_lp"][..., i].detach().float().exp()
+        out[f"eos_pm_{i}"] = P["p_members"][..., i].detach()
+    for j in range(len(P["diag"])):
+        out[f"eos_diag_q_{j}"] = P["extra_lp"][..., P["n_union"] + j].detach().float().exp()
+    return out
+
+
 def compute_termcal_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     """N2 kernel (termination-marginal calibration). Returns vanilla's sampled-k1 as
     `distillation_losses` (the PG base, bit-identical to the D-axis kernels' `raw`)
     plus the per-token termination term under `eos_term`, delivered past the PG
     detach by simopd.b3_additive.
-
-    Row layout from teacher_patch under SIMOPD_GATHER_EOS=1 (width K+1):
-        [ top-(K-n) non-extra | n extra ids: E_S, E_T \ E_S, diag | sampled ]
-    _prepare_streaming(want_sampled=True) hands back the first K as t_lp/t_id and
-    the last as the sampled column; the extra block is sliced off the end of t_lp.
 
     Term: BCEWithLogits(m_t, q_t)
         q_t = sum_{e in E_T} p_T(e)            teacher termination mass (full-softmax,
@@ -1354,69 +1427,45 @@ def compute_termcal_topk(student_logits, teacher_topk_log_probs, teacher_topk_id
     the rollout can satisfy the channel. Bounded on the log-odds by construction, so
     it cannot produce the +80-class kicks the F axis catalogues.
     """
-    from simopd import eos_gather as EG
-
-    lse, t_all, t_id_all, sampled_lp, sampled_id = _prepare_streaming(
-        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=True
-    )
-    stop = EG.stop_ids()
-    extra = EG.extra_ids()
-    diag = EG.diag_ids()
-    n_stop, n = len(stop), len(extra)
-    n_union = n - len(diag)
-    K = t_all.shape[-1]
-    if n == 0 or K <= n:
-        raise RuntimeError(f"k1_termcal: need SIMOPD_GATHER_EOS=1 with a stop set and DISTILLATION_TOPK "
-                           f"> {n}; got K={K}, ids={extra}")
-    t_lp, t_id = t_all[..., : K - n], t_id_all[..., : K - n]
-    extra_lp, extra_id = t_all[..., K - n:], t_id_all[..., K - n:]
-    want = torch.tensor(extra, device=extra_id.device, dtype=extra_id.dtype)
-    if not bool((extra_id == want).all()):
-        raise RuntimeError("k1_termcal: the extra-id block does not carry the configured ids in order -- "
-                           "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
-    if not bool(torch.isfinite(extra_lp).all()):
-        raise RuntimeError("k1_termcal: -inf in the extra block -- the sampler patch failed to deliver "
-                           "an id; refusing to train on a fabricated q=0")
-
-    # teacher termination mass over E_T (exact, full-softmax)
-    t_cols = torch.tensor(EG.teacher_cols(), device=extra_lp.device, dtype=torch.long)
-    q = torch.index_select(extra_lp, -1, t_cols).float().exp().sum(dim=-1).clamp(0.0, 1.0)
-    # student stop mass over E_S: logsumexp over the set minus the streaming lse
-    stop_idx = torch.tensor(stop, device=student_logits.device, dtype=torch.long)
-    z_stop = torch.index_select(student_logits, -1, stop_idx).float()      # [..., n_stop]
-    log_p = torch.logsumexp(z_stop, dim=-1) - lse
-    m = stop_margin(log_p)
+    P = _term_payload(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, "k1_termcal")
+    q = P["log_q"].exp().clamp(0.0, 1.0)
+    m = stop_margin(P["log_p"])
     term = F.binary_cross_entropy_with_logits(m, q, reduction="none")
-
-    # vanilla's k1 on the sampled column, exactly as the D-axis kernels form it
-    finite = torch.isfinite(sampled_lp)
-    if (~finite).sum() > 0:
-        sampled_lp = torch.where(finite, sampled_lp, t_lp.min(dim=-1).values)
-    stu_sampled = torch.gather(student_logits, dim=-1, index=sampled_id.unsqueeze(-1)).squeeze(-1) - lse
     raw = _weighted_sampled_token_loss(
-        stu_sampled, sampled_lp, torch.ones_like(sampled_lp), config.distillation_loss
+        P["stu_sampled"], P["sampled_lp"], torch.ones_like(P["sampled_lp"]), config.distillation_loss
     )
-
-    stu_at_teacher = torch.gather(student_logits, dim=-1, index=t_id) - lse.unsqueeze(-1)
-    stu_topk_ids = _student_topk_ids(student_logits, k=t_lp.shape[-1])
-    s_ent = _entropy_from_logits(student_logits, lse)
-    out = _overlap_diagnostics(None, t_lp, t_id, stu_topk_ids, stu_at_teacher=stu_at_teacher, s_ent=s_ent)
-    out["distillation_losses"] = raw
-    out["d_raw_k1"] = raw                       # delta_ell panel source (F6 convention)
+    out = _term_common_out(P, student_logits, raw)
     out["eos_term"] = term
-    out["eos_q"] = q.detach()
-    out["eos_p"] = log_p.detach().exp()
-    out["eos_dstop"] = (q - log_p.exp()).detach()
-    out["eos_missing"] = (~finite).float()
-    out["eos_sampled_is_stop"] = torch.isin(sampled_id, stop_idx).float()
-    # per-member panels over the union E_S u E_T (block order): teacher q and student p
-    union_idx = torch.tensor(extra[:n_union], device=student_logits.device, dtype=torch.long)
-    p_members = (torch.index_select(student_logits, -1, union_idx).float() - lse.unsqueeze(-1)).exp()
-    for i in range(n_union):
-        out[f"eos_qm_{i}"] = extra_lp[..., i].detach().float().exp()
-        out[f"eos_pm_{i}"] = p_members[..., i].detach()
-    for j in range(len(diag)):
-        out[f"eos_diag_q_{j}"] = extra_lp[..., n_union + j].detach().float().exp()
+    return out
+
+
+def compute_termfix_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    """N0 kernel (terminal-token identity fix). Vanilla's sampled-column k1 with ONE
+    change: at positions where the sampled token is in E_S (the student actually
+    stopped), the per-token signal is read at the EVENT level,
+
+        Delta-ell_T = log sum_{e in E_T} p_T(e)  -  log sum_{e in E_S} p_theta(e)
+
+    instead of the token level log p_T(<|endoftext|>) - log p_theta(<|endoftext|>).
+    Every other position is vanilla, untouched. Motivation (audit 2026-08-19,
+    docs/MECHANISMS.md M-I): the student's rollout terminator and the teacher's
+    response terminator are different tokens, so vanilla scores every stop event
+    at -25 nats for a vocabulary convention, never for stopping too early or too
+    late; the event-level read keeps the teacher's judgement about WHEN to stop
+    (q_T(E_T) is small mid-answer, so a premature stop is still punished) and drops
+    only the identity penalty. No coefficient, no extra channel, no supply at
+    positions where nothing was sampled -- that is N2's question.
+    """
+    P = _term_payload(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, "k1_termfix")
+    is_stop = torch.isin(P["sampled_id"], P["stop_idx"])
+    tch = torch.where(is_stop, P["log_q"].to(P["sampled_lp"].dtype), P["sampled_lp"])
+    stu = torch.where(is_stop, P["log_p"].to(P["stu_sampled"].dtype), P["stu_sampled"])
+    raw = _weighted_sampled_token_loss(stu, tch, torch.ones_like(tch), config.distillation_loss)
+    raw_token = _weighted_sampled_token_loss(
+        P["stu_sampled"], P["sampled_lp"], torch.ones_like(P["sampled_lp"]), config.distillation_loss
+    )
+    out = _term_common_out(P, student_logits, raw)
+    out["eos_dl_raw"] = (-raw_token).detach()      # vanilla's token-level Delta-ell (the receipt)
     return out
 
 
@@ -1427,6 +1476,7 @@ TOPK_DISPATCH.update(
     {
         "eopd_entropy_gate": compute_eopd_gate_topk,
         "k1_termcal": compute_termcal_topk,
+        "k1_termfix": compute_termfix_topk,
         "k1_fire_gate": compute_fire_components,
         "jsd_topk": compute_jsd_topk,
         "intersection_topk": compute_intersection_topk,

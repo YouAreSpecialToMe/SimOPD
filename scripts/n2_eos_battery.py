@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""CPU battery for N2 (n2_termcal): the exact termination payload contract end to end.
+"""CPU battery for the termination family -- N2 (n2_termcal) and N0 (n0_termfix): the
+exact termination payload contract end to end.
 
     PYTHONPATH=src SIMOPD_GATHER_EOS=1 SIMOPD_EOS_IDS=7 SIMOPD_EOS_TEACHER_IDS=7,9 \\
         SIMOPD_EOS_DIAG_IDS=11 python scripts/n2_eos_battery.py       # asymmetric sets (the arm)
@@ -21,6 +22,9 @@ Sections (torch required; verl only for the kernel section, skipped if absent):
      a teacher-only member of E_T sits on the CONTINUE side of the student's
      log-odds (no loophole); per-member panels exact; refuses -inf and a shuffled block
   E  _repetition_mask flags a planted repeated 8-gram and nothing before it
+  F  N0 kernel (k1_termfix): distillation_losses == vanilla k1 everywhere except at
+     the sampled-stop position, where it is the EVENT-level log p(E_S) - log q(E_T);
+     eos_dl_raw carries the token-level value; no eos_term
 """
 
 import os
@@ -229,6 +233,46 @@ if HAVE_VERL:
         ok(False, "kernel must refuse a block whose ids are not in env order")
     except RuntimeError as e:
         ok("not running eos_gather" in str(e), "kernel refuses a block whose ids are out of order")
+
+    # ------------------------------------------------------------ F. N0 kernel ---
+    print("== F. N0 kernel k1_termfix (event-level Delta-ell at the sampled stop only)")
+    o0 = T.compute_termfix_topk(z, t_lps, t_ids, cfg, None, data=None)
+    van = stu_samp - tlog[torch.arange(T_len), samp]                    # vanilla k1 = log p_S(y) - log p_T(y)
+    stop_pos = torch.isin(samp, torch.tensor(STOP))
+    ev = log_p - torch.logsumexp(tlog[:, TCH], -1)                       # log p_S(E_S) - log q_T(E_T)
+    want = torch.where(stop_pos, ev, van)
+    ok(torch.allclose(o0["distillation_losses"][0], want, atol=1e-5),
+       "k1_termfix == vanilla k1 off the stop, event-level log p(E_S) - log q(E_T) at the sampled stop")
+    ok(torch.allclose(o0["distillation_losses"][0][~stop_pos], van[~stop_pos], atol=1e-5),
+       "every non-stop position bit-identical to vanilla")
+    ok(torch.allclose(o0["eos_dl_raw"][0], -van, atol=1e-5), "eos_dl_raw == vanilla's token-level Delta-ell (the receipt)")
+    ok("eos_term" not in o0, "N0 carries no calibration term")
+    ok(torch.allclose(o0["eos_q"][0], q_exact, atol=1e-6) and torch.allclose(o0["eos_p"][0], log_p.exp(), atol=1e-5),
+       "N0 panels: eos_q / eos_p identical to N2's")
+    ok(o0["eos_sampled_is_stop"][0].sum() == 1, "N0: sampled-stop event counted once")
+    # the audit's arithmetic in miniature (needs a teacher-only terminator, i.e. the
+    # asymmetric configuration): make the teacher hate the student's stop token but love
+    # the teacher-only terminator at the stop position -> vanilla says -big, N0 says ~0
+    tonly = [t for t in TCH if t not in STOP]
+    if tonly:
+        tl2 = tlog.clone(); row = tl2[3].clone()
+        row[STOP[0]] = -30.0; row[tonly[0]] = 0.0
+        tl2[3] = row.log_softmax(-1)
+        tw2 = wrapped(tl2, K, samp)
+        dd2 = build_dicts(tw2.logprob_token_ids, tw2.logprobs, tw2.selected_token_ranks, K)
+        o2 = types.SimpleNamespace(prompt_token_ids=[0] + samp.tolist(), prompt_logprobs=[None] + dd2)
+        rr2 = {}
+        teacher_patch._extract_with_eos(lambda *a: None)(o2, K, rr2)
+        t_ids2 = torch.nested.nested_tensor([torch.tensor(rr2["prompt_ids"][:-1])], layout=torch.jagged)
+        t_lps2 = torch.nested.nested_tensor([torch.tensor(rr2["prompt_logprobs"][:-1])], layout=torch.jagged)
+        o0b = T.compute_termfix_topk(z, t_lps2, t_ids2, cfg, None, data=None)
+        dl_raw = float(o0b["eos_dl_raw"][0][3].detach())
+        dl_fix = float((-o0b["distillation_losses"][0][3]).detach())
+        want_fix = float(tl2[3][TCH].exp().sum().log()) - float(log_p[3].detach())
+        ok(dl_raw < -20 and abs(dl_fix - want_fix) < 1e-4,
+           f"mismatch case: token-level Delta-ell {dl_raw:.1f} (vanilla) vs event-level {dl_fix:.2f} (N0)")
+    else:
+        print("  skip  mismatch mini-case (no teacher-only terminator in this configuration)")
 
     # ------------------------------------------------------- E. repetition mask ---
     print("== E. _repetition_mask")

@@ -49,6 +49,7 @@ CAVEATS = {
     # N2's verdict is about the length fixed point first and capability second: the
     # preregistered reads (P-EOS / P-support / P-teacher, arms.yaml) are decided on
     # the eos_* panels + the truncation trajectory, not on composite alone.
+    "n0_termfix": "single-knob vs vanilla; verdict reads the termination fixed point (trunc/len trajectory, interval not endpoint) before composite; P-artifact (interior fixed point) vs P-drive (locks like vanilla); eos_dl_at_stop (applied, event-level) vs eos_dl_at_stop_raw (vanilla's -25) is the live receipt; the sampled-<|im_end|> corner is watched on eos_pm_1",
     "n2_termcal": "single-knob vs vanilla; verdict reads the termination fixed point (trunc/len) and the eos_* panels before composite; E_S={151643} student side, E_T={151643,151645} teacher side (stop-token audit 2026-08-19: same event, disjoint tokens); eos_dl_at_stop is the live receipt of the -25-nat terminal punishment in the PG base",
 }
 
@@ -69,7 +70,7 @@ ARMS = [  # ledger order: axis order from the plan
     "h4_random_scatter", "h5_gen100", "h6_gen_sched", "h7_gen512",
     "h8_gen2048", "h9_prune_adapt", "h10_task_subset",
     "vanilla_n8", "j1_kdrl",
-    "n2_termcal",
+    "n0_termfix", "n2_termcal",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.

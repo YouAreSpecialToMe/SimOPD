@@ -896,8 +896,9 @@ def _b3_registry_fn(config, distillation_config, model_output, data):
     return losses, metrics
 
 
-# ---- N2: vanilla + exact EOS-vs-rest calibration channel --------------------------
-_n2_base = _topk_registry_fn("eos_missing", "eos_sampled_is_stop", *_PANELS, signal="delta_ell")
+# ---- N0 / N2: the termination family (k1_termfix / k1_termcal) --------------------
+_term_base = _topk_registry_fn("eos_missing", "eos_sampled_is_stop", *_PANELS, signal="delta_ell")
+_n2_base = _term_base   # pre-rename alias
 
 
 def _repetition_mask(data, mask, n=8):
@@ -936,53 +937,30 @@ def _repetition_mask(data, mask, n=8):
     return rep & mask
 
 
-@register_distillation_loss(
-    DistillationLossSettings(names=["k1_termcal"], use_topk=True)
-)  # type: ignore[arg-type]
-def _n2_registry_fn(config, distillation_config, model_output, data):
-    """N2 (n2_termcal, termination-marginal calibration): keep vanilla OPD exactly
-    unchanged and add only an exact, full-softmax stop-vs-continue calibration
-    channel -- q = teacher mass on ITS terminators E_T, p = student mass on the
-    tokens that actually END its rollout E_S (see eos_gather for why two sets).
 
-    The returned losses are vanilla's sampled k1 (PG branch detaches them into
-    advantages; signal="delta_ell" is true here as for the D arms). The stop term
-    must NOT ride in those losses -- detach would strip its pathwise gradient -- so
-    it takes b3's route: normalized by the global mini-batch token count (same
-    denominator as the PG base, so the coefficient does not drift with response
-    length or micro-batch count) and left in b3_additive.STASH for the wrapper.
-
-    Panels (every key every call, zero-filled -- verl's DP aggregation requires a
-    constant key set): the term; q/p/(q-p) by response position band; the
-    available restoration E[(q-p)_+] beyond 500 tokens; q/(q-p) split by
+def _termination_panels(metrics, model_output, data, mask, losses):
+    """Panels shared by N0/N2 (every key every call, zero-filled -- verl's DP
+    aggregation requires a constant key set): q/p/(q-p) by response position band;
+    the available restoration E[(q-p)_+] beyond 500 tokens; q/(q-p) split by
     novel-vs-repetition positions; per-member q/p over E_S u E_T (eos_qm_i /
-    eos_pm_i, block order); the mechanism receipt at the student's OWN stop tokens
-    (positions where the sampled token is in E_S): eos_n_stop, eos_q_at_stop,
-    eos_p_at_stop and eos_dl_at_stop = vanilla's Delta-ell there (log q_T(y) -
-    log p_S(y) of the sampled stop token; the 2026-08-19 CPU audit measured
-    median -25 nats on real rollouts); per-diagnostic-id q."""
-    from simopd import b3_additive, eos_gather, topk_losses
+    eos_pm_i, block order: 0 = <|endoftext|>, 1 = <|im_end|> for the registered
+    arms); the mechanism receipt at the student's OWN stop tokens (positions where
+    the sampled token is in E_S): eos_n_stop, eos_q_at_stop, eos_p_at_stop,
+    eos_dl_at_stop = the Delta-ell the arm actually applies there (N2: vanilla's
+    token-level -25 of the 2026-08-19 audit; N0: the event-level value) and, when
+    the kernel provides it, eos_dl_at_stop_raw = vanilla's token-level Delta-ell;
+    per-diagnostic-id q."""
+    from simopd import eos_gather
 
-    losses, metrics = _n2_base(config, distillation_config, model_output, data)
-    mask = data["response_mask"]
-    mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
-    term = no_padding_2_padding(model_output["eos_term"], data)
     q = no_padding_2_padding(model_output["eos_q"], data)
     p = no_padding_2_padding(model_output["eos_p"], data)
     dstop = q - p
-
-    _plain = lambda v: getattr(v, "data", v)  # noqa: E731
-    _bnt = _plain(data.get("batch_num_tokens", None)) if hasattr(data, "get") else None
-    _dp = _plain(data.get("dp_size", 1)) if hasattr(data, "get") else 1
-    _denom = (torch.as_tensor(_bnt).float() / max(int(_dp), 1)) if _bnt is not None else (mask.sum() + 1e-8)
-    scalar = topk_losses.EOS_AUX_COEF * (term * mask).sum() / _denom
-    b3_additive.STASH["eos_aux"] = scalar
-
     M = lambda v: Metric(aggregation=AggregationType.MEAN, value=v)  # noqa: E731
     z = losses.new_zeros(()).float()
+
     def _mean(x, sel):
         return x[sel].float().mean() if bool(sel.any()) else z
-    metrics["distillation/eos_aux_term"] = M(scalar.detach())
+
     positions = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0).expand_as(mask)
     for lo, hi, tag in _POS_BINS:
         b = mask & (positions >= lo) & (positions < hi)
@@ -998,7 +976,7 @@ def _n2_registry_fn(config, distillation_config, model_output, data):
     try:
         rep = _repetition_mask(data, mask)
     except Exception as e:  # pragma: no cover - diagnostic only
-        print(f"[simopd] n2 repetition panel skipped: {e!r}", file=sys.stderr)
+        print(f"[simopd] termination repetition panel skipped: {e!r}", file=sys.stderr)
     if rep is None:
         rep = torch.zeros_like(mask)
     nov = mask & ~rep
@@ -1013,7 +991,7 @@ def _n2_registry_fn(config, distillation_config, model_output, data):
             v = no_padding_2_padding(model_output[key], data) if key in model_output else torch.zeros_like(q)
             metrics[f"distillation/{key}"] = M(_mean(v, mask))
             metrics[f"distillation/{key}_500up"] = M(_mean(v, late))
-    # the mechanism receipt: what vanilla's PG base does at the student's own stop tokens
+    # the mechanism receipt: what the arm does at the student's own stop tokens
     if "eos_sampled_is_stop" in model_output and "d_raw_k1" in model_output:
         is_stop = no_padding_2_padding(model_output["eos_sampled_is_stop"], data).bool() & mask
         dl = -no_padding_2_padding(model_output["d_raw_k1"], data).detach()      # Delta-ell = log q - log p
@@ -1021,6 +999,9 @@ def _n2_registry_fn(config, distillation_config, model_output, data):
         metrics["distillation/eos_dl_at_stop"] = M(_mean(dl, is_stop))
         metrics["distillation/eos_q_at_stop"] = M(_mean(q, is_stop))
         metrics["distillation/eos_p_at_stop"] = M(_mean(p, is_stop))
+        if "eos_dl_raw" in model_output:
+            dl_raw = no_padding_2_padding(model_output["eos_dl_raw"], data)
+            metrics["distillation/eos_dl_at_stop_raw"] = M(_mean(dl_raw, is_stop))
     else:
         for key in ("eos_n_stop", "eos_dl_at_stop", "eos_q_at_stop", "eos_p_at_stop"):
             metrics[f"distillation/{key}"] = M(z)
@@ -1030,6 +1011,57 @@ def _n2_registry_fn(config, distillation_config, model_output, data):
             v = no_padding_2_padding(model_output[key], data)
             metrics[f"distillation/{key}"] = M(_mean(v, mask))
             metrics[f"distillation/{key}_500up"] = M(_mean(v, late))
+    return metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_termfix"], use_topk=True)
+)  # type: ignore[arg-type]
+def _n0_registry_fn(config, distillation_config, model_output, data):
+    """N0 (n0_termfix, terminal-token identity fix): vanilla's sampled k1, except that
+    at the student's own stop tokens the signal is the EVENT-level Delta-ell
+    (log q_T(E_T) - log p_theta(E_S)) instead of the token-level one. The kernel
+    already returns the fixed signal as `distillation_losses`; this function adds
+    the termination panels (eos_dl_at_stop = the applied value, eos_dl_at_stop_raw
+    = vanilla's -25) and nothing else -- no STASH term, no coefficient."""
+    losses, metrics = _term_base(config, distillation_config, model_output, data)
+    mask = data["response_mask"]
+    mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+    _termination_panels(metrics, model_output, data, mask, losses)
+    return losses, metrics
+
+
+@register_distillation_loss(
+    DistillationLossSettings(names=["k1_termcal"], use_topk=True)
+)  # type: ignore[arg-type]
+def _n2_registry_fn(config, distillation_config, model_output, data):
+    """N2 (n2_termcal, termination-marginal calibration): keep vanilla OPD exactly
+    unchanged and add only an exact, full-softmax stop-vs-continue calibration
+    channel -- q = teacher mass on ITS terminators E_T, p = student mass on the
+    tokens that actually END its rollout E_S (see eos_gather for why two sets).
+
+    The returned losses are vanilla's sampled k1 (PG branch detaches them into
+    advantages; signal="delta_ell" is true here as for the D arms). The stop term
+    must NOT ride in those losses -- detach would strip its pathwise gradient -- so
+    it takes b3's route: normalized by the global mini-batch token count (same
+    denominator as the PG base, so the coefficient does not drift with response
+    length or micro-batch count) and left in b3_additive.STASH for the wrapper.
+    Panels: see _termination_panels, plus eos_aux_term."""
+    from simopd import b3_additive, topk_losses
+
+    losses, metrics = _term_base(config, distillation_config, model_output, data)
+    mask = data["response_mask"]
+    mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+    term = no_padding_2_padding(model_output["eos_term"], data)
+
+    _plain = lambda v: getattr(v, "data", v)  # noqa: E731
+    _bnt = _plain(data.get("batch_num_tokens", None)) if hasattr(data, "get") else None
+    _dp = _plain(data.get("dp_size", 1)) if hasattr(data, "get") else 1
+    _denom = (torch.as_tensor(_bnt).float() / max(int(_dp), 1)) if _bnt is not None else (mask.sum() + 1e-8)
+    scalar = topk_losses.EOS_AUX_COEF * (term * mask).sum() / _denom
+    b3_additive.STASH["eos_aux"] = scalar
+    metrics["distillation/eos_aux_term"] = Metric(aggregation=AggregationType.MEAN, value=scalar.detach())
+    _termination_panels(metrics, model_output, data, mask, losses)
     return losses, metrics
 
 

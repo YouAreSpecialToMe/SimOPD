@@ -1488,6 +1488,61 @@ arms:
     env:
       SIMOPD_LOSS_AGG_MODE: seq-mean-token-mean
 
+  - run_id: n0_termfix
+    axis: N
+    cohort: supplement
+    desc: "[OURS] terminal-token identity fix: vanilla with ONE change -- at the student's own stop tokens the per-token signal is the EVENT-level Delta-ell (log q_T(E_T) - log p_theta(E_S)) instead of the token-level log q(<|endoftext|>) - log p(<|endoftext|>); the artifact-isolation cell of the termination chapter"
+    status: stock
+    note: "REGISTERED 2026-08-19 (user proposal after the stop-token audit: 'when the
+           student samples <|endoftext|>, read the teacher's <|im_end|> probability').
+           WHAT: L = L_vanilla^{k1}, sampled column, PG branch, token-mean -- except
+           at positions where the sampled token is in E_S = {151643} (the student
+           actually stopped): there Delta-ell = log sum_{E_T} p_T(e) - log
+           sum_{E_S} p_theta(e), E_T = {151643, 151645}. Every other position is
+           bit-identical to vanilla (same kernel ingredients as the D-axis `raw`).
+           No coefficient, no extra channel, no supply at positions where nothing
+           was sampled (that is N2's question). The teacher's judgement about WHEN
+           to stop is kept: q_T(E_T) is small mid-answer, so a premature stop is
+           still punished -- only the vocabulary-convention penalty goes.
+           WHY (audit, docs/MECHANISMS.md M-I, docs/data/eos_stop_*.txt): the
+           student's rollout terminator (<|endoftext|>) and the teacher's response
+           terminator (<|im_end|>) are different tokens; vanilla scores every stop
+           event at Delta-ell = -25 nats (median over 30 real stopped rollouts) for
+           that convention, and the teacher's own terminator is never sampled
+           (p ~1e-11), so no positive stop signal ever arrives; vanilla@250 has
+           p(<|endoftext|>) 6e-5 at natural stop positions (base 0.98) while
+           c2/c4@250 keep 0.997 because renormalized support KL exempts the
+           out-of-support stop from punishment. N0 removes the -25 and nothing else.
+           PREREGISTERED: P-artifact = N0 holds an interior fixed point (c2/c4 band)
+           => vanilla's collapse is (mostly) the identity mismatch and the exact
+           family's stability is the exemption, not supply -- the practitioner
+           finding of the chapter (Base student + Instruct teacher under vLLM/verl
+           defaults). P-drive = N0 locks like vanilla (interval, not just endpoint)
+           => the continuation drive is real beyond the terminal token; N2's supply
+           channel is then the live question, and the two together read the
+           2x2 {V, N0, N2, N0+N2}. Secondary: N0's capability vs vanilla/c2 --
+           if the artifact was the whole story, N0 should approach c2's 0.68.
+           Corner (monitored, not fixed here): a sampled <|im_end|> is NOT in E_S,
+           so it keeps its token-level signal (log q_T(im_end) - log p ~ +25 when
+           it happens); at p ~1e-11 it does not happen, and eos_pm_1 (student mass
+           on <|im_end|>) is the watch panel -- if it drifts up the corner is live.
+           Payload = N2's: SIMOPD_GATHER_EOS + KEEP_SAMPLED, TOPK 66 (64 true top-k
+           + 2 gathered ids + sampled), teacher cost independent of k, protocol
+           2-GPU lane, streaming kernel (no [T, V]); the top-k columns feed only
+           the overlap diagnostics.
+           Panels: the shared termination panels (see n2_termcal) with
+           eos_dl_at_stop = the applied event-level value (expect ~log 0.95 - log
+           0.98 at natural ends) and eos_dl_at_stop_raw = vanilla's token-level
+           value (expect ~-25) side by side -- the mechanism receipt, live."
+    env:
+      DISTILLATION_LOSS_MODE: k1_termfix
+      DISTILLATION_TOPK: 66
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_SHADOW: "0"
+
   - run_id: n2_termcal
     axis: N
     cohort: supplement
