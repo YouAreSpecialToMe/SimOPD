@@ -5,6 +5,20 @@
 # so checkpoints and fingerprints never collide with the math campaign's.)
 # Columns: wave machine arm seed [note] -- same schema as campaign.tsv.
 
+# 2026-08-18 re-pin: the 4-GPU family moved from 3 boxes (j5d2/3/4) to 6
+# (j5d2..j5d7). Free to move -- zero code16k checkpoints exist, so no run sits on
+# either side of it. Reason is makespan, not preference: a 4-GPU row needs a
+# width-4 box, so the family's concurrency is 2 lanes per pinned box. On 3 boxes
+# that is 6 lanes for 21 rows = 4 waves, while the 102 pool rows finish in ONE
+# (26 boxes x 4 lanes = 104 >= 102) -- the family alone would have set the
+# campaign's end date. Six boxes is the balance point, not the maximum: family
+# 2 waves, pool 2 waves (23 x 4 = 92 lanes for 102 rows), and they end together.
+# Going wider makes it worse -- 11 boxes buys the family 1 wave but starves the
+# pool to 72 lanes, so the makespan is 2 waves either way and 5 more boxes idle
+# 2 GPUs per pool lane they later claim.
+# Requires a Job C of at least 8 boxes: a pinned row has no fallback (campaign.sh
+# matches $2==MACHINE || $2==any), so a row named for a box that never boots
+# never runs.
 # -- wave 1: the noise floor, one box on purpose ------------------------------
 1	j5d0	vanilla	0
 1	j5d0	vanilla	1
@@ -59,15 +73,15 @@
 1	any	c4_pi_tail_budget	0
 1	any	c4_pi_tail_budget	1
 1	any	c4_pi_tail_budget	2
-1	j5d2	d1_tip	0	4-GPU family; box width seeded by the worker
-1	j5d3	d1_tip	1	4-GPU family; box width seeded by the worker
-1	j5d4	d1_tip	2	4-GPU family; box width seeded by the worker
+1	j5d5	d1_tip	0	4-GPU family; box width seeded by the worker
+1	j5d6	d1_tip	1	4-GPU family; box width seeded by the worker
+1	j5d7	d1_tip	2	4-GPU family; box width seeded by the worker
 1	j5d2	d2_selectkd	0	4-GPU family; box width seeded by the worker
 1	j5d3	d2_selectkd	1	4-GPU family; box width seeded by the worker
 1	j5d4	d2_selectkd	2	4-GPU family; box width seeded by the worker
-1	j5d2	d3_teachability	0	4-GPU family; box width seeded by the worker
-1	j5d3	d3_teachability	1	4-GPU family; box width seeded by the worker
-1	j5d4	d3_teachability	2	4-GPU family; box width seeded by the worker
+1	j5d5	d3_teachability	0	4-GPU family; box width seeded by the worker
+1	j5d6	d3_teachability	1	4-GPU family; box width seeded by the worker
+1	j5d7	d3_teachability	2	4-GPU family; box width seeded by the worker
 1	any	e1_pl_rank	0
 1	any	e1_pl_rank	1
 1	any	e1_pl_rank	2
@@ -107,9 +121,9 @@
 1	j5d2	vanilla_n8	0	4-GPU family; box width seeded by the worker
 1	j5d3	vanilla_n8	1	4-GPU family; box width seeded by the worker
 1	j5d4	vanilla_n8	2	4-GPU family; box width seeded by the worker
-1	j5d2	j1_kdrl	0	4-GPU family; box width seeded by the worker
-1	j5d3	j1_kdrl	1	4-GPU family; box width seeded by the worker
-1	j5d4	j1_kdrl	2	4-GPU family; box width seeded by the worker
+1	j5d5	j1_kdrl	0	4-GPU family; box width seeded by the worker
+1	j5d6	j1_kdrl	1	4-GPU family; box width seeded by the worker
+1	j5d7	j1_kdrl	2	4-GPU family; box width seeded by the worker
 1	j5d2	g2_fire_likelihood	0	4-GPU family; box width seeded by the worker
 1	j5d3	g2_fire_likelihood	1	4-GPU family; box width seeded by the worker
 1	j5d4	g2_fire_likelihood	2	4-GPU family; box width seeded by the worker
@@ -134,6 +148,6 @@
 1	any	h3_random_segment	0
 1	any	h3_random_segment	1
 1	any	h3_random_segment	2
-1	any	g6_seqmean	0	enlisted after this manifest was generated; pooled like the rest. code4k caps responses at 4096 vs math's 16384, so this is the second length scale for the w-vs-T_i question
+1	any	g6_seqmean	0	enlisted after this manifest was generated; pooled like the rest. same 16384 cap as math since 2026-08-18, so the code column tests w-vs-T_i on a different task at the SAME length scale -- the length-scale contrast this note originally claimed died with the 4096 cap
 1	any	g6_seqmean	1
 1	any	g6_seqmean	2

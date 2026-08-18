@@ -151,6 +151,7 @@ domain_env() {  # print export statements for one domain; empty for math
 
 domain_data_dir() { case "$1" in if) echo "$DATA/simopd_if";; code) echo "$DATA/simopd_code";; *) echo "$DATA/simopd_math";; esac; }
 domain_claim_dir() { case "$1" in if) echo ".campaign_if";; code) echo ".campaign_code";; w8b) echo ".campaign_w8b";; p4b) echo ".campaign_p4b";; math) echo ".campaign";; esac; }
+domain_manifest() { case "$1" in if) echo "configs/campaign_if.tsv";; code) echo "configs/campaign_code.tsv";; w8b) echo "configs/campaign_w8b.tsv";; p4b) echo "configs/campaign_p4b.tsv";; math) echo "configs/campaign.tsv";; esac; }
 domain_width() { case "$1" in w8b) echo 8;; p4b) echo 4;; *) echo 2;; esac; }
 
 # rank resolution, VERBATIM order from the colleagues' proven payloads
@@ -266,13 +267,20 @@ for DOM in $DOMAINS; do
               # only while zero code checkpoints exist, which is now.
               case "$DOM" in if) t=if4k;; *) t=code16k;; esac
               [ -s "$CD/BATCH_TAG" ] || printf '%s' "$t" > "$CD/BATCH_TAG"
-              # d2/d3/d4 are the 4-GPU boxes for the topology-carrying family
-              # (b3/d1/d2/d3/g2/n8/j1 pin their own NGPUS=2+TWS=2 = 4 GPUs);
-              # the manifests pin those rows there. Cost: pool rows those boxes
-              # claim also run at width 4, idling 2 GPUs per such lane -- three
-              # boxes of bounded waste against seven arms that otherwise fail
-              # at boot on every 2-GPU lane.
-              for m in d2 d3 d4; do
+              # The topology-carrying family (b3/d1/d2/d3/g2/n8/j1 pin their own
+              # NGPUS=2+TWS=2 = 4 GPUs) is pinned to particular boxes by the
+              # manifest, and those boxes need a lane width of 4. Read the labels
+              # OUT of the manifest rather than naming them here: DLC hands the
+              # same pods a different rank prefix every job, so a hardcoded list
+              # goes stale silently -- it still said `d2 d3 d4` after code's rows
+              # moved to j5d2/j5d3/j5d4, which seeded three boxes that do not
+              # exist and left the three that do at the default width, i.e. the
+              # exact failure it was written to prevent. Cost of the width itself
+              # is unchanged: pool rows those boxes claim also run at width 4,
+              # idling 2 GPUs per such lane -- bounded waste against seven arms
+              # that otherwise fail at boot on every 2-GPU lane.
+              for m in $(awk -F'\t' '$1 ~ /^[0-9]/ && $5 ~ /4-GPU family/ {print $2}' \
+                             "$EXP_ROOT/$(domain_manifest "$DOM")" 2>/dev/null | sort -u); do
                   [ -s "$CD/GPUS_PER_RUN.$m" ] || printf '4' > "$CD/GPUS_PER_RUN.$m"
               done ;;
         w8b)  [ -s "$CD/BATCH_TAG" ] || printf 'w' > "$CD/BATCH_TAG" ;;
