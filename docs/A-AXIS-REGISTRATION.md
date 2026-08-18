@@ -165,3 +165,15 @@ v2 重启波(`stop2` 标记,legacy 同名 run 已移侧)按 launcher 的新 run 
 `SIMOPD_STOP_IDS: off`(与 v1 vanilla 单旋钮可比;v2 配对需先有 vanilla_v2),
 `eos_gather` 在 import 时校验 E_S == 当前契约下真正终止 rollout 的集合,arm_lint 同查。
 
+### R5 附录补记 2(2026-08-19,append-only):a2 搭载 v2 波前的先决条件
+
+`h_axis_fleet v2`(49cbbf9/49072b4)把 a2_coldstart 搭进 v2 单 seed 波并**复用现存
+stage-1 SFT 产物**(`ckpt/coldstart_sft/hf`)。按 `docs/data/a2_coldstart_probe.txt`
+的直接测量,该 SFT 初始化在教师 CoT 答案末尾 p(`<|im_end|>`)≈1e-3、p(`<|endoftext|>`)
+≈1e-3、质量在续写(`\n\n` 0.5+):**换成双停契约它照样停不下来**(v2 只让采样器认
+`<|im_end|>`,但学生几乎不发它)——预测第 1 步 ≥60% 截断,与 v1 下的 65% 无异,
+且会被误读成"配方在 v2 下也失败"。先决条件:重建 stage-2 使初始化真的学会终止
+(验收 = 该 probe 里末尾 p(`<|im_end|>`)≥0.5;手段任选:终止 token 上加权 CE / 多跑
+epoch / A1' 的 `<|im_end|><|endoftext|>` 收尾),再上 v2 波。测量方登记此预测于
+搭载启动之前。
+
