@@ -1168,6 +1168,14 @@ def _with_term_panels(fn):
             mask = data["response_mask"]
             mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
             try:
+                # the two receipts N0/N2 export through _term_base's extra_keys, so every
+                # corrected arm carries the SAME eos_* key set (the rehearsal's second witness
+                # requires eos_missing == 0 on all of them; 2026-08-19 b1/b5 failed only this)
+                for key in ("eos_missing", "eos_sampled_is_stop"):
+                    if key in model_output and f"distillation/{key}" not in metrics:
+                        v = no_padding_2_padding(model_output[key], data)
+                        metrics[f"distillation/{key}"] = Metric(aggregation=AggregationType.MEAN,
+                                                                value=v[mask].float().mean())
                 _termination_panels(metrics, model_output, data, mask, losses)
             except Exception as e:  # pragma: no cover - panels must never kill a step
                 print(f"[simopd] termination panels skipped for {fn.__name__}: {e!r}", file=sys.stderr)
