@@ -130,7 +130,11 @@ exec > >(tee -a "$LOGD/fleet_slot${SLOT}_s${SEED}_$(date +%Y%m%d_%H%M%S).log") 2
 # The lock is a directory (atomic mkdir) with a heartbeat file; a lock whose heartbeat is
 # older than 20 min is stale (owner pod gone) and is taken over.
 LOCK=$LOGD/slot${SLOT}_s${SEED}.lock
-_take_lock() { echo "$(hostname) pid=$$ $(date -u +%FT%TZ)" > "$LOCK/owner"; }
+# mkdir -p first: the previous owner's EXIT trap REMOVES the lock dir, so a duplicate that
+# is idling when the owner is stopped would otherwise write its owner file into a directory
+# that no longer exists -- no heartbeat, and the next pod would see a free lock and drive
+# the same slot in parallel (the 2026-08-19 double-pod failure, one layer down).
+_take_lock() { mkdir -p "$LOCK"; echo "$(hostname) pid=$$ $(date -u +%FT%TZ)" > "$LOCK/owner"; }
 if mkdir "$LOCK" 2>/dev/null; then
     _take_lock
 else
