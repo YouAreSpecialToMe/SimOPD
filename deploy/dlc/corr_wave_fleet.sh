@@ -24,8 +24,9 @@
 # Lineage: deploy/dlc/h_axis_fleet.sh (its 11 fixes inherited: NCCL/GLOO iface by presence,
 # explicit pid wait, zero-checkpoint never reports success, remote abort marker, bounded
 # resume-retry). Differences: ROOT is the expansion tree (SimOPD-exp -- the corrected code
-# lives there), Phase R wants the carrier rehearsal marker (rehearsal_vanilla_corr.OK) plus
-# each slot arm's own marker unless the batch marker rehearsal_corr_wave.OK exists.
+# lives there); Phase R rehearses missing arms ON THE POD (3-step machine-verdicted
+# rehearsals in parallel on its own GPU pairs) instead of idling for gpu193 markers; the
+# abort marker is a one-shot restart request (consumed at start).
 #
 # Submit: run on any machine WITHOUT the DLC rank env -> prints the console cards and a
 # `dlc submit` CLI template; inside the container the same script is the payload.
@@ -102,6 +103,9 @@ if [ "${_rank}" != "0" ]; then
 fi
 cd "$ROOT"
 mkdir -p "$LOGD"
+# an abort marker is a ONE-SHOT restart request: consumed here so the restarted worker
+# does not exit again at its first idle loop
+rm -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}"
 exec > >(tee -a "$LOGD/fleet_slot${SLOT}_s${SEED}_$(date +%Y%m%d_%H%M%S).log") 2>&1
 echo "== corr_wave_fleet slot ${SLOT} on $(hostname), seed ${SEED}, tree $ROOT @ $(git log --oneline -1 2>/dev/null | head -1)"
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
@@ -148,21 +152,59 @@ if [ "$SEED" = 0 ]; then
     echo "== arm_lint: scoped gate clean for slot ${SLOT} (full report: $LINT_LOG)"
 fi
 
-# rehearsal markers: the carrier proof + each arm's own, unless the batch marker exists
-_has_ok() { [ -f "$LOGD/rehearsal_$1.OK" ] || [ -f "$D/n2/rehearsal_$1.OK" ]; }   # rehearse_n2.sh writes under $D/n2
+# ------------------------------------------------------------ Phase R 彩排门 --
+# The carrier proof (rehearsal_vanilla_corr.OK) + each slot arm's own marker, or the batch
+# marker rehearsal_corr_wave.OK. Missing markers are NOT waited on: this pod has 8 idle
+# H100s, so it rehearses the missing arms itself -- deploy/dsw/rehearse_n2.sh, 3 steps,
+# machine-verdicted, one lane per GPU pair in parallel -- writes the .OK on PASS and skips
+# (does not launch) any lane whose rehearsal FAILED. The debug-node markers ($D/n2/) are
+# honored too. A slot that has no vanilla_corr rehearses vanilla_corr on its first pair as
+# the carrier proof if that marker is missing.
+_has_ok() { [ -f "$LOGD/rehearsal_$1.OK" ] || [ -f "$D/n2/rehearsal_$1.OK" ]; }
+declare -a _todo=()
+if ! _has_ok corr_wave; then
+    for ARM in "${ARMS[@]}"; do _has_ok "$ARM" || _todo+=("$ARM"); done
+fi
+_need_carrier=0
+_has_ok vanilla_corr || { case " ${ARMS[*]} " in *" vanilla_corr "*) ;; *) _need_carrier=1 ;; esac; }
+if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
+    echo "== Phase R: rehearsing on this pod: carrier=${_need_carrier} arms: ${_todo[*]:-none} ($(date))"
+    _rpids=(); _rarms=(); _pairs=(0,1 2,3 4,5 6,7); _i=0
+    _rehearse_one() {  # ARM PAIR
+        ARM=$1 bash deploy/dsw/rehearse_n2.sh "$2" > "$LOGD/rehearse_${1}_s${SEED}.log" 2>&1
+        rc=$?
+        if [ $rc -eq 0 ]; then touch "$LOGD/rehearsal_$1.OK"; echo "rehearsal $1: PASS"; else echo "rehearsal $1: FAIL (rc=$rc) see $LOGD/rehearse_${1}_s${SEED}.log"; fi
+        return $rc
+    }
+    if [ "$_need_carrier" = 1 ]; then
+        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" ) & _rpids+=($!); _rarms+=(vanilla_corr); _i=$((_i+1))
+    fi
+    for ARM in "${_todo[@]}"; do
+        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _i=0; fi     # more than 4 -> second round
+        ( _rehearse_one "$ARM" "${_pairs[$_i]}" ) & _rpids+=($!); _rarms+=("$ARM"); _i=$((_i+1))
+    done
+    [ "${#_rpids[@]}" -gt 0 ] && wait "${_rpids[@]}"
+    echo "== Phase R: rehearsals finished ($(date))"
+fi
 _missing=""
 _has_ok vanilla_corr || _missing="$_missing vanilla_corr(carrier)"
-if ! _has_ok corr_wave; then
-    for ARM in "${ARMS[@]}"; do _has_ok "$ARM" || _missing="$_missing $ARM"; done
-fi
 if [ -n "$_missing" ]; then
     while true; do
         _abort_check
-        echo "REHEARSAL MARKERS MISSING:$_missing -- rehearse on gpu193 (ARM=<arm> bash deploy/dsw/rehearse_n2.sh 0,1), touch $LOGD/rehearsal_<arm>.OK or $LOGD/rehearsal_corr_wave.OK ($(date))"
+        echo "CARRIER REHEARSAL FAILED/MISSING:$_missing -- lanes NOT launched; inspect $LOGD/rehearse_vanilla_corr_s${SEED}.log; fix, then touch the .OK or the abort marker to restart ($(date))"
         sleep 600
     done
 fi
-echo "== Phase R: rehearsal markers present"
+# lanes whose own rehearsal failed are dropped from this launch (logged), the rest go
+_launch=""
+for spec in $LANES; do
+    ARM=${spec%%:*}
+    if _has_ok corr_wave || _has_ok "$ARM"; then _launch="$_launch $spec"; else echo "lane $ARM: rehearsal not PASS -- skipped"; fi
+done
+LANES=$_launch
+ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
+[ -n "$LANES" ] || { while true; do _abort_check; echo "no lane passed rehearsal in slot ${SLOT} ($(date))"; sleep 600; done; }
+echo "== Phase R: markers present for: ${ARMS[*]}"
 
 echo "== Phase L: slot ${SLOT} lanes: $LANES (250 steps, seed ${SEED})"
 [ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
