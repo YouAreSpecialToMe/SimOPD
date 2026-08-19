@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Corrected-rerun wave 1 on DLC: 40 cards = 5 workers x 8 GPUs = 20 two-GPU lanes, one job per SLOT.
+# Corrected-rerun wave 1 on DLC: 40 cards = 5 workers x 8 GPUs = 20 two-GPU lanes -- ONE 5-worker job
+# (worker rank r drives SLOT r; SLOT=k explicit keeps the one-job-per-slot form).
 #
 # Every cell is "the banked arm + SIMOPD_TERM_EVENT=1" (docs/RESULTS-GAPS.md, corrected-rerun
 # roster; docs/MECHANISMS.md M-I). One seed (0), seed-paired against the banked arms; the
@@ -39,8 +40,21 @@ set -uo pipefail
 ROOT=${ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 D=/mgfs/shared/Group_GY/changhao/simopd_data
 SEED=${SEED:-0}
-SLOT=${SLOT:-0}
 LOGD=$D/corr_wave
+# ONE job for the whole wave (the 2026-08-19 afternoon submission): a 5-worker pytorchjob,
+# every worker an 8-GPU pod, worker rank r drives SLOT r (+ SLOT_BASE). SLOT=auto (the
+# default) means "derive from my rank"; an explicit SLOT=k keeps the old one-job-per-slot
+# form (then only rank 0 works and other ranks idle). Ranks past the slot table idle.
+_rank=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-0}}}
+SLOT_BASE=${SLOT_BASE:-0}
+SLOT=${SLOT:-auto}
+if [ "$SLOT" = auto ]; then
+    SLOT=$(( SLOT_BASE + _rank ))
+    _slot_from_rank=1
+else
+    _slot_from_rank=0
+fi
+export SLOT SEED SLOT_BASE
 
 # lane spec: "arm:gpus" (2 or 4 comma-separated GPU ids). Plain case (bash 3 on the
 # submitter's mac has no associative arrays).
@@ -56,7 +70,12 @@ _lanes_for() {
     esac
 }
 LANES=$(_lanes_for "$SLOT")
-[ -n "$LANES" ] || { echo "unknown SLOT=$SLOT (0-5)"; exit 2; }
+if [ -z "$LANES" ]; then
+    if [ "${_slot_from_rank:-0}" = 1 ]; then
+        while true; do echo "rank ${_rank} -> SLOT ${SLOT}: no lanes in the slot table (0-5); idling ($(date))"; sleep 600; done
+    fi
+    echo "unknown SLOT=$SLOT (0-5)"; exit 2
+fi
 ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
 
 # The abort marker is a RELOAD request. Idle loops (no lanes running) honour it by
@@ -76,6 +95,9 @@ _abort_check() {
         echo "abort marker found ($(date)): reloading slot ${SLOT} IN PLACE (#${CORR_FLEET_RELOADS}) from $ROOT @ $(git -C "$ROOT" log --oneline -1 2>/dev/null | cut -c1-70) -- same container, no AIMaster, no dlc submit"
         [ -n "${_hb_pid:-}" ] && kill "$_hb_pid" 2>/dev/null
         [ -n "${LOCK:-}" ] && rm -rf "$LOCK"      # exec skips the EXIT trap; release explicitly
+        # keep the SLOT mode across the reload: a rank-derived worker must re-derive (an
+        # explicit numeric SLOT would flip it into single-slot mode, where rank != 0 idles)
+        [ "${_slot_from_rank:-0}" = 1 ] && export SLOT=auto
         exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
     fi
 }
@@ -96,26 +118,30 @@ if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; t
 CARD
     done
     cat <<TAIL
-  40 cards = SLOT 0-4 (5 jobs, the 20-lane plan). SLOT 5 = backlog fill (raw N2, d1, f2_2.3, h1) for a 6th worker or a freed slot.
+  40 cards = SLOT 0-4. EITHER 5 jobs (one per SLOT, SLOT=k explicit) OR ONE 5-worker job (SLOT unset/auto:
+  worker rank r drives SLOT r; add a 6th worker to fill SLOT 5 = backlog raw N2, d1, f2_2.3, h1).
+  Add-on form: SLOT_BASE=1 with 4 workers drives SLOT 1-4 next to an already-running SLOT 0 job.
   前置:rehearsal_vanilla_corr.OK(载体彩排,gpu193;rehearse_n2.sh 写在 $D/n2/,这里也认)+ 各臂 .OK,或批量标记 rehearsal_corr_wave.OK。
   重载(空转中的 pod 就地重读舰队树,不重提 job):touch $LOGD/fleet_abort_slot<k>_s${SEED}   (Phase L 跑 lane 时不轮询)
-========= dlc CLI 等价形式(填你们工作区的 WORKSPACE_ID/RESOURCE_ID/IMAGE/DATA_SOURCES;每个 SLOT 一条)=========
-  for k in 0 1 2 3 4; do
-    dlc submit pytorchjob --name=simopd-corr-wave1-slot\${k}-s${SEED} --workers=1 --worker_gpu=8 --worker_cpu=64 \\
+========= dlc CLI:一次性 40 卡(一个 job,5 worker x 8 GPU,rank r -> SLOT r)=========
+    dlc submit pytorchjob --name=simopd-corr-wave1-40cards-s${SEED} --workers=5 --worker_gpu=8 --worker_cpu=64 \\
       --worker_memory=512Gi --worker_image="\$IMAGE" --data_sources="\$DATA_SOURCES" \\
       --workspace_id="\$WORKSPACE_ID" --resource_id="\$RESOURCE_ID" --priority=5 --job_max_running_time_minutes=0 \\
-      --command="bash -lc 'SLOT=\${k} SEED=${SEED} bash $ROOT/deploy/dlc/corr_wave_fleet.sh'"
-  done
+      --command="bash -lc 'SEED=${SEED} bash $ROOT/deploy/dlc/corr_wave_fleet.sh'"
+========= 或补齐形式:SLOT 0 已在跑,一个 job 补 SLOT 1-4(4 worker,32 卡)=========
+    ... --workers=4 ... --command="bash -lc 'SLOT_BASE=1 SEED=${SEED} bash $ROOT/deploy/dlc/corr_wave_fleet.sh'"
+========= 或每 SLOT 一个 job(旧形式)=========
+  for k in 0 1 2 3 4; do  ... --workers=1 ... --command="bash -lc 'SLOT=\${k} SEED=${SEED} bash $ROOT/deploy/dlc/corr_wave_fleet.sh'"; done
 TAIL
     echo "本机不是 DLC 容器(无 rank env),以上为提交卡片;容器内执行同一脚本即载荷。"
     exit 0
 fi
 
 # ------------------------------------------------------------------ payload --
-_rank=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-0}}}
-if [ "${_rank}" != "0" ]; then
-    while true; do _abort_check; echo "rank ${_rank}: single-worker job, idling ($(date))"; sleep 600; done
+if [ "$_slot_from_rank" = 0 ] && [ "${_rank}" != "0" ]; then
+    while true; do _abort_check; echo "rank ${_rank}: single-slot job (SLOT=$SLOT given), idling ($(date))"; sleep 600; done
 fi
+echo "== worker rank ${_rank} -> SLOT ${SLOT} (SLOT_BASE=${SLOT_BASE}, mode=$([ "$_slot_from_rank" = 1 ] && echo rank-derived || echo explicit))"
 cd "$ROOT"
 mkdir -p "$LOGD"
 # an abort marker is a ONE-SHOT restart request: consumed here so the restarted worker
