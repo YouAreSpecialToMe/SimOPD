@@ -215,19 +215,29 @@ _has_ok vanilla_corr || { case " ${ARMS[*]} " in *" vanilla_corr "*) ;; *) _need
 if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     echo "== Phase R: rehearsing on this pod: carrier=${_need_carrier} arms: ${_todo[*]:-none} ($(date))"
     _rpids=(); _rarms=(); _pairs=(0,1 2,3 4,5 6,7); _i=0
-    _rehearse_one() {  # ARM PAIR
+    # STAGGER: the venv AND both models live on /mgfs, so four simultaneous cold bringups
+    # are ~40 processes importing torch+vllm and reading ~12 GB of weights through one
+    # mount at once. On a cold node that thrashes: 2026-08-19 slot 0 on M16-221 sat 20+ min
+    # after "Started a local Ray instance" with zero output (the same node needed 5 min for
+    # a lint that takes 30 s warm). Starting them REHEARSE_STAGGER seconds apart lets the
+    # first one warm the page cache for the rest; on a warm node the cost is ~4 min total.
+    _STAG=${REHEARSE_STAGGER:-180}
+    _rehearse_one() {  # ARM PAIR DELAY
+        [ "${3:-0}" -gt 0 ] && sleep "$3"
+        echo "rehearsal $1: starting on GPUs $2 ($(date))"
         ARM=$1 bash deploy/dsw/rehearse_n2.sh "$2" > "$LOGD/rehearse_${1}_s${SEED}.log" 2>&1
         rc=$?
         if [ $rc -eq 0 ]; then touch "$LOGD/rehearsal_$1.OK"; echo "rehearsal $1: PASS"; else echo "rehearsal $1: FAIL (rc=$rc) see $LOGD/rehearse_${1}_s${SEED}.log"; fi
         return $rc
     }
     if [ "$_need_carrier" = 1 ]; then
-        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" ) & _rpids+=($!); _rarms+=(vanilla_corr); _i=$((_i+1))
+        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _i=$((_i+1))
     fi
     for ARM in "${_todo[@]}"; do
         if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _i=0; fi     # more than 4 -> second round
-        ( _rehearse_one "$ARM" "${_pairs[$_i]}" ) & _rpids+=($!); _rarms+=("$ARM"); _i=$((_i+1))
+        ( _rehearse_one "$ARM" "${_pairs[$_i]}" $(( _i * _STAG )) ) & _rpids+=($!); _rarms+=("$ARM"); _i=$((_i+1))
     done
+    echo "== Phase R: ${#_rpids[@]} rehearsals launched, staggered ${_STAG}s apart (carrier first)"
     [ "${#_rpids[@]}" -gt 0 ] && wait "${_rpids[@]}"
     echo "== Phase R: rehearsals finished ($(date))"
 fi
