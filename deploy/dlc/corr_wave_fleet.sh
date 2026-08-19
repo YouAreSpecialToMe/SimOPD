@@ -45,7 +45,12 @@ LOGD=$D/corr_wave
 # every worker an 8-GPU pod, worker rank r drives SLOT r (+ SLOT_BASE). SLOT=auto (the
 # default) means "derive from my rank"; an explicit SLOT=k keeps the old one-job-per-slot
 # form (then only rank 0 works and other ranks idle). Ranks past the slot table idle.
-_rank=${MLP_WORKER_RACK_RANK_INDEX:-${MLP_ROLE_INDEX:-${RANK:-0}}}
+# Worker index inside a multi-worker pytorchjob. RANK is the PyTorchJob-standard per-worker
+# index (0..workers-1) and is preferred; the MLP_* names are PAI/DLC's own and are kept as
+# fallbacks (the single-worker lineage never had to tell them apart). All candidates are
+# printed at start so a mis-mapping is a grep, not a mystery: a collision (two workers
+# deriving the same SLOT) shows as one of them idling as a DUPLICATE POD.
+_rank=${RANK:-${MLP_ROLE_INDEX:-${MLP_WORKER_RACK_RANK_INDEX:-0}}}
 SLOT_BASE=${SLOT_BASE:-0}
 SLOT=${SLOT:-auto}
 if [ "$SLOT" = auto ]; then
@@ -141,7 +146,7 @@ fi
 if [ "$_slot_from_rank" = 0 ] && [ "${_rank}" != "0" ]; then
     while true; do _abort_check; echo "rank ${_rank}: single-slot job (SLOT=$SLOT given), idling ($(date))"; sleep 600; done
 fi
-echo "== worker rank ${_rank} -> SLOT ${SLOT} (SLOT_BASE=${SLOT_BASE}, mode=$([ "$_slot_from_rank" = 1 ] && echo rank-derived || echo explicit))"
+echo "== worker rank ${_rank} -> SLOT ${SLOT} (SLOT_BASE=${SLOT_BASE}, mode=$([ "$_slot_from_rank" = 1 ] && echo rank-derived || echo explicit); rank env: RANK=${RANK:-<unset>} WORLD_SIZE=${WORLD_SIZE:-<unset>} MLP_ROLE_INDEX=${MLP_ROLE_INDEX:-<unset>} MLP_WORKER_RACK_RANK_INDEX=${MLP_WORKER_RACK_RANK_INDEX:-<unset>} host=$(hostname))"
 cd "$ROOT"
 mkdir -p "$LOGD"
 # an abort marker is a ONE-SHOT restart request: consumed here so the restarted worker
