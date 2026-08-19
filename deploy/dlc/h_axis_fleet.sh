@@ -88,7 +88,11 @@ LINT_LOG=$LOGD/h_arm_lint.log
 python scripts/arm_lint.py > "$LINT_LOG" 2>&1 || true
 BAD=$(grep 'PROBLEM' "$LINT_LOG" \
       | grep -E 'h6_gen_sched|h7_gen512|h8_gen2048|h9_prune_adapt|h10_task_subset|a2_coldstart' \
-      | grep -vE 'campaign\.tsv row|verdict\.py ARMS' || true)
+      | grep -vE 'campaign\.tsv row|verdict\.py ARMS|appears 2x in campaign\.tsv' || true)
+      # 第三个排除类(2026-08-19):a2_s0 在 campaign.tsv 有两行历史死行(wave-3
+      # Cornell 占位 + wave-5 m-fleet 已烤行,均被不存在的 needs= 守卫锁死,不可
+      # 认领)。DLC 舰队不读该清单,行重复是 m-fleet 侧的归档卫生问题,与
+      # "缺 row"同类,不该拦发射。真正的发射安全由 env 冲突/指纹检查把关。
 if [ -n "$BAD" ]; then
     while true; do
         _abort_check
