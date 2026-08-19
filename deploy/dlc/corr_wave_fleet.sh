@@ -146,13 +146,13 @@ fi
 if [ "$_slot_from_rank" = 0 ] && [ "${_rank}" != "0" ]; then
     while true; do _abort_check; echo "rank ${_rank}: single-slot job (SLOT=$SLOT given), idling ($(date))"; sleep 600; done
 fi
-echo "== worker rank ${_rank} -> SLOT ${SLOT} (SLOT_BASE=${SLOT_BASE}, mode=$([ "$_slot_from_rank" = 1 ] && echo rank-derived || echo explicit); rank env: RANK=${RANK:-<unset>} WORLD_SIZE=${WORLD_SIZE:-<unset>} MLP_ROLE_INDEX=${MLP_ROLE_INDEX:-<unset>} MLP_WORKER_RACK_RANK_INDEX=${MLP_WORKER_RACK_RANK_INDEX:-<unset>} host=$(hostname))"
 cd "$ROOT"
 mkdir -p "$LOGD"
 # an abort marker is a ONE-SHOT restart request: consumed here so the restarted worker
 # does not exit again at its first idle loop
 rm -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}"
 exec > >(tee -a "$LOGD/fleet_slot${SLOT}_s${SEED}_$(date +%Y%m%d_%H%M%S).log") 2>&1
+echo "== worker rank ${_rank} -> SLOT ${SLOT} (SLOT_BASE=${SLOT_BASE}, mode=$([ "$_slot_from_rank" = 1 ] && echo rank-derived || echo explicit); rank env: RANK=${RANK:-<unset>} WORLD_SIZE=${WORLD_SIZE:-<unset>} MLP_ROLE_INDEX=${MLP_ROLE_INDEX:-<unset>} MLP_WORKER_RACK_RANK_INDEX=${MLP_WORKER_RACK_RANK_INDEX:-<unset>} host=$(hostname))"
 
 # ------------------------------------------------------------ slot lock ------
 # Exactly ONE pod may drive a slot: a duplicate (a resubmitted job next to an auto-restarted
