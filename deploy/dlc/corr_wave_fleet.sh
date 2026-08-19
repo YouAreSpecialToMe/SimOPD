@@ -225,7 +225,9 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     # after "Started a local Ray instance" with zero output (the same node needed 5 min for
     # a lint that takes 30 s warm). Starting them REHEARSE_STAGGER seconds apart lets the
     # first one warm the page cache for the rest; on a warm node the cost is ~4 min total.
-    _STAG=${REHEARSE_STAGGER:-180}
+    # operator knobs, env or a one-line file on shared disk (survives a reload, and I can
+    # retune them from the hop pod without touching DLC): $LOGD/REHEARSE_STAGGER, .../REHEARSE_STALL_MIN
+    _STAG=${REHEARSE_STAGGER:-$(cat "$LOGD/REHEARSE_STAGGER" 2>/dev/null || echo 180)}
     _rehearse_one() {  # ARM PAIR DELAY
         [ "${3:-0}" -gt 0 ] && sleep "$3"
         echo "rehearsal $1: starting on GPUs $2 ($(date))"
@@ -249,7 +251,7 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     # log has been silent for REHEARSE_STALL_MIN minutes (default 25; a normal cold bringup
     # on a slow node is ~10, a step is seconds) so the slot falls through to the idle loop
     # with a FAIL rather than hanging.
-    _stall=$(( ${REHEARSE_STALL_MIN:-25} * 60 ))
+    _stall=$(( ${REHEARSE_STALL_MIN:-$(cat "$LOGD/REHEARSE_STALL_MIN" 2>/dev/null || echo 25)} * 60 ))
     _kill_rehearsals() {
         for p in "${_rpids[@]}"; do kill -TERM "$p" 2>/dev/null; done
         pkill -f "verl.trainer.main_ppo" 2>/dev/null
