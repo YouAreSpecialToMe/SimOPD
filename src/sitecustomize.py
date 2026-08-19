@@ -196,6 +196,19 @@ def _after_vllm_sampler():
     eos_gather.install()
 
 
+def _after_vllm_v2_logprob():
+    """vLLM's V2 GPU model runner (default in 0.26 for dense generate models) computes
+    prompt AND sampled logprobs through vllm.v1.worker.gpu.sample.logprob.compute_topk_scores,
+    never through Sampler.gather_logprobs. This hook fires right after that module's
+    body and BEFORE prompt_logprob.py / sampler.py bind the name, so they import the
+    patched function. Gated inside install_v2()."""
+    from simopd import eos_gather
+
+    print(f"[simopd] sitecustomize pid={os.getpid()}: vllm.v1.worker.gpu.sample.logprob imported, "
+          f"eos_gather enabled={eos_gather.enabled()}", file=sys.stderr, flush=True)
+    eos_gather.install_v2()
+
+
 def _after_vllm_rollout():
     from simopd import zmq_lane
 
@@ -274,6 +287,9 @@ _TARGETS = {
     # exact stop-token logprobs. Gated inside install(); every other arm's vLLM is
     # untouched.
     "vllm.v1.sample.sampler": _after_vllm_sampler,
+    # Same arm, V2 runner path (2026-08-19: the first corrected-wave rehearsal armed the
+    # legacy sampler in every teacher process and the runner never called it).
+    "vllm.v1.worker.gpu.sample.logprob": _after_vllm_v2_logprob,
 }
 
 

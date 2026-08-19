@@ -153,6 +153,58 @@ for r in range(rows):
 untouched = wrapped(lp_full, 0, actual)
 ok(untouched.logprobs.shape[1] == 1, "num_logprobs=0 (estimator path) is delegated unchanged")
 
+# ------------------------------------- B2. the V2-runner wrapper (vLLM >= 0.12 path) ---
+print("== B2. eos_gather V2 wrapper vs faithful fake of vllm.v1.worker.gpu.sample.logprob.compute_topk_scores")
+
+
+def fake_compute_token_logprobs(logits_, token_ids_):
+    """the Triton kernel's contract: exact log-softmax at the given ids, float32 [B, m];
+    it walks raw pointers with row stride m, so the ids must be a real contiguous [B, m]"""
+    assert token_ids_.dim() == 2 and token_ids_.is_contiguous(), "kernel contract: contiguous [B, m] ids"
+    return logits_.float().log_softmax(-1).gather(-1, token_ids_.long())
+
+
+def fake_compute_topk_scores(logits_, num_logprobs, sampled_token_ids, cu_num_logits=None,
+                             logprob_token_ids_state=None, expanded_idx_mapping=None,
+                             max_per_req_token_ids=0, logits_mode=False):
+    """vLLM 0.26 fast path: [sampled | top-K] with values from compute_token_logprobs; the
+    per-request-override branch and *_logits modes are stubbed as 'some other layout'."""
+    ids_ = sampled_token_ids.unsqueeze(-1)
+    if num_logprobs > 0:
+        ids_ = torch.cat((ids_, torch.topk(logits_, num_logprobs, dim=-1).indices), dim=1)
+    if max_per_req_token_ids or logits_mode:
+        scores = logits_.gather(-1, ids_).float()          # stand-in for the other branches
+    else:
+        scores = fake_compute_token_logprobs(logits_, ids_)
+    ranks_ = (logits_ > logits_.gather(-1, sampled_token_ids.unsqueeze(-1))).sum(-1)
+    return LogprobsTensors(ids_, scores, ranks_, cu_num_logits)
+
+
+w2 = EG._wrap_v2(fake_compute_topk_scores, LogprobsTensors, fake_compute_token_logprobs)
+out2 = w2(logits, K, actual, logits_mode=False)                    # prompt-logprobs call form
+ids2, lps2, ranks2 = out2.logprob_token_ids, out2.logprobs, out2.selected_token_ranks
+ok(ids2.shape == (rows, K + 1) and lps2.shape == (rows, K + 1), f"V2: width K+1 = {K + 1}")
+ok((ids2[:, 0].long() == actual).all() and torch.allclose(lps2[:, 0], lp_full.gather(-1, actual.unsqueeze(-1)).squeeze(-1)),
+   "V2: actual-token column untouched")
+ok((ranks2 == ranks).all(), "V2: ranks passed through from the stock result")
+ok((ids2[:, K + 1 - n:].long() == torch.tensor(EXTRA)).all(), "V2: block ids in env order on every row")
+ok(torch.allclose(lps2[:, K + 1 - n:], lp_full[:, EXTRA]), "V2: block values == exact full-softmax logprobs")
+top2 = ids2[:, 1:K + 1 - n].long()
+ok(not torch.isin(top2, torch.tensor(EXTRA)).any() and top2.shape[1] == K - n, "V2: top block K-n wide, no stop/diag id inside")
+for r in range(rows):
+    exp_top = [t for t in torch.topk(lp_full[r], K).indices.tolist() if t not in EXTRA][:K - n]
+    ok(top2[r].tolist() == exp_top, f"V2 row {r}: top block == top-K minus extras, rank order kept")
+ok(torch.equal(ids2.long(), ids.long()) and torch.allclose(lps2, lps), "V2 and legacy wrappers emit the SAME rows")
+out2p = w2(logits, K, actual, None, None, None, 0, False)          # sampler call form (positional tail)
+ok(torch.equal(out2p.logprob_token_ids.long(), ids2.long()), "V2: positional-argument call form identical")
+for kw, label in ((dict(logits_mode=True), "*_logits mode"), (dict(max_per_req_token_ids=3), "per-request logprob_token_ids override")):
+    got, stock = w2(logits, K, actual, **kw), fake_compute_topk_scores(logits, K, actual, **kw)
+    ok(torch.equal(got.logprob_token_ids, stock.logprob_token_ids) and torch.equal(got.logprobs, stock.logprobs),
+       f"V2: {label} delegated unchanged (stock layout)")
+ok(w2(logits, 0, actual).logprobs.shape[1] == 1 and w2(logits, n, actual).logprobs.shape[1] == n + 1,
+   "V2: num_logprobs <= n delegated unchanged")
+ok(getattr(w2, "_simopd_eos_gather", False), "V2: wrapper carries the armed marker")
+
 # ------------------------------------------------- C. the teacher_patch reader ---
 print("== C. teacher_patch N2 reader")
 from simopd import teacher_patch  # noqa: E402

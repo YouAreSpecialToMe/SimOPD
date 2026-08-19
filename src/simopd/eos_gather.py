@@ -80,6 +80,17 @@ import sys
 
 _ENABLED = os.environ.get("SIMOPD_GATHER_EOS", "0") == "1"
 _MOD = "vllm.v1.sample.sampler"
+# vLLM >= 0.12 ships a second GPU model runner ("V2", vllm/v1/worker/gpu/); it is the
+# DEFAULT for dense generate models in 0.26 (VllmConfig.use_v2_model_runner) and it never
+# touches Sampler.gather_logprobs: prompt logprobs and sampled logprobs both go through
+# vllm.v1.worker.gpu.sample.logprob.compute_topk_scores (a fused Triton top-k log-softmax).
+# The first corrected-wave rehearsal (2026-08-19) armed the legacy sampler in every
+# teacher process and still shipped rows without the ids -- because the runner in
+# use never called it. Both paths are patched; whichever the worker runs, the row
+# layout is the same [actual | top-(K-n) | extras].
+_MOD_V2 = "vllm.v1.worker.gpu.sample.logprob"
+# modules that bind compute_topk_scores by name at import; rebound in place if loaded
+_V2_IMPORTERS = ("vllm.v1.worker.gpu.sample.prompt_logprob", "vllm.v1.worker.gpu.sample.sampler")
 
 
 def enabled():
@@ -233,14 +244,149 @@ def _wrap(original, LogprobsTensors):
         indices = torch.cat((tok_idx, keep_idx, extra_idx), dim=1)
         lps = torch.cat((tok_lp, keep_lp, extra_lp), dim=1)
         cu = getattr(base, "cu_num_generated_tokens", None)
+        _first_call_receipt("legacy Sampler.gather_logprobs", K, n, rows)
         return LogprobsTensors(indices, lps, ranks, cu) if cu is not None else LogprobsTensors(indices, lps, ranks)
 
     gather_logprobs._simopd_eos_gather = True
     return gather_logprobs
 
 
+def _reorder_rows(base_ids, base_lps, K, ids, device):
+    """Shared row surgery: (tok | top-K) -> (tok | top-(K-n) non-extra | extras' ids).
+    Returns (indices, keep_lp, extra_idx, tok_lp) so the caller supplies the extras'
+    VALUES from whatever exact-logprob primitive its runner has."""
+    import torch
+
+    n = len(ids)
+    tok_idx, topk_idx = base_ids[:, :1], base_ids[:, 1:]
+    tok_lp, topk_lp = base_lps[:, :1], base_lps[:, 1:]
+    ids_t = torch.tensor(ids, device=device, dtype=topk_idx.dtype)
+    # Drop the extra ids from the top-K and keep the first K-n survivors, in rank
+    # order. At most n of the K entries can be extras, so K-n survivors always
+    # exist -- no padding, no duplicated column.
+    is_extra = torch.isin(topk_idx, ids_t)
+    pos = torch.arange(K, device=device).unsqueeze(0).expand_as(topk_idx)
+    order = torch.argsort(is_extra.to(torch.int64) * (K + 1) + pos, dim=-1, stable=True)[:, : K - n]
+    keep_idx = torch.gather(topk_idx, 1, order)
+    keep_lp = torch.gather(topk_lp, 1, order)
+    # materialized (rows x n), NOT an expand() view: the V2 caller hands it to a Triton
+    # kernel that walks raw pointers with row stride n -- a stride-0 view would be read
+    # out of bounds. Tiny (rows x 2 ints).
+    extra_idx = ids_t.unsqueeze(0).repeat(base_ids.shape[0], 1)
+    return tok_idx, tok_lp, keep_idx, keep_lp, extra_idx
+
+
+def _wrap_v2(original, LogprobsTensors, compute_token_logprobs):
+    """V2 runner: wrap vllm.v1.worker.gpu.sample.logprob.compute_topk_scores.
+
+    Fast path only (no per-request logprob_token_ids override, not a *_logits mode):
+    the stock result is (tok | top-K) at width K+1; the extras' values come from
+    vLLM's own compute_token_logprobs (max + logsumexp per row, emitted at the given
+    ids -- the same kernel that produced the top-K values, so the columns are exactly
+    comparable and nothing is renormalized). Anything else is returned untouched, and
+    the reader then counts the ids as missing -> the kernel refuses (loud, not wrong)."""
+    import torch
+
+    def compute_topk_scores(logits, num_logprobs, sampled_token_ids, *args, **kwargs):
+        base = original(logits, num_logprobs, sampled_token_ids, *args, **kwargs)
+        ids = extra_ids()
+        n = len(ids)
+        max_per_req = kwargs.get("max_per_req_token_ids", args[3] if len(args) > 3 else 0)
+        logits_mode = kwargs.get("logits_mode", args[4] if len(args) > 4 else False)
+        if (not n or num_logprobs is None or num_logprobs <= n or max_per_req or logits_mode
+                or num_logprobs >= logits.shape[-1]):
+            return base
+        K = int(num_logprobs)
+        if base.logprob_token_ids.shape[-1] != K + 1:
+            return base  # unknown layout -- do not guess; the reader will refuse
+        tok_idx, tok_lp, keep_idx, keep_lp, extra_idx = _reorder_rows(
+            base.logprob_token_ids, base.logprobs, K, ids, logits.device)
+        extra_lp = compute_token_logprobs(logits, extra_idx).to(base.logprobs.dtype)
+        indices = torch.cat((tok_idx, keep_idx, extra_idx), dim=1)
+        lps = torch.cat((tok_lp, keep_lp, extra_lp), dim=1)
+        _first_call_receipt("v2 compute_topk_scores", K, n, logits.shape[0])
+        return LogprobsTensors(indices, lps, base.selected_token_ranks, base.cu_num_generated_tokens)
+
+    compute_topk_scores._simopd_eos_gather = True
+    return compute_topk_scores
+
+
+_RECEIPTED = set()
+
+
+def _first_call_receipt(path, K, n, rows):
+    """Once per process and path: prove the patched code actually RAN (armed != called;
+    the 2026-08-19 rehearsal had every process armed on a path the runner never used)."""
+    if path in _RECEIPTED:
+        return
+    _RECEIPTED.add(path)
+    msg = f"first gathered rows via {path}: K={K} n={n} rows={rows} ids={extra_ids()}"
+    _diag(msg)
+    _receipt(f"call_{path.split()[0]}_pid{os.getpid()}.txt", msg)
+
+
+def _receipt(name, text):
+    """filesystem receipt, immune to stdio capture: which processes armed / gathered."""
+    try:
+        d = os.path.join(os.environ.get("SIMOPD_EVAL_ROOT", "/nonexistent"), "..", "n2", "armed")
+        d = os.path.abspath(d)
+        if os.path.isdir(os.path.dirname(d)):
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, name), "w") as f:
+                f.write(f"{os.uname().nodename} {os.getpid()} {sys.argv[:2]} {text}\n")
+    except Exception:
+        pass
+
+
 def _diag(msg):
     print(f"[simopd] eos_gather pid={os.getpid()}: {msg}", file=sys.stderr, flush=True)
+
+
+def install_v2():
+    """Patch the V2 runner's compute_topk_scores in its home module AND rebind the
+    name in the modules that imported it (prompt_logprob.py / sampler.py do
+    `from ...logprob import compute_topk_scores`, so a home-module patch alone would
+    miss an already-imported caller). Idempotent; no-op if the module is not loaded
+    (an older vLLM without the V2 runner) -- ensure_installed() imports it first."""
+    if not _ENABLED:
+        return False
+    stop_ids()
+    mod = sys.modules.get(_MOD_V2)
+    if mod is None or not hasattr(mod, "compute_topk_scores"):
+        return False
+    orig = mod.compute_topk_scores
+    if getattr(orig, "_simopd_eos_gather", False):
+        wrapped = orig
+    else:
+        from vllm.v1.outputs import LogprobsTensors
+
+        wrapped = _wrap_v2(orig, LogprobsTensors, mod.compute_token_logprobs)
+        mod.compute_topk_scores = wrapped
+        print(f"[simopd] eos_gather armed pid={os.getpid()} [V2 runner compute_topk_scores]: rows carry exact "
+              f"logprobs for ids {extra_ids()}", file=sys.stderr, flush=True)
+        _receipt(f"v2_pid{os.getpid()}.txt", "armed v2 compute_topk_scores")
+    rebound = []
+    for name in _V2_IMPORTERS:
+        m = sys.modules.get(name)
+        if m is not None and getattr(m, "compute_topk_scores", None) is not wrapped \
+                and hasattr(m, "compute_topk_scores"):
+            m.compute_topk_scores = wrapped
+            rebound.append(name)
+    if rebound:
+        _diag(f"rebound compute_topk_scores in {rebound}")
+    return True
+
+
+def v2_status():
+    """(module loaded?, home patched?, [importer: patched?]) for diagnostics."""
+    mod = sys.modules.get(_MOD_V2)
+    home = bool(mod is not None and getattr(getattr(mod, "compute_topk_scores", None), "_simopd_eos_gather", False))
+    imps = {}
+    for name in _V2_IMPORTERS:
+        m = sys.modules.get(name)
+        if m is not None:
+            imps[name.rsplit(".", 1)[-1]] = bool(getattr(getattr(m, "compute_topk_scores", None), "_simopd_eos_gather", False))
+    return mod is not None, home, imps
 
 
 def ensure_installed(where="unknown"):
@@ -262,7 +408,18 @@ def ensure_installed(where="unknown"):
     mod = sys.modules.get(_MOD)
     fn = mod.Sampler.__dict__.get("gather_logprobs")
     orig = fn.__func__ if isinstance(fn, staticmethod) else fn
-    _diag(f"ensure_installed({where}): sampler patched={getattr(orig, '_simopd_eos_gather', False)}")
+    # V2 runner path (vLLM >= 0.12; the default runner in 0.26). Import-then-patch so a
+    # worker that has not loaded it yet still gets the patched name when it does.
+    v2_note = "v2 module absent (older vLLM)"
+    try:
+        importlib.import_module(_MOD_V2)
+    except Exception as e:  # noqa: BLE001
+        v2_note = f"v2 import failed: {e!r}"
+    else:
+        install_v2()
+        loaded, home, imps = v2_status()
+        v2_note = f"v2 patched={home} importers={imps}"
+    _diag(f"ensure_installed({where}): legacy sampler patched={getattr(orig, '_simopd_eos_gather', False)}; {v2_note}")
 
 
 def install():
@@ -291,15 +448,9 @@ def install():
     wrapped = _wrap(orig, LogprobsTensors)
     wrapped._simopd_eos_gather = True
     cls.gather_logprobs = staticmethod(wrapped)
-    print(f"[simopd] eos_gather armed pid={os.getpid()}: teacher rows carry exact logprobs for ids {extra_ids()} "
-          f"(loss set {stop_ids()}, diag {diag_ids()})", file=sys.stderr, flush=True)
-    # filesystem receipt, immune to stdio capture: which processes actually armed
-    try:
-        _d = os.path.join(os.environ.get("SIMOPD_EVAL_ROOT", "/nonexistent"), "..", "n2", "armed")
-        _d = os.path.abspath(_d)
-        if os.path.isdir(os.path.dirname(_d)):
-            os.makedirs(_d, exist_ok=True)
-            with open(os.path.join(_d, f"pid{os.getpid()}.txt"), "w") as f:
-                f.write(f"{os.uname().nodename} {os.getpid()} {sys.argv[:2]}\n")
-    except Exception:
-        pass
+    print(f"[simopd] eos_gather armed pid={os.getpid()} [legacy Sampler.gather_logprobs]: teacher rows carry exact "
+          f"logprobs for ids {extra_ids()} (loss set {stop_ids()}, diag {diag_ids()})", file=sys.stderr, flush=True)
+    _receipt(f"pid{os.getpid()}.txt", "armed legacy Sampler.gather_logprobs")
+    # If the V2 runner module is already loaded in this process, arm it too (the
+    # sitecustomize hook for it fires only if it is imported AFTER sitecustomize).
+    install_v2()
