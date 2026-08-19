@@ -231,17 +231,21 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     _rehearse_one() {  # ARM PAIR DELAY
         [ "${3:-0}" -gt 0 ] && sleep "$3"
         echo "rehearsal $1: starting on GPUs $2 ($(date))"
+        : > "$D/n2/rehearsal_$1.log"    # the watchdog measures silence off this mtime; a log
+                                        # left by an earlier pod must not read as "stalled"
         ARM=$1 bash deploy/dsw/rehearse_n2.sh "$2" > "$LOGD/rehearse_${1}_s${SEED}.log" 2>&1
         rc=$?
         if [ $rc -eq 0 ]; then touch "$LOGD/rehearsal_$1.OK"; echo "rehearsal $1: PASS"; else echo "rehearsal $1: FAIL (rc=$rc) see $LOGD/rehearse_${1}_s${SEED}.log"; fi
         return $rc
     }
+    _pstart=$(date +%s); _rstart=()      # per-arm scheduled start epoch (stagger delay included)
     if [ "$_need_carrier" = 1 ]; then
-        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _i=$((_i+1))
+        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _rstart+=("$_pstart"); _i=$((_i+1))
     fi
     for ARM in "${_todo[@]}"; do
-        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _i=0; fi     # more than 4 -> second round
-        ( _rehearse_one "$ARM" "${_pairs[$_i]}" $(( _i * _STAG )) ) & _rpids+=($!); _rarms+=("$ARM"); _i=$((_i+1))
+        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _rarms=(); _rstart=(); _i=0; fi   # >4 -> second round
+        _d=$(( _i * _STAG ))
+        ( _rehearse_one "$ARM" "${_pairs[$_i]}" "$_d" ) & _rpids+=($!); _rarms+=("$ARM"); _rstart+=($(( _pstart + _d ))); _i=$((_i+1))
     done
     echo "== Phase R: ${#_rpids[@]} rehearsals launched, staggered ${_STAG}s apart (carrier first)"
     # WATCHDOG. A plain `wait` here is a lock-out: rehearse_n2.sh has no timeout, so a
@@ -264,22 +268,30 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
             _kill_rehearsals
             _abort_check
         fi
-        _alive=(); _alive_arms=(); _idx=0
+        _alive=(); _alive_arms=(); _alive_start=(); _idx=0; _now=$(date +%s)
         for p in "${_rpids[@]}"; do
-            _arm=${_rarms[$_idx]}; _idx=$((_idx+1))
+            _arm=${_rarms[$_idx]}; _t0=${_rstart[$_idx]}; _idx=$((_idx+1))
             kill -0 "$p" 2>/dev/null || continue          # exited: its own PASS/FAIL line stands
             _rlog=$D/n2/rehearsal_${_arm}.log
+            # Silence is measured from the LATER of (its own scheduled start, its log's last
+            # write). Measuring off the log alone killed all four arms at the first poll on
+            # 2026-08-19: the files still carried the previous pod's mtime, and three of the
+            # arms had not even left their stagger sleep yet.
+            _ref=$_t0
             if [ -f "$_rlog" ]; then
-                _age=$(( $(date +%s) - $(stat -c %Y "$_rlog" 2>/dev/null || date +%s) ))
-                if [ "$_age" -ge "$_stall" ]; then
-                    echo "rehearsal ${_arm}: FAIL (STALLED ${_age}s with no log output) -- killing; see $_rlog"
-                    kill -TERM "$p" 2>/dev/null; sleep 2; kill -KILL "$p" 2>/dev/null
-                    continue
-                fi
+                _m=$(stat -c %Y "$_rlog" 2>/dev/null || echo 0)
+                [ "$_m" -gt "$_ref" ] && _ref=$_m
             fi
-            _alive+=("$p"); _alive_arms+=("$_arm")
+            _age=$(( _now - _ref ))
+            if [ "$_age" -ge "$_stall" ]; then
+                echo "rehearsal ${_arm}: FAIL (STALLED ${_age}s with no log output) -- killing; see $_rlog"
+                kill -TERM "$p" 2>/dev/null; sleep 2; kill -KILL "$p" 2>/dev/null
+                continue
+            fi
+            _alive+=("$p"); _alive_arms+=("$_arm"); _alive_start+=("$_t0")
         done
         _rpids=("${_alive[@]+"${_alive[@]}"}"); _rarms=("${_alive_arms[@]+"${_alive_arms[@]}"}")
+        _rstart=("${_alive_start[@]+"${_alive_start[@]}"}")
         [ "${#_rpids[@]}" -gt 0 ] && sleep 60
     done
     echo "== Phase R: rehearsals finished ($(date))"
