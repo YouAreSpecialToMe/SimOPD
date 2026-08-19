@@ -26,7 +26,8 @@
 # resume-retry). Differences: ROOT is the expansion tree (SimOPD-exp -- the corrected code
 # lives there); Phase R rehearses missing arms ON THE POD (3-step machine-verdicted
 # rehearsals in parallel on its own GPU pairs) instead of idling for gpu193 markers; the
-# abort marker is a one-shot restart request (consumed at start).
+# abort marker is a one-shot RELOAD request: an idle pod re-execs this script from the tree
+# in place (same container; no AIMaster restart, no dlc submit); consumed when acted on.
 #
 # Submit: run on any machine WITHOUT the DLC rank env -> prints the console cards and a
 # `dlc submit` CLI template; inside the container the same script is the payload.
@@ -58,10 +59,24 @@ LANES=$(_lanes_for "$SLOT")
 [ -n "$LANES" ] || { echo "unknown SLOT=$SLOT (0-5)"; exit 2; }
 ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
 
+# The abort marker is a RELOAD request. Idle loops (no lanes running) honour it by
+# re-exec'ing this script from the shared tree IN PLACE -- the same container, the same
+# DLC job, no AIMaster restart policy involved and no `dlc submit`: whatever the tree
+# holds at that moment (bundle-synced) is what runs next. Only the bounded fallback
+# (reload budget spent) still exits 17 for AIMaster. Lanes already running cannot take
+# new code (a Python process imports once); Phase L does not poll the marker.
 _abort_check() {
     if [ -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}" ]; then
-        echo "abort marker $LOGD/fleet_abort_slot${SLOT}_s${SEED} found; exiting 17 for AIMaster restart"
-        exit 17
+        rm -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}"
+        export SLOT SEED CORR_FLEET_RELOADS=$(( ${CORR_FLEET_RELOADS:-0} + 1 ))
+        if [ "$CORR_FLEET_RELOADS" -gt 20 ]; then
+            echo "abort marker found; reload budget spent (${CORR_FLEET_RELOADS}); exiting 17 for AIMaster restart"
+            exit 17
+        fi
+        echo "abort marker found ($(date)): reloading slot ${SLOT} IN PLACE (#${CORR_FLEET_RELOADS}) from $ROOT @ $(git -C "$ROOT" log --oneline -1 2>/dev/null | cut -c1-70) -- same container, no AIMaster, no dlc submit"
+        [ -n "${_hb_pid:-}" ] && kill "$_hb_pid" 2>/dev/null
+        [ -n "${LOCK:-}" ] && rm -rf "$LOCK"      # exec skips the EXIT trap; release explicitly
+        exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
     fi
 }
 
@@ -83,7 +98,7 @@ CARD
     cat <<TAIL
   40 cards = SLOT 0-4 (5 jobs, the 20-lane plan). SLOT 5 = backlog fill (raw N2, d1, f2_2.3, h1) for a 6th worker or a freed slot.
   前置:rehearsal_vanilla_corr.OK(载体彩排,gpu193;rehearse_n2.sh 写在 $D/n2/,这里也认)+ 各臂 .OK,或批量标记 rehearsal_corr_wave.OK。
-  中止:touch $LOGD/fleet_abort_slot<k>_s${SEED}
+  重载(空转中的 pod 就地重读舰队树,不重提 job):touch $LOGD/fleet_abort_slot<k>_s${SEED}   (Phase L 跑 lane 时不轮询)
 ========= dlc CLI 等价形式(填你们工作区的 WORKSPACE_ID/RESOURCE_ID/IMAGE/DATA_SOURCES;每个 SLOT 一条)=========
   for k in 0 1 2 3 4; do
     dlc submit pytorchjob --name=simopd-corr-wave1-slot\${k}-s${SEED} --workers=1 --worker_gpu=8 --worker_cpu=64 \\
@@ -121,8 +136,9 @@ if mkdir "$LOCK" 2>/dev/null; then
 else
     _age=$(( $(date +%s) - $(stat -c %Y "$LOCK/owner" 2>/dev/null || echo 0) ))
     if [ "$_age" -lt 1200 ]; then
+        # NOTE: no _abort_check here -- the marker is the OWNER's reload request; a duplicate
+        # consuming it would steal it. A duplicate leaves via DLC stop or takes over a stale lock.
         while true; do
-            _abort_check
             _age=$(( $(date +%s) - $(stat -c %Y "$LOCK/owner" 2>/dev/null || echo 0) ))
             [ "$_age" -ge 1200 ] && { echo "lock owner heartbeat stale (${_age}s); taking over"; _take_lock; break; }
             echo "DUPLICATE POD for slot ${SLOT}: lock held by [$(cat "$LOCK/owner" 2>/dev/null)] heartbeat ${_age}s ago -- idling ($(date))"
@@ -161,7 +177,7 @@ export PYTHONUNBUFFERED=1
 
 # The corrected code must actually be in this tree (a stale checkout would silently run
 # the legacy carrier under a *_corr name).
-python - <<'PY' || { while true; do _abort_check; echo "TREE STALE: no SIMOPD_TERM_EVENT support in src/ -- lanes NOT launched ($(date))"; sleep 600; done; }
+python - <<'PY' || { while true; do _abort_check; echo "TREE STALE: no SIMOPD_TERM_EVENT support in src/ -- lanes NOT launched ($(date))"; sleep 120; done; }
 import sys
 sys.path.insert(0, "src")
 from simopd import topk_losses as T
@@ -176,7 +192,7 @@ if [ "$SEED" = 0 ]; then
     _pat=$(IFS='|'; echo "${ARMS[*]}")
     BAD=$(grep 'PROBLEM' "$LINT_LOG" | grep -E "\[($_pat)\]" | grep -vE 'campaign\.tsv row|verdict\.py ARMS' || true)
     if [ -n "$BAD" ]; then
-        while true; do _abort_check; echo "ARM_LINT (scoped) FAILED -- lanes NOT launched ($(date)):"; echo "$BAD"; sleep 600; done
+        while true; do _abort_check; echo "ARM_LINT (scoped) FAILED -- lanes NOT launched ($(date)):"; echo "$BAD"; sleep 120; done
     fi
     echo "== arm_lint: scoped gate clean for slot ${SLOT} (full report: $LINT_LOG)"
 fi
@@ -223,8 +239,8 @@ if [ -n "$_missing" ]; then
         # honor a carrier marker that appears later (slot 0's pod passing, or an operator
         # touch) without a restart cycle -- the message always promised this; now it is true
         if _has_ok vanilla_corr; then echo "== carrier marker appeared ($(date)); continuing to Phase L"; break; fi
-        echo "CARRIER REHEARSAL FAILED/MISSING:$_missing -- lanes NOT launched; inspect $LOGD/rehearse_vanilla_corr_s${SEED}.log; fix, then touch the .OK (picked up within 10 min) or the abort marker to restart ($(date))"
-        sleep 600
+        echo "CARRIER REHEARSAL FAILED/MISSING:$_missing -- lanes NOT launched; inspect $LOGD/rehearse_vanilla_corr_s${SEED}.log; fix, then touch the .OK (picked up within 2 min) or the abort marker to restart ($(date))"
+        sleep 120
     done
 fi
 # lanes whose own rehearsal failed are dropped from this launch (logged), the rest go
@@ -235,7 +251,7 @@ for spec in $LANES; do
 done
 LANES=$_launch
 ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
-[ -n "$LANES" ] || { while true; do _abort_check; echo "no lane passed rehearsal in slot ${SLOT} ($(date))"; sleep 600; done; }
+[ -n "$LANES" ] || { while true; do _abort_check; echo "no lane passed rehearsal in slot ${SLOT} ($(date))"; sleep 120; done; }
 echo "== Phase R: markers present for: ${ARMS[*]}"
 
 echo "== Phase L: slot ${SLOT} lanes: $LANES (250 steps, seed ${SEED})"
@@ -284,7 +300,7 @@ if [ "$ok" -eq 0 ]; then
     while true; do
         _abort_check
         echo "ALL LANES DEAD, zero checkpoints banked -- NOT declaring success; inspect $LOGD/lane_*_s${SEED}.log ($(date))"
-        sleep 600
+        sleep 120
     done
 fi
 echo "CORR_WAVE_FLEET_SLOT${SLOT}_DONE"
