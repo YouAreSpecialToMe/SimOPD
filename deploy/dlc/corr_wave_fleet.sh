@@ -238,7 +238,44 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
         ( _rehearse_one "$ARM" "${_pairs[$_i]}" $(( _i * _STAG )) ) & _rpids+=($!); _rarms+=("$ARM"); _i=$((_i+1))
     done
     echo "== Phase R: ${#_rpids[@]} rehearsals launched, staggered ${_STAG}s apart (carrier first)"
-    [ "${#_rpids[@]}" -gt 0 ] && wait "${_rpids[@]}"
+    # WATCHDOG. A plain `wait` here is a lock-out: rehearse_n2.sh has no timeout, so a
+    # bringup that never produces a line (2026-08-19, M16-221) parks the fleet inside wait
+    # forever -- no idle loop, so the abort/reload marker is never seen and only a DLC
+    # stop+resubmit can move it. Poll instead: honour the marker, and kill a rehearsal whose
+    # log has been silent for REHEARSE_STALL_MIN minutes (default 25; a normal cold bringup
+    # on a slow node is ~10, a step is seconds) so the slot falls through to the idle loop
+    # with a FAIL rather than hanging.
+    _stall=$(( ${REHEARSE_STALL_MIN:-25} * 60 ))
+    _kill_rehearsals() {
+        for p in "${_rpids[@]}"; do kill -TERM "$p" 2>/dev/null; done
+        pkill -f "verl.trainer.main_ppo" 2>/dev/null
+        sleep 5
+        for p in "${_rpids[@]}"; do kill -KILL "$p" 2>/dev/null; done
+    }
+    while [ "${#_rpids[@]}" -gt 0 ]; do
+        if [ -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}" ]; then
+            echo "== Phase R: reload requested mid-rehearsal; killing rehearsals ($(date))"
+            _kill_rehearsals
+            _abort_check
+        fi
+        _alive=(); _alive_arms=(); _idx=0
+        for p in "${_rpids[@]}"; do
+            _arm=${_rarms[$_idx]}; _idx=$((_idx+1))
+            kill -0 "$p" 2>/dev/null || continue          # exited: its own PASS/FAIL line stands
+            _rlog=$D/n2/rehearsal_${_arm}.log
+            if [ -f "$_rlog" ]; then
+                _age=$(( $(date +%s) - $(stat -c %Y "$_rlog" 2>/dev/null || date +%s) ))
+                if [ "$_age" -ge "$_stall" ]; then
+                    echo "rehearsal ${_arm}: FAIL (STALLED ${_age}s with no log output) -- killing; see $_rlog"
+                    kill -TERM "$p" 2>/dev/null; sleep 2; kill -KILL "$p" 2>/dev/null
+                    continue
+                fi
+            fi
+            _alive+=("$p"); _alive_arms+=("$_arm")
+        done
+        _rpids=("${_alive[@]+"${_alive[@]}"}"); _rarms=("${_alive_arms[@]+"${_alive_arms[@]}"}")
+        [ "${#_rpids[@]}" -gt 0 ] && sleep 60
+    done
     echo "== Phase R: rehearsals finished ($(date))"
 fi
 _missing=""
