@@ -306,14 +306,14 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
         if [ $rc -eq 0 ]; then touch "$LOGD/rehearsal_$1.OK"; echo "rehearsal $1: PASS"; else echo "rehearsal $1: FAIL (rc=$rc) see $LOGD/rehearse_${1}_s${SEED}.log"; fi
         return $rc
     }
-    _pstart=$(date +%s); _rstart=(); _rgpus=()   # per-arm scheduled start epoch + its GPU pair
+    _pstart=$(date +%s); _rstart=(); _rgpus=(); _rretry=()   # per-arm: scheduled start epoch, GPU pair, retried?
     if [ "$_need_carrier" = 1 ]; then
-        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _rstart+=("$_pstart"); _rgpus+=("${_pairs[$_i]}"); _i=$((_i+1))
+        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _rstart+=("$_pstart"); _rgpus+=("${_pairs[$_i]}"); _rretry+=(0); _i=$((_i+1))
     fi
     for ARM in "${_todo[@]}"; do
-        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _rarms=(); _rstart=(); _rgpus=(); _i=0; fi   # >4 -> second round
+        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _rarms=(); _rstart=(); _rgpus=(); _rretry=(); _i=0; fi   # >4 -> second round
         _d=$(( _i * _STAG ))
-        ( _rehearse_one "$ARM" "${_pairs[$_i]}" "$_d" ) & _rpids+=($!); _rarms+=("$ARM"); _rstart+=($(( _pstart + _d ))); _rgpus+=("${_pairs[$_i]}"); _i=$((_i+1))
+        ( _rehearse_one "$ARM" "${_pairs[$_i]}" "$_d" ) & _rpids+=($!); _rarms+=("$ARM"); _rstart+=($(( _pstart + _d ))); _rgpus+=("${_pairs[$_i]}"); _rretry+=(0); _i=$((_i+1))
     done
     echo "== Phase R: ${#_rpids[@]} rehearsals launched, staggered ${_STAG}s apart (carrier first)"
     # WATCHDOG. A plain `wait` here is a lock-out: rehearse_n2.sh has no timeout, so a
@@ -337,10 +337,22 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
             _kill_rehearsals
             _abort_check
         fi
-        _alive=(); _alive_arms=(); _alive_start=(); _alive_gpus=(); _idx=0; _now=$(date +%s)
+        _alive=(); _alive_arms=(); _alive_start=(); _alive_gpus=(); _alive_retry=(); _idx=0; _now=$(date +%s)
         for p in "${_rpids[@]}"; do
-            _arm=${_rarms[$_idx]}; _t0=${_rstart[$_idx]}; _gp=${_rgpus[$_idx]}; _idx=$((_idx+1))
-            kill -0 "$p" 2>/dev/null || continue          # exited: its own PASS/FAIL line stands
+            _arm=${_rarms[$_idx]}; _t0=${_rstart[$_idx]}; _gp=${_rgpus[$_idx]}; _rt=${_rretry[$_idx]}; _idx=$((_idx+1))
+            if ! kill -0 "$p" 2>/dev/null; then
+                # exited: its own PASS/FAIL line stands -- except a TRANSIENT bringup failure
+                # (Ray's "node timed out during startup / GCS overloaded / raylet failed": a cold
+                # pod's first Ray start; 2026-08-19 slot 1 f1 died 2 min in on exactly this and
+                # would have lost its lane for the whole wave). Retry ONCE, same pair, no delay;
+                # the per-arm sweep in _rehearse_one clears the dead Ray's leftovers first.
+                if [ "$_rt" = 0 ] && ! _has_ok "$_arm" && grep -qaE "timed out during startup|GCS has become overloaded|raylet failed to start|Failed to connect to GCS" \
+                        "$LOGD/rehearse_${_arm}_s${SEED}.log" "$D/n2/rehearsal_${_arm}.log" 2>/dev/null; then
+                    echo "rehearsal ${_arm}: transient Ray-startup failure -- retrying once on GPUs ${_gp} ($(date))"
+                    ( _rehearse_one "$_arm" "$_gp" 0 ) & _alive+=($!); _alive_arms+=("$_arm"); _alive_start+=("$_now"); _alive_gpus+=("$_gp"); _alive_retry+=(1)
+                fi
+                continue
+            fi
             _rlog=$D/n2/rehearsal_${_arm}.log
             # Silence is measured from the LATER of (its own scheduled start, its log's last
             # write). Measuring off the log alone killed all four arms at the first poll on
@@ -358,10 +370,11 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
                 _gpu_sweep "${_rgpus[$(( _idx - 1 ))]}"      # its engines are not our children
                 continue
             fi
-            _alive+=("$p"); _alive_arms+=("$_arm"); _alive_start+=("$_t0"); _alive_gpus+=("$_gp")
+            _alive+=("$p"); _alive_arms+=("$_arm"); _alive_start+=("$_t0"); _alive_gpus+=("$_gp"); _alive_retry+=("$_rt")
         done
         _rpids=("${_alive[@]+"${_alive[@]}"}"); _rarms=("${_alive_arms[@]+"${_alive_arms[@]}"}")
         _rstart=("${_alive_start[@]+"${_alive_start[@]}"}"); _rgpus=("${_alive_gpus[@]+"${_alive_gpus[@]}"}")
+        _rretry=("${_alive_retry[@]+"${_alive_retry[@]}"}")
         [ "${#_rpids[@]}" -gt 0 ] && sleep 60
     done
     echo "== Phase R: rehearsals finished ($(date))"
