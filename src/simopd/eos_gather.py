@@ -88,9 +88,17 @@ _MOD = "vllm.v1.sample.sampler"
 # teacher process and still shipped rows without the ids -- because the runner in
 # use never called it. Both paths are patched; whichever the worker runs, the row
 # layout is the same [actual | top-(K-n) | extras].
-_MOD_V2 = "vllm.v1.worker.gpu.sample.logprob"
-# modules that bind compute_topk_scores by name at import; rebound in place if loaded
-_V2_IMPORTERS = ("vllm.v1.worker.gpu.sample.prompt_logprob", "vllm.v1.worker.gpu.sample.sampler")
+_MOD_V2 = "vllm.v1.worker.gpu.sample.logprob"          # where compute_topk_scores lives
+# The ONLY binding we patch. Both prompt_logprob.py and sampler.py do
+# `from ...logprob import compute_topk_scores` at import, so each holds its own reference
+# and they can be patched independently. verl reads the TEACHER through prompt logprobs
+# (vllm_async_server.py -> extract_prompt_logprobs(output.prompt_logprobs)), which is
+# produced by PromptLogprobsWorker -> compute_prompt_logprobs_with_chunking -> this
+# binding. The sampler binding drives ordinary generation, including the STUDENT's own
+# rollout: patching it would rewrite rollout rows for no reason (measured 2026-08-19:
+# every first-call receipt was K=5 -- the student's sampling request, not the teacher's
+# K=66 scoring). One knob per arm means the student's payload stays stock.
+_MOD_V2_PROMPT = "vllm.v1.worker.gpu.sample.prompt_logprob"
 
 
 def enabled():
@@ -304,7 +312,7 @@ def _wrap_v2(original, LogprobsTensors, compute_token_logprobs):
         extra_lp = compute_token_logprobs(logits, extra_idx).to(base.logprobs.dtype)
         indices = torch.cat((tok_idx, keep_idx, extra_idx), dim=1)
         lps = torch.cat((tok_lp, keep_lp, extra_lp), dim=1)
-        _first_call_receipt("v2 compute_topk_scores", K, n, logits.shape[0])
+        _first_call_receipt("v2 prompt-logprobs compute_topk_scores", K, n, logits.shape[0])
         return LogprobsTensors(indices, lps, base.selected_token_ranks, base.cu_num_generated_tokens)
 
     compute_topk_scores._simopd_eos_gather = True
@@ -343,50 +351,45 @@ def _diag(msg):
 
 
 def install_v2():
-    """Patch the V2 runner's compute_topk_scores in its home module AND rebind the
-    name in the modules that imported it (prompt_logprob.py / sampler.py do
-    `from ...logprob import compute_topk_scores`, so a home-module patch alone would
-    miss an already-imported caller). Idempotent; no-op if the module is not loaded
-    (an older vLLM without the V2 runner) -- ensure_installed() imports it first."""
+    """Patch the V2 runner's PROMPT-logprobs binding only (see _MOD_V2_PROMPT).
+
+    Idempotent; no-op if the prompt-logprobs module is not loaded (an older vLLM without
+    the V2 runner, or a process that never scores) -- ensure_installed() imports it first.
+    The home module and the sampler binding are deliberately left stock."""
     if not _ENABLED:
         return False
     stop_ids()
-    mod = sys.modules.get(_MOD_V2)
-    if mod is None or not hasattr(mod, "compute_topk_scores"):
+    prompt = sys.modules.get(_MOD_V2_PROMPT)
+    home = sys.modules.get(_MOD_V2)
+    if prompt is None or not hasattr(prompt, "compute_topk_scores"):
         return False
-    orig = mod.compute_topk_scores
+    if home is None or not hasattr(home, "compute_token_logprobs"):
+        raise RuntimeError("eos_gather: the V2 prompt-logprobs module is loaded but "
+                           f"{_MOD_V2}.compute_token_logprobs is missing -- vLLM moved the exact "
+                           "log-softmax primitive; the teacher cannot get exact terminator logprobs.")
+    orig = prompt.compute_topk_scores
     if getattr(orig, "_simopd_eos_gather", False):
-        wrapped = orig
-    else:
-        from vllm.v1.outputs import LogprobsTensors
+        return True
+    from vllm.v1.outputs import LogprobsTensors
 
-        wrapped = _wrap_v2(orig, LogprobsTensors, mod.compute_token_logprobs)
-        mod.compute_topk_scores = wrapped
-        print(f"[simopd] eos_gather armed pid={os.getpid()} [V2 runner compute_topk_scores]: rows carry exact "
-              f"logprobs for ids {extra_ids()}", file=sys.stderr, flush=True)
-        _receipt(f"v2_pid{os.getpid()}.txt", "armed v2 compute_topk_scores")
-    rebound = []
-    for name in _V2_IMPORTERS:
-        m = sys.modules.get(name)
-        if m is not None and getattr(m, "compute_topk_scores", None) is not wrapped \
-                and hasattr(m, "compute_topk_scores"):
-            m.compute_topk_scores = wrapped
-            rebound.append(name)
-    if rebound:
-        _diag(f"rebound compute_topk_scores in {rebound}")
+    prompt.compute_topk_scores = _wrap_v2(orig, LogprobsTensors, home.compute_token_logprobs)
+    print(f"[simopd] eos_gather armed pid={os.getpid()} [V2 prompt-logprobs compute_topk_scores]: teacher "
+          f"scoring rows carry exact logprobs for ids {extra_ids()} (sampling path left stock)",
+          file=sys.stderr, flush=True)
+    _receipt(f"v2_pid{os.getpid()}.txt", "armed v2 prompt-logprobs compute_topk_scores")
     return True
 
 
 def v2_status():
-    """(module loaded?, home patched?, [importer: patched?]) for diagnostics."""
-    mod = sys.modules.get(_MOD_V2)
-    home = bool(mod is not None and getattr(getattr(mod, "compute_topk_scores", None), "_simopd_eos_gather", False))
-    imps = {}
-    for name in _V2_IMPORTERS:
-        m = sys.modules.get(name)
-        if m is not None:
-            imps[name.rsplit(".", 1)[-1]] = bool(getattr(getattr(m, "compute_topk_scores", None), "_simopd_eos_gather", False))
-    return mod is not None, home, imps
+    """(prompt module loaded?, prompt binding patched?, sampler binding patched?) --
+    the third must stay False: the student's rollout payload is not ours to rewrite."""
+    prompt = sys.modules.get(_MOD_V2_PROMPT)
+    sampler = sys.modules.get("vllm.v1.worker.gpu.sample.sampler")
+    patched = bool(prompt is not None
+                   and getattr(getattr(prompt, "compute_topk_scores", None), "_simopd_eos_gather", False))
+    sampler_patched = bool(sampler is not None
+                           and getattr(getattr(sampler, "compute_topk_scores", None), "_simopd_eos_gather", False))
+    return prompt is not None, patched, sampler_patched
 
 
 def ensure_installed(where="unknown"):
@@ -410,15 +413,15 @@ def ensure_installed(where="unknown"):
     orig = fn.__func__ if isinstance(fn, staticmethod) else fn
     # V2 runner path (vLLM >= 0.12; the default runner in 0.26). Import-then-patch so a
     # worker that has not loaded it yet still gets the patched name when it does.
-    v2_note = "v2 module absent (older vLLM)"
+    v2_note = "v2 prompt-logprobs module absent (older vLLM)"
     try:
-        importlib.import_module(_MOD_V2)
+        importlib.import_module(_MOD_V2_PROMPT)
     except Exception as e:  # noqa: BLE001
         v2_note = f"v2 import failed: {e!r}"
     else:
         install_v2()
-        loaded, home, imps = v2_status()
-        v2_note = f"v2 patched={home} importers={imps}"
+        loaded, patched, sampler_patched = v2_status()
+        v2_note = f"v2 prompt-logprobs patched={patched} (sampler binding patched={sampler_patched}, must be False)"
     _diag(f"ensure_installed({where}): legacy sampler patched={getattr(orig, '_simopd_eos_gather', False)}; {v2_note}")
 
 

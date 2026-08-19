@@ -205,6 +205,54 @@ ok(w2(logits, 0, actual).logprobs.shape[1] == 1 and w2(logits, n, actual).logpro
    "V2: num_logprobs <= n delegated unchanged")
 ok(getattr(w2, "_simopd_eos_gather", False), "V2: wrapper carries the armed marker")
 
+# install_v2 must patch the PROMPT-logprobs binding and NOTHING else: the sampler binding
+# drives ordinary generation, including the student's own rollout, and rewriting those rows
+# would move a second knob (2026-08-19: every first-call receipt was K=5, the student's
+# sampling request, never the teacher's K=66 scoring).
+_home = types.ModuleType("vllm.v1.worker.gpu.sample.logprob")
+_home.compute_topk_scores = fake_compute_topk_scores
+_home.compute_token_logprobs = fake_compute_token_logprobs
+_prompt = types.ModuleType("vllm.v1.worker.gpu.sample.prompt_logprob")
+_prompt.compute_topk_scores = fake_compute_topk_scores
+_sampler_mod = types.ModuleType("vllm.v1.worker.gpu.sample.sampler")
+_sampler_mod.compute_topk_scores = fake_compute_topk_scores
+_outputs = types.ModuleType("vllm.v1.outputs")
+_outputs.LogprobsTensors = LogprobsTensors
+_saved_mods = {k: sys.modules.get(k) for k in
+               ("vllm.v1.worker.gpu.sample.logprob", "vllm.v1.worker.gpu.sample.prompt_logprob",
+                "vllm.v1.worker.gpu.sample.sampler", "vllm.v1.outputs")}
+sys.modules.update({"vllm.v1.worker.gpu.sample.logprob": _home,
+                    "vllm.v1.worker.gpu.sample.prompt_logprob": _prompt,
+                    "vllm.v1.worker.gpu.sample.sampler": _sampler_mod,
+                    "vllm.v1.outputs": _outputs})
+ok(EG.install_v2() is True, "install_v2 reports success with the V2 modules present")
+ok(getattr(_prompt.compute_topk_scores, "_simopd_eos_gather", False), "install_v2 patched the prompt-logprobs binding")
+ok(not getattr(_sampler_mod.compute_topk_scores, "_simopd_eos_gather", False),
+   "install_v2 left the SAMPLER binding stock (student rollout untouched)")
+ok(not getattr(_home.compute_topk_scores, "_simopd_eos_gather", False),
+   "install_v2 left the home module stock (only the prompt caller is rewritten)")
+_first = _prompt.compute_topk_scores
+ok(EG.install_v2() is True and _prompt.compute_topk_scores is _first, "install_v2 is idempotent")
+ok(EG.v2_status() == (True, True, False), f"v2_status reports (loaded, prompt patched, sampler NOT patched): {EG.v2_status()}")
+_out = _prompt.compute_topk_scores(logits, K, actual, logits_mode=False)
+ok((_out.logprob_token_ids[:, K + 1 - n:].long() == torch.tensor(EXTRA)).all(),
+   "the patched prompt binding really emits the extra block")
+ok(torch.equal(_sampler_mod.compute_topk_scores(logits, K, actual).logprob_token_ids,
+               fake_compute_topk_scores(logits, K, actual).logprob_token_ids),
+   "the sampler binding still returns stock rows")
+del _prompt.compute_topk_scores
+_prompt.compute_topk_scores = fake_compute_topk_scores
+sys.modules.pop("vllm.v1.worker.gpu.sample.logprob")
+try:
+    EG.install_v2(); ok(False, "install_v2 must refuse when the exact-logprob primitive is gone")
+except RuntimeError as e:
+    ok("compute_token_logprobs" in str(e), "install_v2 refuses loudly if vLLM moves compute_token_logprobs")
+for _k, _v in _saved_mods.items():
+    if _v is None:
+        sys.modules.pop(_k, None)
+    else:
+        sys.modules[_k] = _v
+
 # ------------------------------------------------- C. the teacher_patch reader ---
 print("== C. teacher_patch N2 reader")
 from simopd import teacher_patch  # noqa: E402

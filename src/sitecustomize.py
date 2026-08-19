@@ -196,15 +196,17 @@ def _after_vllm_sampler():
     eos_gather.install()
 
 
-def _after_vllm_v2_logprob():
+def _after_vllm_v2_prompt_logprob():
     """vLLM's V2 GPU model runner (default in 0.26 for dense generate models) computes
-    prompt AND sampled logprobs through vllm.v1.worker.gpu.sample.logprob.compute_topk_scores,
-    never through Sampler.gather_logprobs. This hook fires right after that module's
-    body and BEFORE prompt_logprob.py / sampler.py bind the name, so they import the
-    patched function. Gated inside install_v2()."""
+    prompt logprobs through vllm.v1.worker.gpu.sample.prompt_logprob, which binds
+    `compute_topk_scores` by name at import -- and never goes through
+    Sampler.gather_logprobs. This hook fires right after that module's body, so the
+    binding exists and we rewrite exactly it (the sampler's own binding, i.e. ordinary
+    generation including the student's rollout, is deliberately left stock).
+    Gated inside install_v2()."""
     from simopd import eos_gather
 
-    print(f"[simopd] sitecustomize pid={os.getpid()}: vllm.v1.worker.gpu.sample.logprob imported, "
+    print(f"[simopd] sitecustomize pid={os.getpid()}: vllm.v1.worker.gpu.sample.prompt_logprob imported, "
           f"eos_gather enabled={eos_gather.enabled()}", file=sys.stderr, flush=True)
     eos_gather.install_v2()
 
@@ -288,8 +290,9 @@ _TARGETS = {
     # untouched.
     "vllm.v1.sample.sampler": _after_vllm_sampler,
     # Same arm, V2 runner path (2026-08-19: the first corrected-wave rehearsal armed the
-    # legacy sampler in every teacher process and the runner never called it).
-    "vllm.v1.worker.gpu.sample.logprob": _after_vllm_v2_logprob,
+    # legacy sampler in every teacher process and the runner never called it). Teacher
+    # scoring only -- the hook targets the prompt-logprobs module, not the sampler.
+    "vllm.v1.worker.gpu.sample.prompt_logprob": _after_vllm_v2_prompt_logprob,
 }
 
 
