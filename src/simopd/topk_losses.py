@@ -288,6 +288,16 @@ def _prepare_streaming(student_logits, teacher_topk_log_probs, teacher_topk_ids,
 _COLLAPSED_FILLER = -40.0   # exp(-40) ~ 4e-18: contributes nothing to any objective, never -inf
 
 
+def _verl_dummy_rows(t_id):
+    """verl's prompt-logprobs reader (vllm_rollout/utils.py extract_prompt_logprobs, and our
+    teacher_patch readers, same contract) appends ONE dummy row per sequence for the last
+    prompt token: ids all 0, logprobs all 0.0. It sits at the sequence's last position,
+    OUTSIDE the loss window (no_padding_2_padding slices [P-1, N-2]), but every kernel is
+    called on all positions first, so payload-contract checks must exempt it. A real row
+    can never be all-zero ids (K distinct top-k ids + the actual token). Returns [..., T] bool."""
+    return (t_id == 0).all(dim=-1)
+
+
 def _collapse_terminator_support(t_lp, t_id):
     """Path 2 of the identity fix: collapse the terminator coordinate of the teacher's
     support onto the student's stop id, then restore rank order.
@@ -312,7 +322,7 @@ def _collapse_terminator_support(t_lp, t_id):
     if K <= n:
         raise RuntimeError(f"collapse: DISTILLATION_TOPK={K} must exceed the gathered block ({n})")
     block = t_lp[..., K - n:]
-    if not bool(torch.isfinite(block).all()):
+    if not bool((torch.isfinite(block).all(dim=-1) | _verl_dummy_rows(t_id)).all()):
         raise RuntimeError("collapse: -inf in the gathered block -- refusing a fabricated q=0")
     t_cols = torch.tensor(EG.teacher_cols(), device=block.device, dtype=torch.long)
     log_q_stop = torch.logsumexp(torch.index_select(block, -1, t_cols).float(), dim=-1).clamp(max=0.0)
@@ -1436,12 +1446,17 @@ def _term_payload(student_logits, teacher_topk_log_probs, teacher_topk_ids, conf
     t_lp, t_id = t_all[..., : K - n], t_id_all[..., : K - n]
     extra_lp, extra_id = t_all[..., K - n:], t_id_all[..., K - n:]
     want = torch.tensor(extra, device=extra_id.device, dtype=extra_id.dtype)
-    if not bool((extra_id == want).all()):
-        raise RuntimeError(f"{name}: the extra-id block does not carry the configured ids in order -- "
-                           "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
-    if not bool(torch.isfinite(extra_lp).all()):
-        raise RuntimeError(f"{name}: -inf in the extra block -- the sampler patch failed to deliver "
-                           "an id; refusing to train on a fabricated q=0")
+    dummy = _verl_dummy_rows(t_id_all)                     # verl's per-sequence dummy last row
+    ids_ok = (extra_id == want).all(dim=-1) | dummy
+    if not bool(ids_ok.all()):
+        bad = int((~ids_ok).sum())
+        raise RuntimeError(f"{name}: the extra-id block does not carry the configured ids in order on {bad} "
+                           f"position(s) (want {extra}) -- the teacher server is not running eos_gather "
+                           "(SIMOPD_GATHER_EOS unset there?)")
+    lp_ok = torch.isfinite(extra_lp).all(dim=-1) | dummy
+    if not bool(lp_ok.all()):
+        raise RuntimeError(f"{name}: -inf in the extra block on {int((~lp_ok).sum())} position(s) -- the "
+                           "sampler patch failed to deliver an id; refusing to train on a fabricated q=0")
 
     # teacher termination mass over E_T (exact, full-softmax); student stop mass over E_S
     t_cols = torch.tensor(EG.teacher_cols(), device=extra_lp.device, dtype=torch.long)
@@ -1602,9 +1617,10 @@ def _term_event_fix_sampled(student_logits, lse, t_lp, t_id, sampled_lp, sampled
         raise RuntimeError(f"{name}: SIMOPD_TERM_EVENT=1 needs the N0 carrier (SIMOPD_GATHER_EOS=1)")
     stop = EG.stop_ids()
     hit = (t_id == stop[0])
-    if not bool(hit.any(dim=-1).all()):
-        raise RuntimeError(f"{name}: the collapsed support has no STOP column (id {stop[0]}) on some position -- "
-                           "the payload is not the N0 carrier's")
+    has_stop = hit.any(dim=-1) | _verl_dummy_rows(t_id)   # verl's dummy last row carries no ids at all
+    if not bool(has_stop.all()):
+        raise RuntimeError(f"{name}: the collapsed support has no STOP column (id {stop[0]}) on "
+                           f"{int((~has_stop).sum())} position(s) -- the payload is not the N0 carrier's")
     log_q = torch.gather(t_lp, -1, hit.float().argmax(dim=-1, keepdim=True)).squeeze(-1).float()
     stop_idx = torch.tensor(stop, device=student_logits.device, dtype=torch.long)
     log_p = torch.logsumexp(torch.index_select(student_logits, -1, stop_idx).float(), dim=-1) - lse

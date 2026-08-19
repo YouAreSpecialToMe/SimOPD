@@ -361,6 +361,50 @@ if HAVE_VERL:
     except RuntimeError as e:
         ok("not running eos_gather" in str(e), "kernel refuses a block whose ids are out of order")
 
+    # ---- D'. the verl-FAITHFUL payload: WITH the reader's dummy last row -------------
+    # verl's reader (and ours) appends one dummy row per sequence for the last prompt token
+    # (ids all 0, logprobs all 0.0); the trainer hands the kernel ALL positions incl. that
+    # row (loss window is sliced later, no_padding_2_padding). The GPU rehearsal of
+    # 2026-08-19 died on exactly this row: the checks above ran over every position and
+    # refused the dummy. Everything below runs on the full payload, as verl does.
+    print("== D'. verl-faithful payload incl. the dummy last row")
+    z_full = torch.cat([z.detach(), torch.randn(1, 1, V) * 2], dim=1).requires_grad_(True)
+    t_ids_full = torch.nested.nested_tensor([torch.tensor(rr["prompt_ids"])], layout=torch.jagged)
+    t_lps_full = torch.nested.nested_tensor([torch.tensor(rr["prompt_logprobs"])], layout=torch.jagged)
+    ok(t_ids_full.values().shape[0] == T_len + 1 and int((t_ids_full.values()[-1] == 0).all()) == 1,
+       "payload has T+1 rows and the last is verl's all-zero dummy")
+    dm = T._verl_dummy_rows(t_ids_full.values().unsqueeze(0))
+    ok(dm.shape == (1, T_len + 1) and bool(dm[0, -1]) and not bool(dm[0, :-1].any()),
+       "_verl_dummy_rows flags exactly the last row (a real row can never be all-zero ids)")
+    out_full = T.compute_termcal_topk(z_full, t_lps_full, t_ids_full, cfg, None, data=None)
+    ok(torch.allclose(out_full["distillation_losses"][0, :T_len], out["distillation_losses"][0], atol=1e-6)
+       and torch.allclose(out_full["eos_term"][0, :T_len], out["eos_term"][0], atol=1e-6),
+       "N2 kernel accepts the dummy row and the real positions are unchanged")
+    ok(bool(torch.isfinite(out_full["distillation_losses"][0, -1])) and bool(torch.isfinite(out_full["eos_term"][0, -1])),
+       "the dummy position yields finite values (it is masked out of the loss window downstream)")
+    o0_full = T.compute_termfix_topk(z_full, t_lps_full, t_ids_full, cfg, None, data=None)
+    o0_ref = T.compute_termfix_topk(z, t_lps, t_ids, cfg, None, data=None)
+    ok(torch.allclose(o0_full["distillation_losses"][0, :T_len], o0_ref["distillation_losses"][0], atol=1e-6),
+       "N0 kernel accepts the dummy row and the real positions are unchanged")
+    if T.TERM_EVENT:
+        # the collapsed-support path + the sampled-column fixer used by fire/D/EOPD kernels
+        lse_f, tl_c, ti_c, s_lp, s_id = T._prepare_streaming(z_full, t_lps_full, t_ids_full, cfg, want_sampled=True)
+        ok(tl_c.shape[-1] == K and ti_c.shape[-1] == K, "collapse runs over the full payload (dummy row included)")
+        stu_f, tch_f, is_stop_f = T._term_event_fix_sampled(z_full, lse_f, tl_c, ti_c, s_lp, s_id, "battery")
+        ok(stu_f.shape == (1, T_len + 1) and not bool(is_stop_f[0, -1]),
+           "sampled-column fixer accepts the dummy row (no STOP column there) and does not flag it as a stop")
+        lse_r, tl_r, ti_r, s_lp_r, s_id_r = T._prepare_streaming(z, t_lps, t_ids, cfg, want_sampled=True)
+        stu_r, tch_r, _ = T._term_event_fix_sampled(z, lse_r, tl_r, ti_r, s_lp_r, s_id_r, "battery")
+        ok(torch.allclose(stu_f[0, :T_len], stu_r[0], atol=1e-6) and torch.allclose(tch_f[0, :T_len], tch_r[0], atol=1e-6),
+           "fixer's real positions unchanged by the extra dummy row")
+    # a genuinely broken row (not the dummy) must STILL be refused: zero one real row's ids
+    zid = torch.tensor(rr["prompt_ids"]); zid[1, K - n] = 5
+    try:
+        T.compute_termcal_topk(z_full, t_lps_full, torch.nested.nested_tensor([zid], layout=torch.jagged), cfg, None, data=None)
+        ok(False, "kernel must still refuse a real row with a wrong block id")
+    except RuntimeError as e:
+        ok("1 position(s)" in str(e), f"kernel still refuses a real broken row and counts it: {str(e)[:60]}...")
+
     # ------------------------------------------------------------ F. N0 kernel ---
     print("== F. N0 kernel k1_termfix (event-level Delta-ell at the sampled stop only)")
     o0 = T.compute_termfix_topk(z, t_lps, t_ids, cfg, None, data=None)
