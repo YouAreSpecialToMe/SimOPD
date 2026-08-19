@@ -447,12 +447,22 @@ _launch_lane() {  # ARM GPUS
     return 1
 }
 
-_lpids=()
+# Stagger, for the same reason Phase R does: four lanes bringing up two vLLM servers each,
+# all at once, is ~40 processes racing for the same mount and the same host RAM. 2026-08-19
+# 14:18: slots 0 and 3 launched their four lanes simultaneously and THREE of each four went
+# silent right after "Started a local Ray instance" -- 45 min, no vLLM line, no traceback --
+# while slots whose herd was smaller (3 lanes) all survived. One lane at a time warms
+# everything the next one needs.
+_LSTAG=${LANE_STAGGER:-$(cat "$LOGD/LANE_STAGGER" 2>/dev/null || echo 150)}
+_lpids=(); _larms=(); _lgpus=(); _lstart=(); _lretry=(); _ldelay=0; _now0=$(date +%s)
 for spec in $LANES; do
     ARM=${spec%%:*}; GPUS=${spec##*:}
-    ( _launch_lane "$ARM" "$GPUS" ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 & _lpids+=($!)
+    ( [ "$_ldelay" -gt 0 ] && sleep "$_ldelay"; _gpu_sweep "$GPUS"; _wait_gpu_free "$GPUS"
+      _launch_lane "$ARM" "$GPUS" ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 & _lpids+=($!)
+    _larms+=("$ARM"); _lgpus+=("$GPUS"); _lstart+=($(( _now0 + _ldelay ))); _lretry+=(0)
+    _ldelay=$(( _ldelay + _LSTAG ))
 done
-echo "lanes launched (logs $LOGD/lane_<arm>_s${SEED}.log)"
+echo "lanes launched, staggered ${_LSTAG}s apart (logs $LOGD/lane_<arm>_s${SEED}.log)"
 echo "   to add a lane later WITHOUT touching DLC: touch $LOGD/fleet_relaunch_slot${SLOT}_s${SEED}"
 # A plain `wait` here is the last lock-out left: with lanes running, the reload marker is
 # deliberately ignored (it must never kill training), so a slot that launched only 3 of its 4
@@ -476,9 +486,33 @@ while [ "${#_lpids[@]}" -gt 0 ]; do
         [ "${_slot_from_rank:-0}" = 1 ] && export SLOT=auto
         exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
     fi
-    _alive=()
-    for p in "${_lpids[@]}"; do kill -0 "$p" 2>/dev/null && _alive+=("$p"); done
-    _lpids=("${_alive[@]+"${_alive[@]}"}")
+    # Lane hang watchdog. _launch_lane already retries three times, but only when the run
+    # EXITS; a lane that hangs in bringup (see above) never exits and never retries. Kill the
+    # hung run itself -- not the subshell -- so its own retry loop takes the next attempt,
+    # with the pair swept first.
+    _lstall=$(( ${LANE_STALL_MIN:-$(cat "$LOGD/LANE_STALL_MIN" 2>/dev/null || echo 30)} * 60 ))
+    _alive=(); _alive_arms=(); _alive_gpus=(); _alive_start=(); _alive_retry=(); _idx=0; _now=$(date +%s)
+    for p in "${_lpids[@]}"; do
+        _arm=${_larms[$_idx]}; _gp=${_lgpus[$_idx]}; _t0=${_lstart[$_idx]}; _rt=${_lretry[$_idx]}; _idx=$((_idx+1))
+        kill -0 "$p" 2>/dev/null || continue
+        _llog=$LOGD/lane_${_arm}_s${SEED}.log
+        _ref=$_t0
+        if [ -f "$_llog" ]; then
+            _m=$(stat -c %Y "$_llog" 2>/dev/null || echo 0)
+            [ "$_m" -gt "$_ref" ] && _ref=$_m
+        fi
+        if [ $(( _now - _ref )) -ge "$_lstall" ] && [ "$_rt" -lt 2 ]; then
+            echo "lane ${_arm}: no output for $(( (_now - _ref) / 60 )) min -- killing the run so its retry loop takes over ($(date))"
+            pkill -f "trainer.experiment_name=${_arm}_s${SEED}_16k" 2>/dev/null
+            sleep 5
+            _gpu_sweep "$_gp"
+            _rt=$(( _rt + 1 ))
+        fi
+        _alive+=("$p"); _alive_arms+=("$_arm"); _alive_gpus+=("$_gp"); _alive_start+=("$_t0"); _alive_retry+=("$_rt")
+    done
+    _lpids=("${_alive[@]+"${_alive[@]}"}"); _larms=("${_alive_arms[@]+"${_alive_arms[@]}"}")
+    _lgpus=("${_alive_gpus[@]+"${_alive_gpus[@]}"}"); _lstart=("${_alive_start[@]+"${_alive_start[@]}"}")
+    _lretry=("${_alive_retry[@]+"${_alive_retry[@]}"}")
     [ "${#_lpids[@]}" -gt 0 ] && sleep 60
 done
 echo "== Phase L done"
