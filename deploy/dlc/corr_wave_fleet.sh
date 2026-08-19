@@ -270,6 +270,27 @@ _wait_gpu_free() {  # GPUS -- up to ~2 min for the driver to release
     echo "  WARNING: GPUs [$1] still hold $(_gpu_used "$1") MiB after 2 min; starting anyway"
 }
 
+# Ray cold-start warm-up (called before Phase R and again before Phase L, since a pod whose
+# arms all carry .OK markers skips Phase R entirely and its FIRST ray.init would then be a
+# lane's). ray.init() gives the raylet a HARD-CODED 30 s to register with the GCS
+# (ray/_private/node.py: raylet_start_wait_time_s = 30, no env override); on a fresh pod
+# the 34 MB raylet + 30 MB gcs_server + _raylet.so (~150 MB) come off /mgfs cold. 2026-08-19
+# slot 1 f1 -- the pod's first ray.init, 3 min after boot -- died on exactly that; f2/f3
+# minutes later were fine: purely a page-cache effect. Every big file in the ray package:
+# blunt beats a curated list that misses the one file that was slow (warm: <1 s).
+_warm_ray() {
+    local t0w rayd; t0w=$(date +%s)
+    rayd=$(python -c 'import os, ray; print(os.path.dirname(ray.__file__))' 2>/dev/null)
+    [ -n "$rayd" ] && find "$rayd" -type f -size +1M -exec cat {} + >/dev/null 2>&1
+    echo "== $1: ray binaries warmed in $(( $(date +%s) - t0w ))s (raylet must register within a hard-coded 30s)"
+}
+# Kill EVERY ray process on this pod. Only for whole-slot resets (Phase R reload, Phase L
+# relaunch): the drivers die on SIGTERM without cleanup (python has no default handler),
+# leaving raylet/gcs/dashboard/workers orphaned -- GPU holders are swept by pid, but the
+# CPU-side raylets would accumulate across resets. Never per-lane (other lanes' rays share
+# the pod).
+_kill_all_ray() { pkill -f "site-packages/ray/" 2>/dev/null; sleep 2; pkill -KILL -f "site-packages/ray/" 2>/dev/null; }
+
 _has_ok() { [ -f "$LOGD/rehearsal_$1.OK" ] || [ -f "$D/n2/rehearsal_$1.OK" ]; }
 declare -a _todo=()
 if ! _has_ok corr_wave; then
@@ -297,13 +318,7 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     # 2026-08-19 slot 1: f1 -- the pod's FIRST ray.init, 3 min after boot -- died on exactly
     # that; f2/f3 on the same pod minutes later were fine, i.e. it is purely a page-cache
     # effect. Pull the binaries in first (~66 MB, seconds) so nobody races that timer.
-    _t0w=$(date +%s)
-    _rayd=$(python -c 'import os, ray; print(os.path.dirname(ray.__file__))' 2>/dev/null)
-    # every big file in the ray package: the two binaries plus _raylet.so and the bundled
-    # libs they dlopen. Cheap and blunt beats a curated list that misses the one file that
-    # was slow. (Warm: well under a second. Cold: this IS the cost we are paying up front.)
-    [ -n "$_rayd" ] && find "$_rayd" -type f -size +1M -exec cat {} + >/dev/null 2>&1
-    echo "== Phase R: ray core binaries warmed in $(( $(date +%s) - _t0w ))s (raylet must register within a hard-coded 30s)"
+    _warm_ray "Phase R"
     _rehearse_one() {  # ARM PAIR DELAY
         [ "${3:-0}" -gt 0 ] && sleep "$3"
         # Sweep THIS pair right before starting, not just at Phase R entry: an arm killed at
@@ -343,6 +358,7 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
         pkill -f "verl.trainer.main_ppo" 2>/dev/null
         sleep 5
         for p in "${_rpids[@]}"; do kill -KILL "$p" 2>/dev/null; done
+        _kill_all_ray
         _gpu_sweep 0,1,2,3,4,5,6,7
     }
     while [ "${#_rpids[@]}" -gt 0 ]; do
@@ -419,6 +435,7 @@ echo "== Phase R: markers present for: ${ARMS[*]}"
 
 echo "== Phase L: GPU state -- used MiB: $(_gpu_used 0,1,2,3,4,5,6,7)"
 _gpu_sweep 0,1,2,3,4,5,6,7
+_warm_ray "Phase L"
 echo "== Phase L: slot ${SLOT} lanes: $LANES (250 steps, seed ${SEED})"
 [ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
 
@@ -480,6 +497,7 @@ while [ "${#_lpids[@]}" -gt 0 ]; do
         pkill -f "verl.trainer.main_ppo" 2>/dev/null
         sleep 10
         for p in "${_lpids[@]}"; do kill -KILL "$p" 2>/dev/null; done
+        _kill_all_ray
         _gpu_sweep 0,1,2,3,4,5,6,7
         [ -n "${_hb_pid:-}" ] && kill "$_hb_pid" 2>/dev/null
         [ -n "${LOCK:-}" ] && rm -rf "$LOCK"
@@ -490,7 +508,11 @@ while [ "${#_lpids[@]}" -gt 0 ]; do
     # EXITS; a lane that hangs in bringup (see above) never exits and never retries. Kill the
     # hung run itself -- not the subshell -- so its own retry loop takes the next attempt,
     # with the pair swept first.
-    _lstall=$(( ${LANE_STALL_MIN:-$(cat "$LOGD/LANE_STALL_MIN" 2>/dev/null || echo 30)} * 60 ))
+    # 40 min: a healthy lane is never that quiet -- the agent loop prints a pending/running/
+    # finished heartbeat every minute during rollout AND validation, a 16k step is ~3 min, a
+    # checkpoint save a few -- while today's hangs were 45+ min of nothing after Ray init. A
+    # false kill costs the steps since the last checkpoint (<= 25), a late one 40 idle min.
+    _lstall=$(( ${LANE_STALL_MIN:-$(cat "$LOGD/LANE_STALL_MIN" 2>/dev/null || echo 40)} * 60 ))
     _alive=(); _alive_arms=(); _alive_gpus=(); _alive_start=(); _alive_retry=(); _idx=0; _now=$(date +%s)
     for p in "${_lpids[@]}"; do
         _arm=${_larms[$_idx]}; _gp=${_lgpus[$_idx]}; _t0=${_lstart[$_idx]}; _rt=${_lretry[$_idx]}; _idx=$((_idx+1))
@@ -505,6 +527,7 @@ while [ "${#_lpids[@]}" -gt 0 ]; do
             echo "lane ${_arm}: no output for $(( (_now - _ref) / 60 )) min -- killing the run so its retry loop takes over ($(date))"
             pkill -f "trainer.experiment_name=${_arm}_s${SEED}_16k" 2>/dev/null
             sleep 5
+            pkill -KILL -f "trainer.experiment_name=${_arm}_s${SEED}_16k" 2>/dev/null
             _gpu_sweep "$_gp"
             _rt=$(( _rt + 1 ))
         fi
