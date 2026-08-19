@@ -209,6 +209,35 @@ fi
 # (does not launch) any lane whose rehearsal FAILED. The debug-node markers ($D/n2/) are
 # honored too. A slot that has no vanilla_corr rehearses vanilla_corr on its first pair as
 # the carrier proof if that marker is missing.
+# GPU HYGIENE. Killing a rehearsal's shell does NOT free its HBM: the driver's Ray
+# workers and vLLM engine/worker subprocesses outlive it and keep their allocations, so
+# the next attempt dies with "Free memory on device cuda:0 (9.04/79.1 GiB) on startup is
+# less than desired GPU memory utilization" (2026-08-19, after the watchdog's
+# false-positive kills). Nothing of ours may be on the GPUs before Phase L, so sweep by
+# compute-app pid -- the only reliable handle, since the leftovers are not children of
+# this shell -- and wait for the memory to actually come back.
+_gpu_procs() { nvidia-smi -i "$1" --query-compute-apps=pid --format=csv,noheader 2>/dev/null | tr -d " " | tr "\n" " "; }
+_gpu_used() { nvidia-smi -i "$1" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | tr "\n" " "; }
+_gpu_sweep() {  # GPUS
+    local pids; pids=$(_gpu_procs "$1")
+    [ -n "${pids// /}" ] || return 0
+    echo "  GPU sweep on [$1]: leftover compute pids [$pids] -- used MiB: $(_gpu_used "$1")"
+    kill -TERM $pids 2>/dev/null; sleep 8
+    pids=$(_gpu_procs "$1")
+    [ -n "${pids// /}" ] && { echo "  GPU sweep on [$1]: SIGKILL [$pids]"; kill -KILL $pids 2>/dev/null; sleep 5; }
+    echo "  GPU sweep on [$1] done -- used MiB now: $(_gpu_used "$1")"
+}
+_wait_gpu_free() {  # GPUS -- up to ~2 min for the driver to release
+    local i used busy
+    for i in $(seq 1 24); do
+        busy=0
+        for used in $(_gpu_used "$1"); do [ "${used:-0}" -gt 4096 ] && busy=1; done
+        [ "$busy" = 0 ] && return 0
+        sleep 5
+    done
+    echo "  WARNING: GPUs [$1] still hold $(_gpu_used "$1") MiB after 2 min; starting anyway"
+}
+
 _has_ok() { [ -f "$LOGD/rehearsal_$1.OK" ] || [ -f "$D/n2/rehearsal_$1.OK" ]; }
 declare -a _todo=()
 if ! _has_ok corr_wave; then
@@ -228,8 +257,11 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     # operator knobs, env or a one-line file on shared disk (survives a reload, and I can
     # retune them from the hop pod without touching DLC): $LOGD/REHEARSE_STAGGER, .../REHEARSE_STALL_MIN
     _STAG=${REHEARSE_STAGGER:-$(cat "$LOGD/REHEARSE_STAGGER" 2>/dev/null || echo 180)}
+    echo "== Phase R: GPU state before sweep -- used MiB: $(_gpu_used 0,1,2,3,4,5,6,7)"
+    _gpu_sweep 0,1,2,3,4,5,6,7
     _rehearse_one() {  # ARM PAIR DELAY
         [ "${3:-0}" -gt 0 ] && sleep "$3"
+        _wait_gpu_free "$2"
         echo "rehearsal $1: starting on GPUs $2 ($(date))"
         : > "$D/n2/rehearsal_$1.log"    # the watchdog measures silence off this mtime; a log
                                         # left by an earlier pod must not read as "stalled"
@@ -238,14 +270,14 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
         if [ $rc -eq 0 ]; then touch "$LOGD/rehearsal_$1.OK"; echo "rehearsal $1: PASS"; else echo "rehearsal $1: FAIL (rc=$rc) see $LOGD/rehearse_${1}_s${SEED}.log"; fi
         return $rc
     }
-    _pstart=$(date +%s); _rstart=()      # per-arm scheduled start epoch (stagger delay included)
+    _pstart=$(date +%s); _rstart=(); _rgpus=()   # per-arm scheduled start epoch + its GPU pair
     if [ "$_need_carrier" = 1 ]; then
-        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _rstart+=("$_pstart"); _i=$((_i+1))
+        ( _rehearse_one vanilla_corr "${_pairs[$_i]}" 0 ) & _rpids+=($!); _rarms+=(vanilla_corr); _rstart+=("$_pstart"); _rgpus+=("${_pairs[$_i]}"); _i=$((_i+1))
     fi
     for ARM in "${_todo[@]}"; do
-        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _rarms=(); _rstart=(); _i=0; fi   # >4 -> second round
+        if [ $_i -ge 4 ]; then wait "${_rpids[@]}"; _rpids=(); _rarms=(); _rstart=(); _rgpus=(); _i=0; fi   # >4 -> second round
         _d=$(( _i * _STAG ))
-        ( _rehearse_one "$ARM" "${_pairs[$_i]}" "$_d" ) & _rpids+=($!); _rarms+=("$ARM"); _rstart+=($(( _pstart + _d ))); _i=$((_i+1))
+        ( _rehearse_one "$ARM" "${_pairs[$_i]}" "$_d" ) & _rpids+=($!); _rarms+=("$ARM"); _rstart+=($(( _pstart + _d ))); _rgpus+=("${_pairs[$_i]}"); _i=$((_i+1))
     done
     echo "== Phase R: ${#_rpids[@]} rehearsals launched, staggered ${_STAG}s apart (carrier first)"
     # WATCHDOG. A plain `wait` here is a lock-out: rehearse_n2.sh has no timeout, so a
@@ -261,6 +293,7 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
         pkill -f "verl.trainer.main_ppo" 2>/dev/null
         sleep 5
         for p in "${_rpids[@]}"; do kill -KILL "$p" 2>/dev/null; done
+        _gpu_sweep 0,1,2,3,4,5,6,7
     }
     while [ "${#_rpids[@]}" -gt 0 ]; do
         if [ -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}" ]; then
@@ -268,9 +301,9 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
             _kill_rehearsals
             _abort_check
         fi
-        _alive=(); _alive_arms=(); _alive_start=(); _idx=0; _now=$(date +%s)
+        _alive=(); _alive_arms=(); _alive_start=(); _alive_gpus=(); _idx=0; _now=$(date +%s)
         for p in "${_rpids[@]}"; do
-            _arm=${_rarms[$_idx]}; _t0=${_rstart[$_idx]}; _idx=$((_idx+1))
+            _arm=${_rarms[$_idx]}; _t0=${_rstart[$_idx]}; _gp=${_rgpus[$_idx]}; _idx=$((_idx+1))
             kill -0 "$p" 2>/dev/null || continue          # exited: its own PASS/FAIL line stands
             _rlog=$D/n2/rehearsal_${_arm}.log
             # Silence is measured from the LATER of (its own scheduled start, its log's last
@@ -286,12 +319,13 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
             if [ "$_age" -ge "$_stall" ]; then
                 echo "rehearsal ${_arm}: FAIL (STALLED ${_age}s with no log output) -- killing; see $_rlog"
                 kill -TERM "$p" 2>/dev/null; sleep 2; kill -KILL "$p" 2>/dev/null
+                _gpu_sweep "${_rgpus[$(( _idx - 1 ))]}"      # its engines are not our children
                 continue
             fi
-            _alive+=("$p"); _alive_arms+=("$_arm"); _alive_start+=("$_t0")
+            _alive+=("$p"); _alive_arms+=("$_arm"); _alive_start+=("$_t0"); _alive_gpus+=("$_gp")
         done
         _rpids=("${_alive[@]+"${_alive[@]}"}"); _rarms=("${_alive_arms[@]+"${_alive_arms[@]}"}")
-        _rstart=("${_alive_start[@]+"${_alive_start[@]}"}")
+        _rstart=("${_alive_start[@]+"${_alive_start[@]}"}"); _rgpus=("${_alive_gpus[@]+"${_alive_gpus[@]}"}")
         [ "${#_rpids[@]}" -gt 0 ] && sleep 60
     done
     echo "== Phase R: rehearsals finished ($(date))"
@@ -319,6 +353,8 @@ ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
 [ -n "$LANES" ] || { while true; do _abort_check; echo "no lane passed rehearsal in slot ${SLOT} ($(date))"; sleep 120; done; }
 echo "== Phase R: markers present for: ${ARMS[*]}"
 
+echo "== Phase L: GPU state -- used MiB: $(_gpu_used 0,1,2,3,4,5,6,7)"
+_gpu_sweep 0,1,2,3,4,5,6,7
 echo "== Phase L: slot ${SLOT} lanes: $LANES (250 steps, seed ${SEED})"
 [ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
 
