@@ -225,6 +225,29 @@ b4_jsd_b0.1/b0.9、f2_clip2.3、h4_random_scatter 六个 run 从 step 50 的 ban
 产生方式走,而不是跟着某个单调量走;这次的检验是拿上一版 CSV 逐 (arm,seed) 比行数和
 起点,而不是只看最大 step。
 
+## 事故复盘 5:patch 装上了 ≠ patch 被调用(2026-08-19,corrected wave 彩排两连败)
+
+`simopd.eos_gather` 让教师每行多带两列精确 stop-token logprob(N0/N2 载体),做法是
+包住 vLLM 的 `vllm.v1.sample.sampler.Sampler.gather_logprobs`。第一次彩排:行里没有
+这些 id → reader 记 -inf → 内核拒绝。加了第二条安装路径和诊断再彩排:教师
+vLLMHttpServer / EngineCore / Worker 三层进程**全部** `sampler patched=True`,行里**依然**
+没有 id。同一份日志里的另一行给出答案:Worker 在推理时 JIT 的 Triton 内核是
+`_topk_log_softmax_kernel`,它只定义在 `vllm/v1/worker/gpu/sample/logprob.py` —— 那是
+vLLM 的 **V2 GPU model runner**(`vllm/v1/worker/gpu/`,0.26 对稠密 generate 模型是默认;
+`VllmConfig.use_v2_model_runner`),它的 prompt logprobs 走
+`PromptLogprobsWorker → compute_prompt_logprobs_with_chunking → compute_topk_scores`,
+根本不经过 `Sampler.gather_logprobs`。装对了类、装错了运行时:armed 不等于 called。
+
+修法(cb4cfd4):两条路径都装、同一行布局 `[actual | top-(K-n) | extras]`;V2 那条包
+`compute_topk_scores`(仅 fast path),extras 的值用 vLLM 自己的 `compute_token_logprobs`
+(同一个 max+logsumexp 内核),并改绑 `prompt_logprob.py` / `sampler.py` 里按名导入的引用;
+新增 `vllm.v1.worker.gpu.sample.logprob` 导入钩子;**首次真的产出行时打 first-call 收据**
+(日志行 `first gathered rows via …` + `$D/n2/armed/call_*_pid*.txt`)。以后任何「patch 某
+个库函数」的活,验收标准都是这条收据,不是 armed 横幅。
+
+顺带:传给 Triton 内核的 id 矩阵必须 `repeat` 实体化,`expand` 视图 stride 0 会被裸指针
+越界读。
+
 ## 风险备忘
 
 - teacher 打分吞吐:每 run 每步 ~128×(≤8k) token 的 prefill,1 卡 4B 应该够,W1 实测;
