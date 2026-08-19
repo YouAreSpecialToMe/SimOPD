@@ -355,11 +355,12 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
             _arm=${_rarms[$_idx]}; _t0=${_rstart[$_idx]}; _gp=${_rgpus[$_idx]}; _rt=${_rretry[$_idx]}; _idx=$((_idx+1))
             if ! kill -0 "$p" 2>/dev/null; then
                 # exited: its own PASS/FAIL line stands -- except a TRANSIENT bringup failure
-                # (Ray's "node timed out during startup / GCS overloaded / raylet failed": a cold
+                # (Ray's cold-start "node timed out during startup / GCS overloaded / raylet failed",
+                # and a DataLoader worker killed by the OOM killer -- h3 on slot 2, same afternoon): a cold
                 # pod's first Ray start; 2026-08-19 slot 1 f1 died 2 min in on exactly this and
                 # would have lost its lane for the whole wave). Retry ONCE, same pair, no delay;
                 # the per-arm sweep in _rehearse_one clears the dead Ray's leftovers first.
-                if [ "$_rt" = 0 ] && ! _has_ok "$_arm" && grep -qaE "timed out during startup|GCS has become overloaded|raylet failed to start|Failed to connect to GCS" \
+                if [ "$_rt" = 0 ] && ! _has_ok "$_arm" && grep -qaE "timed out during startup|GCS has become overloaded|raylet failed to start|Failed to connect to GCS|DataLoader worker \(pid [0-9]+\) is killed by signal|BrokenPipeError" \
                         "$LOGD/rehearse_${_arm}_s${SEED}.log" "$D/n2/rehearsal_${_arm}.log" 2>/dev/null; then
                     echo "rehearsal ${_arm}: transient Ray-startup failure -- retrying once on GPUs ${_gp} ($(date))"
                     ( _rehearse_one "$_arm" "$_gp" 0 ) & _alive+=($!); _alive_arms+=("$_arm"); _alive_start+=("$_now"); _alive_gpus+=("$_gp"); _alive_retry+=(1)

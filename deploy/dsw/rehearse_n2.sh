@@ -132,7 +132,19 @@ raw_key = "eos_dl_at_stop_raw"
 if get("eos_n_stop") and get("eos_n_stop") > 0:
     if get(raw_key) > -5.0:
         print(f"NOTE: {raw_key}={get(raw_key):.3g} is not the audit's ~-25 -- inspect before launching wave 17")
-    if (TE or MODE == "family") and get("eos_dl_at_stop") < -5.0:
-        sys.exit(f"REHEARSAL FAIL [{ARM}]: applied eos_dl_at_stop={get('eos_dl_at_stop'):.3g} still token-level -- the fix did not engage")
+    # Did the event fix ENGAGE? The question is applied-vs-raw, not an absolute floor: the
+    # event-level value is whatever the teacher's termination mass says at those stops, and it
+    # is legitimately several nats negative early in training (2026-08-19 GPU: vanilla_corr
+    # -3.3/-3.6 vs raw -16.6; n2_corr -4.4/-5.2 vs raw -12.5/-19.0; f1 -5.65 vs raw -16.5 --
+    # the old absolute -5 threshold failed f1 for a value the carrier itself produces, and
+    # would have failed N2 on the next seed). Engaged == applied is clearly ABOVE raw.
+    if (TE or MODE == "family"):
+        dl, raw = get("eos_dl_at_stop"), get(raw_key)
+        if raw is not None and dl is not None and raw < -5.0 and dl - raw < 3.0:
+            sys.exit(f"REHEARSAL FAIL [{ARM}]: applied eos_dl_at_stop={dl:.3g} vs raw {raw:.3g} "
+                     f"(gain {dl - raw:.3g} nats) -- still token-level, the fix did not engage")
+        if dl is not None and dl < -12.0:
+            sys.exit(f"REHEARSAL FAIL [{ARM}]: applied eos_dl_at_stop={dl:.3g} is token-level deep "
+                     "even though it differs from raw -- inspect before launching")
 PY
 echo "REHEARSAL PASS [$ARM]  ->  touch $LOGD/rehearsal_${ARM}.OK"
