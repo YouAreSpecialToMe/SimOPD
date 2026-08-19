@@ -107,6 +107,35 @@ mkdir -p "$LOGD"
 # does not exit again at its first idle loop
 rm -f "$LOGD/fleet_abort_slot${SLOT}_s${SEED}"
 exec > >(tee -a "$LOGD/fleet_slot${SLOT}_s${SEED}_$(date +%Y%m%d_%H%M%S).log") 2>&1
+
+# ------------------------------------------------------------ slot lock ------
+# Exactly ONE pod may drive a slot: a duplicate (a resubmitted job next to an auto-restarted
+# one -- it happened to slot 0 on 2026-08-19: two pods rehearsed the same arms into the same
+# dirs and would have trained the same run names into the same checkpoint dirs) idles here.
+# The lock is a directory (atomic mkdir) with a heartbeat file; a lock whose heartbeat is
+# older than 20 min is stale (owner pod gone) and is taken over.
+LOCK=$LOGD/slot${SLOT}_s${SEED}.lock
+_take_lock() { echo "$(hostname) pid=$$ $(date -u +%FT%TZ)" > "$LOCK/owner"; }
+if mkdir "$LOCK" 2>/dev/null; then
+    _take_lock
+else
+    _age=$(( $(date +%s) - $(stat -c %Y "$LOCK/owner" 2>/dev/null || echo 0) ))
+    if [ "$_age" -lt 1200 ]; then
+        while true; do
+            _abort_check
+            _age=$(( $(date +%s) - $(stat -c %Y "$LOCK/owner" 2>/dev/null || echo 0) ))
+            [ "$_age" -ge 1200 ] && { echo "lock owner heartbeat stale (${_age}s); taking over"; _take_lock; break; }
+            echo "DUPLICATE POD for slot ${SLOT}: lock held by [$(cat "$LOCK/owner" 2>/dev/null)] heartbeat ${_age}s ago -- idling ($(date))"
+            sleep 300
+        done
+    else
+        echo "stale lock (heartbeat ${_age}s ago) -- taking over"; _take_lock
+    fi
+fi
+# heartbeat while this pod lives
+( while true; do sleep 300; [ -d "$LOCK" ] && touch "$LOCK/owner"; done ) & _hb_pid=$!
+trap "kill $_hb_pid 2>/dev/null; rm -rf \"$LOCK\"" EXIT
+echo "== slot lock taken: $(cat "$LOCK/owner")"
 echo "== corr_wave_fleet slot ${SLOT} on $(hostname), seed ${SEED}, tree $ROOT @ $(git log --oneline -1 2>/dev/null | head -1)"
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
 nvidia-smi -L | head -8
