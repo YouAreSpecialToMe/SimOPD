@@ -290,6 +290,19 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     _STAG=${REHEARSE_STAGGER:-$(cat "$LOGD/REHEARSE_STAGGER" 2>/dev/null || echo 180)}
     echo "== Phase R: GPU state before sweep -- used MiB: $(_gpu_used 0,1,2,3,4,5,6,7)"
     _gpu_sweep 0,1,2,3,4,5,6,7
+    # Ray cold-start warm-up. ray.init() gives the raylet a HARD-CODED 30 s to register with
+    # the GCS (ray/_private/node.py: `raylet_start_wait_time_s = 30`, no env override), and on
+    # a fresh pod the 34 MB raylet + 30 MB gcs_server + their .so files come off /mgfs cold.
+    # 2026-08-19 slot 1: f1 -- the pod's FIRST ray.init, 3 min after boot -- died on exactly
+    # that; f2/f3 on the same pod minutes later were fine, i.e. it is purely a page-cache
+    # effect. Pull the binaries in first (~66 MB, seconds) so nobody races that timer.
+    _t0w=$(date +%s)
+    _rayd=$(python -c 'import os, ray; print(os.path.dirname(ray.__file__))' 2>/dev/null)
+    # every big file in the ray package: the two binaries plus _raylet.so and the bundled
+    # libs they dlopen. Cheap and blunt beats a curated list that misses the one file that
+    # was slow. (Warm: well under a second. Cold: this IS the cost we are paying up front.)
+    [ -n "$_rayd" ] && find "$_rayd" -type f -size +1M -exec cat {} + >/dev/null 2>&1
+    echo "== Phase R: ray core binaries warmed in $(( $(date +%s) - _t0w ))s (raylet must register within a hard-coded 30s)"
     _rehearse_one() {  # ARM PAIR DELAY
         [ "${3:-0}" -gt 0 ] && sleep "$3"
         # Sweep THIS pair right before starting, not just at Phase R entry: an arm killed at
