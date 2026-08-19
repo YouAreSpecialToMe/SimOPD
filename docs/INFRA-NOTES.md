@@ -248,6 +248,22 @@ vLLM 的 **V2 GPU model runner**(`vllm/v1/worker/gpu/`,0.26 对稠密 generate �
 顺带:传给 Triton 内核的 id 矩阵必须 `repeat` 实体化,`expand` 视图 stride 0 会被裸指针
 越界读。
 
+## 事故复盘 6:裸 `wait` 是一把锁,冷节点上四条 lane 同时冷启会互相拖死(2026-08-19)
+
+同一天下午,slot 0 换到 M16-221 重提后:lint 跑了 5 分钟(热节点 30 秒),四臂并行彩排
+在 `Started a local Ray instance` 之后 **28 分钟零输出**。venv 和两份模型都在 /mgfs 上,
+四条 lane 约 40 个进程同时冷读 torch+vllm 和 ~12GB 权重,一个挂载点扛不住;同一时刻
+另一个 job(A/H 轴)的 lane 日志照常在写,所以不是共享盘整体故障,是这台节点 + 并发。
+
+真正致命的是第二层:`rehearse_n2.sh` 没有超时,舰队脚本用**裸 `wait`** 等四个子进程。
+于是空转循环进不去 → 重载标记永远读不到 → 从共享盘无论如何叫不醒它,只能去 DLC
+stop+resubmit。**任何"等外部进程"的地方都不能用裸 wait**:要么轮询+超时,要么给被等的
+东西套 `timeout`。
+
+改法:Phase R 错峰启动(5e05aa5,载体先跑,其余每 `REHEARSE_STAGGER`=180s 一条,第一条
+把页缓存捂热)+ Phase R 看门狗(e26e32a,60s 轮询:标记 → 杀彩排并就地重载;某臂日志
+静默超 `REHEARSE_STALL_MIN`=25 分钟 → 杀掉记 FAIL,落到空转循环等重载)。
+
 ## 风险备忘
 
 - teacher 打分吞吐:每 run 每步 ~128×(≤8k) token 的 prefill,1 卡 4B 应该够,W1 实测;
