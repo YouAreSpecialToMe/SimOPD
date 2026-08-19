@@ -2,9 +2,9 @@
 """生成 docs/inloop-stop2-vs-legacy.html:v2(双停)vs legacy 的 in-loop 对比。
 设计系统沿用 docs/arm-dynamics.html 的 token(明暗三态、等宽数字、面板栅格)。
 数据内联(自包含,file:// 与 Artifact CSP 双友好)。"""
-import csv, json, collections
+import csv, json, collections, os
 
-SRC = "/private/tmp/claude-501/-Users-lichanghao/0bcd641a-d76b-42bd-8469-dc49bb26e78c/scratchpad/inloop_v2_vs_legacy.csv"
+SRC = os.path.join(os.path.dirname(__file__), "../../docs/data/inloop_v2_vs_legacy.csv")
 DST = "/Users/lichanghao/Desktop/Changhao/GT_Sem4/project/SimOPD/docs/inloop-stop2-vs-legacy.html"
 
 rows = list(csv.DictReader(open(SRC)))
