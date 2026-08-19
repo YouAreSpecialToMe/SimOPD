@@ -128,6 +128,7 @@ CARD
   Add-on form: SLOT_BASE=1 with 4 workers drives SLOT 1-4 next to an already-running SLOT 0 job.
   前置:rehearsal_vanilla_corr.OK(载体彩排,gpu193;rehearse_n2.sh 写在 $D/n2/,这里也认)+ 各臂 .OK,或批量标记 rehearsal_corr_wave.OK。
   重载(空转中的 pod 就地重读舰队树,不重提 job):touch $LOGD/fleet_abort_slot<k>_s${SEED}   (Phase L 跑 lane 时不轮询)
+  重发(Phase L 期间就地杀掉本槽 lane 并重走 R/L,用于补一条漏掉的 lane):touch $LOGD/fleet_relaunch_slot<k>_s${SEED}
 ========= dlc CLI:一次性 40 卡(一个 job,5 worker x 8 GPU,rank r -> SLOT r)=========
     dlc submit pytorchjob --name=simopd-corr-wave1-40cards-s${SEED} --workers=5 --worker_gpu=8 --worker_cpu=64 \\
       --worker_memory=512Gi --worker_image="\$IMAGE" --data_sources="\$DATA_SOURCES" \\
@@ -452,7 +453,34 @@ for spec in $LANES; do
     ( _launch_lane "$ARM" "$GPUS" ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 & _lpids+=($!)
 done
 echo "lanes launched (logs $LOGD/lane_<arm>_s${SEED}.log)"
-wait "${_lpids[@]}"
+echo "   to add a lane later WITHOUT touching DLC: touch $LOGD/fleet_relaunch_slot${SLOT}_s${SEED}"
+# A plain `wait` here is the last lock-out left: with lanes running, the reload marker is
+# deliberately ignored (it must never kill training), so a slot that launched only 3 of its 4
+# lanes -- one arm's rehearsal having failed on something since fixed -- could not pick the
+# fourth up without stopping the whole DLC job (2026-08-19: f1 and h3, 4 idle GPUs, and the
+# 40 cards now live in ONE job so stopping costs every other lane too). So poll for a SECOND,
+# differently-named marker that means exactly "kill my lanes and start over": deliberate,
+# never confusable with the reload marker, and cheap because a lane that has banked
+# checkpoints resumes from them.
+while [ "${#_lpids[@]}" -gt 0 ]; do
+    if [ -f "$LOGD/fleet_relaunch_slot${SLOT}_s${SEED}" ]; then
+        rm -f "$LOGD/fleet_relaunch_slot${SLOT}_s${SEED}"
+        echo "== Phase L: RELAUNCH requested ($(date)) -- killing this slot's lanes and re-running Phase R/L"
+        for p in "${_lpids[@]}"; do kill -TERM "$p" 2>/dev/null; done
+        pkill -f "verl.trainer.main_ppo" 2>/dev/null
+        sleep 10
+        for p in "${_lpids[@]}"; do kill -KILL "$p" 2>/dev/null; done
+        _gpu_sweep 0,1,2,3,4,5,6,7
+        [ -n "${_hb_pid:-}" ] && kill "$_hb_pid" 2>/dev/null
+        [ -n "${LOCK:-}" ] && rm -rf "$LOCK"
+        [ "${_slot_from_rank:-0}" = 1 ] && export SLOT=auto
+        exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
+    fi
+    _alive=()
+    for p in "${_lpids[@]}"; do kill -0 "$p" 2>/dev/null && _alive+=("$p"); done
+    _lpids=("${_alive[@]+"${_alive[@]}"}")
+    [ "${#_lpids[@]}" -gt 0 ] && sleep 60
+done
 echo "== Phase L done"
 ok=0
 for ARM in "${ARMS[@]}"; do
