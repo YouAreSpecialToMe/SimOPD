@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Corrected-rerun wave 1 on DLC: 40 cards = 5 workers x 8 GPUs, one job per SLOT.
+# Corrected-rerun wave 1 on DLC: 40 cards = 5 workers x 8 GPUs = 20 two-GPU lanes, one job per SLOT.
 #
 # Every cell is "the banked arm + SIMOPD_TERM_EVENT=1" (docs/RESULTS-GAPS.md, corrected-rerun
 # roster; docs/MECHANISMS.md M-I). One seed (0), seed-paired against the banked arms; the
@@ -8,17 +8,18 @@
 # eval_suite / extract_post_eval / verdict pick them up unchanged (eval contract = the
 # run's own pin, i.e. legacy -- eval_offline --stop-token-ids auto).
 #
-# Slot map (2-GPU lanes unless noted; g2/d2/d3 are the KEEP_SAMPLED [T,V] family = 4 GPUs):
+# Slot map -- 20 two-GPU lanes = 5 workers x 4 lanes = 40 cards, the user's 20-lane plan exactly.
+# (The banked d/g2 rows ran in the 4-GPU family only because their kernels pre-dated the
+# streaming port; the corrected cells' kernels are streaming, so they take 2 GPUs like
+# vanilla_corr -- see the arms' notes; fall back to the 4-GPU family only if the rehearsal
+# shows student-side pressure at 16k.)
 #
-#   SLOT 0  vanilla_corr(0,1)   n2_corr(2,3)          b1_skew_kl_corr(4,5)      b5_k2_corr(6,7)
-#   SLOT 1  f1_soft_log_corr    f2_hard_clip_corr     f3_power_corr             g1_verified_only_corr
-#   SLOT 2  g4_failure_only_corr g6_seqmean_corr      h2_last_segment_corr      h3_random_segment_corr
-#   SLOT 3  h4_random_scatter_corr b2_forward_kl_corr e2_set_coverage_a0_corr   c3_intersection_corr
-#   SLOT 4  g5_rgopd_gate_corr(0,1)  g2_fire_likelihood_corr(2,3,4,5)  n2_termcal(6,7 -- backlog fill: raw N2)
-#   SLOT 5  d2_selectkd_corr(0,1,2,3)  d3_teachability_corr(4,5,6,7)   -- batch 2 (a 6th worker, or after any slot frees)
-#
-# SLOT 0-4 = the user's 20-lane plan minus d2/d3 (4-card lanes do not fit 40 with the other 18);
-# 38 cards busy + 2 filled by the backlog's raw N2. SLOT 5 completes the plan on 8 more cards.
+#   SLOT 0  vanilla_corr(0,1)     n2_corr(2,3)              b1_skew_kl_corr(4,5)       b5_k2_corr(6,7)
+#   SLOT 1  f1_soft_log_corr      f2_hard_clip_corr         f3_power_corr              g1_verified_only_corr
+#   SLOT 2  g4_failure_only_corr  g6_seqmean_corr           h2_last_segment_corr       h3_random_segment_corr
+#   SLOT 3  h4_random_scatter_corr b2_forward_kl_corr       e2_set_coverage_a0_corr    c3_intersection_corr
+#   SLOT 4  g2_fire_likelihood_corr g5_rgopd_gate_corr      d2_selectkd_corr           d3_teachability_corr
+#   SLOT 5  (backlog fill, 6th worker if any) n2_termcal   d1_tip_corr               f2_clip2.3_corr   h1_first_segment_corr
 #
 # Lineage: deploy/dlc/h_axis_fleet.sh (its 11 fixes inherited: NCCL/GLOO iface by presence,
 # explicit pid wait, zero-checkpoint never reports success, remote abort marker, bounded
@@ -47,8 +48,8 @@ _lanes_for() {
         1) echo "f1_soft_log_corr:0,1 f2_hard_clip_corr:2,3 f3_power_corr:4,5 g1_verified_only_corr:6,7" ;;
         2) echo "g4_failure_only_corr:0,1 g6_seqmean_corr:2,3 h2_last_segment_corr:4,5 h3_random_segment_corr:6,7" ;;
         3) echo "h4_random_scatter_corr:0,1 b2_forward_kl_corr:2,3 e2_set_coverage_a0_corr:4,5 c3_intersection_corr:6,7" ;;
-        4) echo "g5_rgopd_gate_corr:0,1 g2_fire_likelihood_corr:2,3,4,5 n2_termcal:6,7" ;;
-        5) echo "d2_selectkd_corr:0,1,2,3 d3_teachability_corr:4,5,6,7" ;;
+        4) echo "g2_fire_likelihood_corr:0,1 g5_rgopd_gate_corr:2,3 d2_selectkd_corr:4,5 d3_teachability_corr:6,7" ;;
+        5) echo "n2_termcal:0,1 d1_tip_corr:2,3 f2_clip2.3_corr:4,5 h1_first_segment_corr:6,7" ;;
         *) echo "" ;;
     esac
 }
@@ -79,7 +80,7 @@ if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; t
 CARD
     done
     cat <<TAIL
-  40 cards = SLOT 0-4 (5 jobs). SLOT 5 (d2/d3, 8 cards) = batch 2: a 6th job now, or when a slot frees.
+  40 cards = SLOT 0-4 (5 jobs, the 20-lane plan). SLOT 5 = backlog fill (raw N2, d1, f2_2.3, h1) for a 6th worker or a freed slot.
   前置:rehearsal_vanilla_corr.OK(载体彩排,gpu193;rehearse_n2.sh 写在 $D/n2/,这里也认)+ 各臂 .OK,或批量标记 rehearsal_corr_wave.OK。
   中止:touch $LOGD/fleet_abort_slot<k>_s${SEED}
 ========= dlc CLI 等价形式(填你们工作区的 WORKSPACE_ID/RESOURCE_ID/IMAGE/DATA_SOURCES;每个 SLOT 一条)=========

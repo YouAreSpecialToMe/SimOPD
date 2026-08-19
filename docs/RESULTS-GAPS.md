@@ -256,9 +256,9 @@ cells, canonical seed 0, seed-paired against the banked arms** — 13 confirmed 
 support/selector-corrected; J series and vanilla_n8 dropped; more seeds afterwards only for
 `vanilla_corr`, `n2_corr` and arms that visibly diverge. Naming: `<banked run_id>_corr` = the
 same arm + the knob; `vanilla_corr` is the new vanilla (old "N0"). Legacy stop contract pinned
-(`SIMOPD_STOP_IDS off`) so nothing else moves. Lanes: 17 × 2 GPUs + 3 × 4 GPUs
-(`g2_fire_likelihood_corr`, `d2_selectkd_corr`, `d3_teachability_corr` are the KEEP_SAMPLED
-[T,V] family) = 46 cards as listed. Cost is length-driven (report §2): ~15–30 GPU·h per
+(`SIMOPD_STOP_IDS off`) so nothing else moves. Lanes: 20 × 2 GPUs = 40 cards (the D/FiRe kernels are streaming since ckpt 75; the banked
+d/g2 4-GPU geometry was the pre-streaming OOM wall, not the method — fall back to
+NGPUS_PER_NODE=2 + TEACHER_WORLD_SIZE=2 only if the rehearsal shows pressure at 16k). Cost is length-driven (report §2): ~15–30 GPU·h per
 2-GPU lane if the fix holds lengths at c1/h1 regimes.
 
 | # | cell | what the knob repairs here | question |
@@ -272,14 +272,14 @@ same arm + the knob; `vanilla_corr` is the new vanilla (old "N0"). Legacy stop c
 | 14 | `b2_forward_kl_corr` | Path 2 (verl's kernel gets a collapsed-support twin) | does event-aligned FKL still collapse (banked p(eot) 1.6e-4) |
 | 15 | `e2_set_coverage_a0_corr` | Path 2 (p_S(eot) counts as coverage of the teacher's STOP) | (banked 0.005) |
 | 16 | `c3_intersection_corr` | Path 2 (STOP is one coordinate before the intersection) | intersection judged on its own (banked 0.56) |
-| 17 | `g2_fire_likelihood_corr` (4 GPU) | Path 1 in the filter statistic and the base; Path 2 in the entropy weights' support | |
+| 17 | `g2_fire_likelihood_corr` | Path 1 in the filter statistic and the base; Path 2 in the entropy weights' support | |
 | 18 | `g5_rgopd_gate_corr` | Path 1 in the gate's L_T/L_S sums and the base (audit: 0/30 flips) | |
-| 19 | `d2_selectkd_corr` (4 GPU) | Path 2 in the top-5 membership test; Path 1 in the base | does the metastable plateau survive once "student stops / teacher stops" counts as agreement |
-| 20 | `d3_teachability_corr` (4 GPU) | Path 2 in disagreement × compatibility; Path 1 in the base | |
+| 19 | `d2_selectkd_corr` | Path 2 in the top-5 membership test; Path 1 in the base | does the metastable plateau survive once "student stops / teacher stops" counts as agreement |
+| 20 | `d3_teachability_corr` | Path 2 in disagreement × compatibility; Path 1 in the base | |
 
 Backlog (`campaign.tsv` wave 18, launched only as lanes free up): `n2_termcal` (raw N2 on the
 legacy base), `f2_clip2.3_corr`, `f4_posclip_corr`, `f5_tanh_corr`, `h1_first_segment_corr`
-(banked h1 already ≈ corrected: 0.07% exposure), `d1_tip_corr` (4 GPU).
+(banked h1 already ≈ corrected: 0.07% exposure), `d1_tip_corr`.
 
 **43-arm triage** (KEEP = banked data stands under the legacy contract; RERUN = in
 wave 1; AUDIT = measured, action stated; DROP = not rerun):
@@ -289,7 +289,7 @@ wave 1; AUDIT = measured, action stated; DROP = not rerun):
 | RERUN (wave 1) | b1, b5, f1, f2, f3, f2_clip2.3, f4, f5, g1, g4, g6, h1, h2, h3, h4, g5, g2, + N2 | sampled-k1 descendants; their stop erased at 250 (b1 2.8e-5, h2 4e-6, g2 0.06, f3 0.37 partial) |
 | KEEP | c1, c1_direct, c1_tailbucket, c2, c2_qb_fixed8, c2_qb_perseq, c4, e1, e1_a0, e3, b4, b4_b0.1, b4_b0.9, h5 | renormalized/anchored top-k objectives: p(eot) at natural stops 0.86–1.0 at their latest ckpt, `<|im_end|>` never learned (1e-12–1e-18) — exempt by construction and by measurement |
 | AUDIT → corrected variant = arm + flag (Path 2) | e2_set_coverage, c3_intersection (ready), b2_forward_kl (needs a thin dispatch wrapper: verl's own kernel bypasses `_prepare_streaming`) | NOT clean: unrenormalized forward KL / set coverage / intersection push out-of-support student mass down — p(eot) at natural stops b2 1.6e-4 (@175), e2 0.005, c3 0.56. Contaminated through the SUPPORT, not the sampled column. `SIMOPD_TERM_EVENT=1` now collapses the terminator coordinate of the support onto the student's stop id for every kernel that goes through `_prepare_streaming` (`_collapse_terminator_support`), so e2/c3 corrected cells are one env block away; not in wave 1. Banked rows stand as legacy-contract results |
-| RERUN wave 2 (`d1_tip_corr` `d2_selectkd_corr` `d3_teachability_corr`, 4-GPU lanes) | d1_tip, d2_selectkd, d3_teachability | audit: d1's stop position was selected 100% and its mismatch divergence (~24 nats) was the batch max — min-max normalization compressed every other token's divergence, TIP degenerated toward entropy-only; d2 rejected the stop (.01) only while student top-1 = eot, protection lapsing as top-1 drifts (g5@125: 60%); d3 selected it 7% ≈ its 5% budget. The selectors are now event-aligned by construction: under the flag they run on the collapsed support (STOP = teacher termination mass on the student's stop id, rank-inserted) and their base reads the event-level sampled column; the selector rules themselves are untouched. Registered as wave 18; swap into wave 1 only at 4 cards each |
+| RERUN (`d2_selectkd_corr` `d3_teachability_corr` in wave 1; `d1_tip_corr` backlog; 2-GPU lanes) | d1_tip, d2_selectkd, d3_teachability | audit: d1's stop position was selected 100% and its mismatch divergence (~24 nats) was the batch max — min-max normalization compressed every other token's divergence, TIP degenerated toward entropy-only; d2 rejected the stop (.01) only while student top-1 = eot, protection lapsing as top-1 drifts (g5@125: 60%); d3 selected it 7% ≈ its 5% budget. The selectors are now event-aligned by construction: under the flag they run on the collapsed support (STOP = teacher termination mass on the student's stop id, rank-inserted) and their base reads the event-level sampled column; the selector rules themselves are untouched. d2/d3 in wave 17, d1 in the backlog |
 | AUDIT (done) | a2_coldstart | not a natural control: SFT init has neither terminator (~1e-3 each), the closing-template continuation instead; needs the SFT-target fix (A1') |
 | DROP | b3_eopd_gate, j1_kdrl, vanilla_n8, i0/i1 (shelved) | b3 scientifically dead + 1495 GPU·h; J/n8 dropped by the lane plan |
 | = N0 | vanilla | N0 is the corrected vanilla |

@@ -393,7 +393,7 @@
 16	any	g6_seqmean	0	w length-proportionality: the one G-axis coordinate never varied; judged against vanilla x3
 16	any	g6_seqmean	1
 16	any	g6_seqmean	2
-17	any	vanilla_corr	0	corrected-rerun wave 1 (user lane plan 2026-08-19, final): 13 confirmed + 7 support/selector-corrected; ONE seed (0), seed-paired against the banked arms; every cell = the banked arm + SIMOPD_TERM_EVENT=1 (Path 1 sampled signal, Path 2 support); legacy stop contract pinned off; 17 x 2-GPU + 3 x 4-GPU lanes = 46 cards as listed. #1 the new vanilla: STOP token ratio -> STOP event ratio (Path 1) + collapsed support (Path 2)
+17	any	vanilla_corr	0	corrected-rerun wave 1 (user lane plan 2026-08-19, final): 13 confirmed + 7 support/selector-corrected; ONE seed (0), seed-paired against the banked arms; every cell = the banked arm + SIMOPD_TERM_EVENT=1 (Path 1 sampled signal, Path 2 support); legacy stop contract pinned off; 20 x 2-GPU lanes = 40 cards (streaming kernels; the banked d/g2 4-GPU geometry was the pre-streaming OOM wall). #1 the new vanilla: STOP token ratio -> STOP event ratio (Path 1) + collapsed support (Path 2)
 17	any	n2_corr	0	#2 N2 on the corrected base
 17	any	b1_skew_kl_corr	0	#3 B1 corrected
 17	any	b5_k2_corr	0	#4 B5 corrected
@@ -409,13 +409,13 @@
 17	any	b2_forward_kl_corr	0	#14 B2 corrected: Path-2 victim (p(eot) 1.6e-4)
 17	any	e2_set_coverage_a0_corr	0	#15 E2@0 corrected: Path-2 victim (0.005)
 17	any	c3_intersection_corr	0	#16 C3 corrected: Path-2 (0.56)
-17	any	g2_fire_likelihood_corr	0	#17 G2 corrected: filter + base event-aware (4-GPU lane)
+17	any	g2_fire_likelihood_corr	0	#17 G2 corrected: filter + base event-aware
 17	any	g5_rgopd_gate_corr	0	#18 G5 corrected: gate likelihood sums event-correct
-17	any	d2_selectkd_corr	0	#19 D2 corrected: membership on the collapsed support (4-GPU lane)
-17	any	d3_teachability_corr	0	#20 D3 corrected: disagreement/compatibility on the collapsed support (4-GPU lane)
+17	any	d2_selectkd_corr	0	#19 D2 corrected: membership on the collapsed support
+17	any	d3_teachability_corr	0	#20 D3 corrected: disagreement/compatibility on the collapsed support
 18	any	n2_termcal	0	backlog after wave 1: launched only as lanes free up; more seeds for vanilla_corr / n2_corr and diverging arms are added here by decision. raw N2 on the legacy base (dense supply vs the punishing base) -- backlog
 18	any	f2_clip2.3_corr	0	matched-bound rung -- backlog
 18	any	f4_posclip_corr	0	positive-tail clip -- backlog
 18	any	f5_tanh_corr	0	tanh bound -- backlog
 18	any	h1_first_segment_corr	0	front window (audit: banked h1 already ~corrected, 0.07% exposure) -- backlog
-18	any	d1_tip_corr	0	TIP on the collapsed support (4-GPU) -- backlog
+18	any	d1_tip_corr	0	TIP on the collapsed support -- backlog
