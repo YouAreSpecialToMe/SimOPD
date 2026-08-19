@@ -261,6 +261,11 @@ if [ "${#_todo[@]}" -gt 0 ] || [ "$_need_carrier" = 1 ]; then
     _gpu_sweep 0,1,2,3,4,5,6,7
     _rehearse_one() {  # ARM PAIR DELAY
         [ "${3:-0}" -gt 0 ] && sleep "$3"
+        # Sweep THIS pair right before starting, not just at Phase R entry: an arm killed at
+        # the instant it was starting (2026-08-19 b5_k2_corr, killed 1 s after launch) is not
+        # yet a compute app, survives the entry sweep, and only shows up on the GPUs minutes
+        # later -- exactly when its replacement wants them.
+        _gpu_sweep "$2"
         _wait_gpu_free "$2"
         echo "rehearsal $1: starting on GPUs $2 ($(date))"
         : > "$D/n2/rehearsal_$1.log"    # the watchdog measures silence off this mtime; a log
