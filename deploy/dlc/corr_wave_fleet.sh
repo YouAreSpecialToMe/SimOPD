@@ -220,7 +220,10 @@ _has_ok vanilla_corr || _missing="$_missing vanilla_corr(carrier)"
 if [ -n "$_missing" ]; then
     while true; do
         _abort_check
-        echo "CARRIER REHEARSAL FAILED/MISSING:$_missing -- lanes NOT launched; inspect $LOGD/rehearse_vanilla_corr_s${SEED}.log; fix, then touch the .OK or the abort marker to restart ($(date))"
+        # honor a carrier marker that appears later (slot 0's pod passing, or an operator
+        # touch) without a restart cycle -- the message always promised this; now it is true
+        if _has_ok vanilla_corr; then echo "== carrier marker appeared ($(date)); continuing to Phase L"; break; fi
+        echo "CARRIER REHEARSAL FAILED/MISSING:$_missing -- lanes NOT launched; inspect $LOGD/rehearse_vanilla_corr_s${SEED}.log; fix, then touch the .OK (picked up within 10 min) or the abort marker to restart ($(date))"
         sleep 600
     done
 fi
