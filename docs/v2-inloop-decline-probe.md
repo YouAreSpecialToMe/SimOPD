@@ -110,3 +110,30 @@ non-spelling share (placement disagreement + drift) of the collapse.
 - a5's composite telemetry (AggreVaTe mixing) has the same blind-spot risk as a3; not yet probed.
 - The a2-v2 bootstrap (SFT-primed p(im_end)~1e-3 + dual-stop sampler) is the live positive-direction
   test: fr_stop should grow if the teacher's reward for well-placed im_end is real. In flight.
+
+## 6. Teacher intent at the student's answer positions (post-answer probe, 2026-08-20)
+
+At every k-th "answer line" inside 36 truncated (looping) late-checkpoint responses, the teacher's
+next-token distribution (170 positions; `scripts/analysis/post_answer_probe.py`, receipt
+`docs/data/post_answer_probe.csv`):
+
+| arm | after 1st answer | 2nd | 3rd | 10th |
+|---|---|---|---|---|
+| a1@125 q(im_end) med | 0.107 | 0.824 | 0.970 | 0.896 |
+| a3@250 q(im_end) med | 0.011 | 0.109 | 0.939 | 0.369 |
+| h6@175 q(im_end) med | 0.005 | 0.060 | 0.136 | 0.158 |
+| q(eot) med, all arms | ~1e-12 | ~1e-12 | ~1e-12 | ~1e-13 |
+
+Three readings. (1) At the FIRST answer the teacher usually wants a few more tokens (units, a
+closing `$$`, a newline) — greedy takeover emits `<|im_end|>` within ~24 tokens in 8/9 cases —
+so the first-answer position carries genuine, mild placement disagreement (log q_stop ~ -2.3).
+(2) From the second repetition on, the teacher wants to stop NOW (q(im_end) 0.82-0.97 for a1;
+top1 = im_end in 67-83%). (3) That desire lives entirely on `<|im_end|>`; q(eot) stays ~1e-12 at
+every loop depth, so under the token-level k1 read the student's own stop is punished ~-25 nats
+even while the teacher is begging it to stop — the scream is in a spelling the loss never checks.
+h6 caveat: in degenerate wander-loops the teacher itself is lost (q_stop 0.14-0.16, top-1 often
+mojibake) — stop-desire is only legible in clean final-answer loops, which is fine for the N0 fix
+(it prevents entering the ratchet; it does not need to rescue already-degenerate states).
+Corollary for `vanilla_corr`: the event-level read converts terminal positions into honest,
+bounded placement supervision — log q_T(E_T) is ~-2.3 at "not quite yet" and ~-0.1 at "stop now",
+instead of a flat -25 spelling artifact.
