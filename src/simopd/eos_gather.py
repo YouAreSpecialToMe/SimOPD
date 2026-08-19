@@ -239,6 +239,32 @@ def _wrap(original, LogprobsTensors):
     return gather_logprobs
 
 
+def _diag(msg):
+    print(f"[simopd] eos_gather pid={os.getpid()}: {msg}", file=sys.stderr, flush=True)
+
+
+def ensure_installed(where="unknown"):
+    """Second install path (2026-08-19): import the sampler module if it is not loaded
+    yet, then patch. Called from the sitecustomize hook that provably fires inside
+    vLLM's worker processes (the verl worker-extension import), because the first
+    rehearsal of the corrected wave showed the sampler hook alone never armed the
+    teacher's workers (rows came back without the gathered ids). Idempotent."""
+    if not _ENABLED:
+        _diag(f"ensure_installed({where}): SIMOPD_GATHER_EOS not set in this process -- nothing to do")
+        return
+    import importlib
+    try:
+        importlib.import_module(_MOD)
+    except Exception as e:  # pragma: no cover
+        _diag(f"ensure_installed({where}): cannot import {_MOD}: {e!r}")
+        raise
+    install()
+    mod = sys.modules.get(_MOD)
+    fn = mod.Sampler.__dict__.get("gather_logprobs")
+    orig = fn.__func__ if isinstance(fn, staticmethod) else fn
+    _diag(f"ensure_installed({where}): sampler patched={getattr(orig, '_simopd_eos_gather', False)}")
+
+
 def install():
     """Rebind Sampler.gather_logprobs (a staticmethod) in the module that owns it.
 
@@ -248,6 +274,7 @@ def install():
     that imports the sampler (engine core / workers), via the sitecustomize hook.
     """
     if not _ENABLED:
+        _diag("install(): SIMOPD_GATHER_EOS not set in this process")
         return
     stop_ids()  # raise early on a bad env, in the process that would misbehave
     mod = sys.modules.get(_MOD)
@@ -261,6 +288,18 @@ def install():
         return
     from vllm.v1.outputs import LogprobsTensors
 
-    cls.gather_logprobs = staticmethod(_wrap(orig, LogprobsTensors))
-    print(f"[simopd] eos_gather armed: teacher rows carry exact logprobs for ids {extra_ids()} "
+    wrapped = _wrap(orig, LogprobsTensors)
+    wrapped._simopd_eos_gather = True
+    cls.gather_logprobs = staticmethod(wrapped)
+    print(f"[simopd] eos_gather armed pid={os.getpid()}: teacher rows carry exact logprobs for ids {extra_ids()} "
           f"(loss set {stop_ids()}, diag {diag_ids()})", file=sys.stderr, flush=True)
+    # filesystem receipt, immune to stdio capture: which processes actually armed
+    try:
+        _d = os.path.join(os.environ.get("SIMOPD_EVAL_ROOT", "/nonexistent"), "..", "n2", "armed")
+        _d = os.path.abspath(_d)
+        if os.path.isdir(os.path.dirname(_d)):
+            os.makedirs(_d, exist_ok=True)
+            with open(os.path.join(_d, f"pid{os.getpid()}.txt"), "w") as f:
+                f.write(f"{os.uname().nodename} {os.getpid()} {sys.argv[:2]}\n")
+    except Exception:
+        pass

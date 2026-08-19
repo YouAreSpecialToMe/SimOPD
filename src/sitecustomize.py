@@ -191,6 +191,8 @@ def _after_vllm_server():
 def _after_vllm_sampler():
     from simopd import eos_gather
 
+    print(f"[simopd] sitecustomize pid={os.getpid()}: vllm.v1.sample.sampler imported, "
+          f"eos_gather enabled={eos_gather.enabled()}", file=sys.stderr, flush=True)
     eos_gather.install()
 
 
@@ -204,6 +206,12 @@ def _after_vllm_rollout_utils():
     from simopd import zmq_lane
 
     zmq_lane.install_receiver_logging()
+    # This hook provably fires inside vLLM's WORKER processes (the verl worker-extension
+    # module is imported there); use it as the second, belt-and-braces install path for
+    # the exact-terminator gather (N0/N2 carrier). Gated inside; prints its own receipt.
+    from simopd import eos_gather
+
+    eos_gather.ensure_installed(where="worker-extension import")
 
 
 def _after_teacher_model():
