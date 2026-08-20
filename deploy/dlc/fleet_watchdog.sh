@@ -113,9 +113,31 @@ _sweep() {
     done
 }
 
+# 无家可归的臂:有检查点、没跑满 250、却不在任何槽的 lane 表里。
+# 这是上面那套按槽扫描structurally 看不见的一类 —— 一个槽用 .next 换了新住户之后,
+# 被顶掉的旧臂就从所有 lane 表里消失了,既不算"死"也不算"活",没有任何东西会再提它。
+# 2026-08-21:f3_power@139 和 g1_verified_only@143 就这样在换图后无声停摆,
+# 是人翻日志翻出来的。这里只报,不动手 —— 给它们找卡是要挤掉别人的,那是人的决定。
+_homeless() {
+    local mapped arm ck d n=0
+    mapped=" $(for k in 0 1 2 3 4 5 6; do _slot_arms "$k"; done | tr '\n' ' ') "
+    for d in "$D"/ckpt/simopd/*_corr_s${SEED}_16k "$D"/ckpt/simopd/*_n0_s${SEED}_16k; do
+        [ -d "$d" ] || continue
+        arm=$(basename "$d"); arm=${arm%_s${SEED}_16k}
+        case "$mapped" in *" $arm "*) continue ;; esac
+        ck=$(ls -d "$d/global_step_"* 2>/dev/null | sed 's/.*global_step_//' | sort -n | tail -1)
+        [ -n "$ck" ] || continue
+        [ "$ck" -ge "${FLEET_TOTAL_STEPS:-250}" ] 2>/dev/null && continue
+        _say "无家可归: $arm 停在 ${ck} 步,不在任何槽的 lane 表里(换图时被顶掉,没有任何东西会救它)"
+        n=$((n+1))
+    done
+    [ "$n" = 0 ] && _say "无家可归的臂:无"
+}
+
 _say "看门狗启动:STALE_MIN=$STALE_MIN COOLDOWN_H=$COOLDOWN_H PERIOD=${PERIOD}s DRY=$DRY"
 while true; do
     _sweep
+    _homeless
     [ "$ONCE" = 1 ] && break
     sleep "$PERIOD"
 done
