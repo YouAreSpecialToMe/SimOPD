@@ -2678,13 +2678,13 @@ arms:
 #     Split for attribution; all pair banked c4_pi_tail_budget (legacy contract pinned off).
   - run_id: c4_rep
     status: stock
-    desc: "[wave20] c4 + rep-freeze only: support -> top-1 inside repeated-n-gram runs >= 64 (terminal-loop signature); no carrier needed"
+    desc: "[wave20] c4 + rep-freeze only: support -> top-1 inside repeated-n-gram runs >= 24 (calibrated 2026-08-20); no carrier needed"
     env:
       DISTILLATION_LOSS_MODE: "pi_tail_budget"
       DISTILLATION_TOPK: "32"
       SIMOPD_C4_REP: "1"
       SIMOPD_STOP_IDS: "off"
-    note: "ENLISTED 2026-08-20. Prediction: deep-state A_S erosion capped at the global-sharpening floor (>= -2.4); greedy-32k truncation tail 32k -> base-like 8-15k self-stops; correct length/acc unchanged."
+    note: "ENLISTED 2026-08-20. MINRUN=24 from the 9-cell calibration (docs/data/rep_run_calibration.txt): tau=1 loop runs are fragmented (median 3-7) because sampling noise breaks the 8-gram; 64 scored 0.00 recall on c4@150. Healthy-text false-positive cost at 24 is ~1-4%. Prediction: deep-state A_S erosion capped at the global-sharpening floor (>= -2.4); greedy-32k truncation tail 32k -> base-like 8-15k self-stops; correct length/acc unchanged. NOTE the same calibration measured tau=1 truncation at 0.00 for steps 100-250 -- the 20% tail is a greedy-decoding artefact, so this arm is judged on deep-state A_S and greedy-32k length, not on in-loop clip."
   - run_id: c4_hq
     status: stock
     desc: "[wave20] c4 + agreed-freeze (h high AND q_T(E_T) high -> top-1) + continuation-conditional coverage target; needs the exact-terminator carrier"

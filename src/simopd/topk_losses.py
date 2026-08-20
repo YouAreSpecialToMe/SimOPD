@@ -1236,6 +1236,17 @@ PI_TAIL_EPS = float(os.environ.get("SIMOPD_PI_TAIL_EPS", "0.05"))
 #                    (the terminal-loop signature; incidental math repeats stay supervised)
 #                    -> support = top-1. Shrinks BEFORE the student peaks, and stops the
 #                    teacher's in-context 'continue the loop' supervision (q_rep ~ 1e-9).
+#                    MINRUN=24 is calibrated, not guessed (docs/data/rep_run_calibration.txt,
+#                    2026-08-20): loop run lengths are BIMODAL -- multi-thousand-token blocks
+#                    under greedy/late collapse, but median 3-7 fragments at the training
+#                    temperature, where sampling noise punches an 8-token hole through every
+#                    repeat. The first draft's 64 scored 0.00 loop recall on c4@150 and 0.44
+#                    on c4@50 for that reason. Healthy math text repeats 8-grams at 11-19% of
+#                    positions but almost never in runs, so short thresholds stay cheap:
+#                    across the 9 measured cells minrun=16 costs 2.4-9.1% false-positive
+#                    supervision loss, minrun=32 costs 0.8-5.2%; 24 is the middle rung that
+#                    covers the fragment mode. Trailing-density rules (W=128, rho .5-.7) were
+#                    measured too and are dominated: same recall, higher FP, two more knobs.
 # h is DETACHED (it is the trained quantity; an attached gate opens a raise-h-to-escape
 # loop). Panels: c4_freeze_frac / c4_hq_freeze / c4_rep_freeze.
 C4_HQ = os.environ.get("SIMOPD_C4_HQ", "0") == "1"
@@ -1244,7 +1255,7 @@ C4_TAU_H = float(os.environ.get("SIMOPD_C4_TAU_H", "0.05"))
 C4_TAU_Q = float(os.environ.get("SIMOPD_C4_TAU_Q", "0.05"))
 C4_H_CAP = float(os.environ.get("SIMOPD_C4_H_CAP", "0.98"))
 REP_GATE_N = int(os.environ.get("SIMOPD_REP_GATE_N", "8"))
-REP_GATE_MINRUN = int(os.environ.get("SIMOPD_REP_GATE_MINRUN", "64"))
+REP_GATE_MINRUN = int(os.environ.get("SIMOPD_REP_GATE_MINRUN", "24"))
 
 
 def _rep_runs_packed(data, teacher_topk_log_probs, total, n, minrun):

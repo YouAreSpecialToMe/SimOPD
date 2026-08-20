@@ -29,7 +29,7 @@ os.environ.setdefault("SIMOPD_EOS_IDS", "7")
 os.environ.setdefault("SIMOPD_MODEL_EOS_ID", "7")
 os.environ.setdefault("SIMOPD_EOS_TEACHER_IDS", "7,9")
 os.environ.setdefault("SIMOPD_REP_GATE_N", "4")
-os.environ.setdefault("SIMOPD_REP_GATE_MINRUN", "6")
+os.environ.setdefault("SIMOPD_REP_GATE_MINRUN", "6")   # toy scale; the shipped default is asserted below
 os.environ["SIMOPD_SHADOW"] = "0"
 
 import torch  # noqa: E402
@@ -198,6 +198,38 @@ try:
     run(stu_base.clone(), False, True, None); ok(False, "rep gate with data=None must refuse")
 except RuntimeError as e:
     ok("data=None" in str(e), "rep gate refuses loudly without the batch dict")
+
+# the SHIPPED default, and that it separates the two measured loop-run modes. Calibration
+# (docs/data/rep_run_calibration.txt, 9 cells): tau=1 loop runs are fragmented -- median 3-7,
+# p90 23-45 -- because sampling noise breaks the 8-gram every few tokens, while greedy/late
+# collapse gives multi-thousand-token blocks. 64 missed the fragment mode entirely (0.00
+# recall on c4@150); 24 covers runs at the p90 scale at ~1-4% healthy-text cost.
+import importlib
+_saved = {k: os.environ.pop(k, None) for k in ("SIMOPD_REP_GATE_MINRUN", "SIMOPD_REP_GATE_N")}
+_fresh = importlib.reload(T)
+ok(_fresh.REP_GATE_MINRUN == 24, f"shipped SIMOPD_REP_GATE_MINRUN default is 24 (got {_fresh.REP_GATE_MINRUN})")
+ok(_fresh.REP_GATE_N == 8, f"shipped SIMOPD_REP_GATE_N default is 8 (got {_fresh.REP_GATE_N})")
+for _k, _v in _saved.items():
+    if _v is not None:
+        os.environ[_k] = _v
+importlib.reload(T)
+
+# fragment-scale run (28 identical tokens -> rep run 21 >= 24? no: check both sides of 24)
+def _rep_len(run_tokens, minrun):
+    """freeze count for a synthetic run of `run_tokens` identical tokens at MINRUN=minrun"""
+    r = torch.randint(12, 30, (1, 64))
+    r[0, 10:10 + run_tokens] = 77
+    d = {"response_mask": torch.ones(1, 64, dtype=torch.bool), "responses": r}
+    m = T._rep_runs_packed(d, torch.nested.nested_tensor([torch.zeros(64, K)], layout=torch.jagged), 64,
+                           T.REP_GATE_N, minrun)
+    return int(m.sum())
+
+os.environ["SIMOPD_REP_GATE_MINRUN"] = "24"
+importlib.reload(T)
+ok(_rep_len(40, 24) > 0, "MINRUN=24: a 40-token repeat (rep run 33) is gated")
+ok(_rep_len(24, 24) == 0, "MINRUN=24: a 24-token repeat (rep run 17, the fragment scale) is NOT gated -- the threshold is on the RUN, not the repeat")
+os.environ["SIMOPD_REP_GATE_MINRUN"] = "6"
+importlib.reload(T)
 
 # --------------------------------------------------------------- F. detach ---
 print("== F. carrier-off refusal for hq")

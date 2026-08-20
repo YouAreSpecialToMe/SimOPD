@@ -1,0 +1,91 @@
+=== greedy 32k @250 (deterministic loops): loops n=24 healthy n=30
+  loop-run lengths: n=914 med=4 p90=5 p99=7932 max=7984 | rep frac (loops)=0.96 (healthy)=0.19
+  rule             loop recall  healthy FP
+  minrun=16               0.96      0.0906
+  minrun=32               0.96      0.0524
+  minrun=64               0.96      0.0233
+  minrun=128              0.95      0.0079
+  dens W128 r0.5          0.95      0.1013
+  dens W128 r0.6          0.95      0.0664
+  dens W128 r0.7          0.95      0.0366
+=== tau=1.0 c2_quantile_budget@50 (trunc=0.10): loops n=24 healthy n=30
+  loop-run lengths: n=1822 med=7 p90=45 p99=2223 max=7984 | rep frac (loops)=0.86 (healthy)=0.11
+  rule             loop recall  healthy FP
+  minrun=16               0.94      0.0307
+  minrun=32               0.89      0.0082
+  minrun=64               0.84      0.0014
+  minrun=128              0.79      0.0009
+  dens W128 r0.5          0.93      0.0095
+  dens W128 r0.6          0.90      0.0036
+  dens W128 r0.7          0.86      0.0024
+=== tau=1.0 c2_quantile_budget@100 (trunc=0.00): loops n=2 healthy n=30
+  loop-run lengths: n=2 med=7974 p90=7977 p99=7978 max=7978 | rep frac (loops)=1.00 (healthy)=0.15
+  rule             loop recall  healthy FP
+  minrun=16               1.00      0.0504
+  minrun=32               1.00      0.0184
+  minrun=64               1.00      0.0055
+  minrun=128              1.00      0.0011
+  dens W128 r0.5          1.00      0.0332
+  dens W128 r0.6          1.00      0.0129
+  dens W128 r0.7          0.99      0.0063
+=== tau=1.0 c2_quantile_budget@150 (trunc=0.00): loops n=1 healthy n=30
+  loop-run lengths: n=7 med=16 p90=3061 p99=7163 max=7619 | rep frac (loops)=0.96 (healthy)=0.19
+  rule             loop recall  healthy FP
+  minrun=16               1.00      0.0667
+  minrun=32               0.99      0.0234
+  minrun=64               0.99      0.0052
+  minrun=128              0.99      0.0000
+  dens W128 r0.5          0.99      0.0604
+  dens W128 r0.6          0.99      0.0297
+  dens W128 r0.7          0.99      0.0108
+=== tau=1.0 c2_quantile_budget@250 (trunc=0.00): loops n=2 healthy n=30
+  loop-run lengths: n=21 med=5 p90=23 p99=6398 max=7989 | rep frac (loops)=0.51 (healthy)=0.17
+  rule             loop recall  healthy FP
+  minrun=16               0.71      0.0609
+  minrun=32               0.62      0.0229
+  minrun=64               0.50      0.0067
+  minrun=128              0.50      0.0006
+  dens W128 r0.5          0.58      0.0434
+  dens W128 r0.6          0.51      0.0194
+  dens W128 r0.7          0.50      0.0087
+=== tau=1.0 c4_pi_tail_budget@50 (trunc=0.07): loops n=24 healthy n=30
+  loop-run lengths: n=4996 med=5 p90=26 p99=128 max=7981 | rep frac (loops)=0.57 (healthy)=0.11
+  rule             loop recall  healthy FP
+  minrun=16               0.71      0.0239
+  minrun=32               0.57      0.0035
+  minrun=64               0.44      0.0000
+  minrun=128              0.37      0.0000
+  dens W128 r0.5          0.62      0.0108
+  dens W128 r0.6          0.54      0.0036
+  dens W128 r0.7          0.47      0.0008
+=== tau=1.0 c4_pi_tail_budget@100 (trunc=0.00): loops n=2 healthy n=30
+  loop-run lengths: n=9 med=764 p90=1651 p99=2340 max=2416 | rep frac (loops)=0.50 (healthy)=0.17
+  rule             loop recall  healthy FP
+  minrun=16               0.50      0.0619
+  minrun=32               0.50      0.0282
+  minrun=64               0.50      0.0081
+  minrun=128              0.50      0.0024
+  dens W128 r0.5          0.50      0.0536
+  dens W128 r0.6          0.50      0.0228
+  dens W128 r0.7          0.50      0.0099
+=== tau=1.0 c4_pi_tail_budget@150 (trunc=0.00): loops n=1 healthy n=30
+  loop-run lengths: n=358 med=3 p90=32 p99=47 max=48 | rep frac (loops)=0.40 (healthy)=0.16
+  rule             loop recall  healthy FP
+  minrun=16               0.63      0.0608
+  minrun=32               0.48      0.0238
+  minrun=64               0.00      0.0100
+  minrun=128              0.00      0.0024
+  dens W128 r0.5          0.69      0.0464
+  dens W128 r0.6          0.57      0.0250
+  dens W128 r0.7          0.42      0.0143
+=== tau=1.0 c4_pi_tail_budget@250 (trunc=0.00): loops n=0 healthy n=30
+  rule             loop recall  healthy FP
+  minrun=16                nan      0.0471
+  minrun=32                nan      0.0110
+  minrun=64                nan      0.0021
+  minrun=128               nan      0.0000
+  dens W128 r0.5           nan      0.0325
+  dens W128 r0.6           nan      0.0130
+  dens W128 r0.7           nan      0.0040
+DONE
+DONE
