@@ -300,6 +300,39 @@ _warm_ray() {
 # the pod).
 _kill_all_ray() { pkill -f "site-packages/ray/" 2>/dev/null; sleep 2; pkill -KILL -f "site-packages/ray/" 2>/dev/null; }
 
+# 跑满的 lane 把卡交给 eval,而不是让它空到整槽结束。
+# 一条 lane 到 250 步后,它那对 H100 会一直闲着等同槽最慢的一条 —— 一夜就是几十
+# GPU-小时,而 evalq_exp 里同时压着几百个待评检查点(eval_worker_exp.sh 的抬头写过
+# 同一个病:训练收尾时 192 张卡里 94 张闲着,后面堵着 647 个检查点)。这里在 lane
+# 退出的那一刻就把它的卡接过去,每张卡一个单卡 worker。队列用共享 claim 目录
+# (mkdir 原子),多开一个 worker 只会多认领,不会重复评同一项。
+# 只在真的跑满时交卡:没跑满就退出的 lane 属于崩溃,那对卡要留给它自己的重试。
+_eval_handoff() {   # ARM GPUS
+    local arm=$1 gpus=$2 ck q g
+    [ "${FLEET_EVAL_HANDOFF:-1}" = 1 ] || return 0
+    ck=$(ls -d "$D/ckpt/simopd/${arm}_s${SEED}_16k/global_step_"* 2>/dev/null |
+         sed 's/.*global_step_//' | sort -n | tail -1)
+    if ! [ "${ck:-0}" -ge "${FLEET_TOTAL_STEPS:-250}" ] 2>/dev/null; then
+        echo "lane ${arm}: 退出时只到 ${ck:-0} 步,不交卡(留给重试/重启)"
+        return 0
+    fi
+    q=${EVAL_QUEUE:-$D/evalq_exp}
+    if [ ! -s "$q/pending.txt" ]; then
+        echo "lane ${arm}: 跑满 ${ck} 步,但 eval 队列空,卡先闲着"
+        return 0
+    fi
+    if [ ! -x "$D/eval_worker_exp.sh" ] && [ ! -f "$D/eval_worker_exp.sh" ]; then
+        echo "lane ${arm}: 跑满 ${ck} 步,但找不到 $D/eval_worker_exp.sh,卡先闲着"
+        return 0
+    fi
+    _gpu_sweep "$gpus"
+    for g in ${gpus//,/ }; do
+        ( cd "$ROOT" && nohup bash "$D/eval_worker_exp.sh" "$g" "$q" \
+            > "$LOGD/evalw_slot${SLOT}_gpu${g}.log" 2>&1 & )
+        echo "lane ${arm}: 跑满 ${ck} 步 -> GPU ${g} 交给 eval worker(队列 $q,日志 $LOGD/evalw_slot${SLOT}_gpu${g}.log)"
+    done
+}
+
 _has_ok() { [ -f "$LOGD/rehearsal_$1.OK" ] || [ -f "$D/n2/rehearsal_$1.OK" ]; }
 declare -a _todo=()
 if ! _has_ok corr_wave; then
@@ -483,6 +516,14 @@ _LSTAG=${LANE_STAGGER:-$(cat "$LOGD/LANE_STAGGER" 2>/dev/null || echo 150)}
 _lpids=(); _larms=(); _lgpus=(); _lstart=(); _lretry=(); _ldelay=0; _now0=$(date +%s)
 for spec in $LANES; do
     ARM=${spec%%:*}; GPUS=${spec##*:}
+    # 重启时,已经跑满的臂不再起 lane —— 直接把那对卡给 eval(slot6 的 h7 就是这种)
+    _ck=$(ls -d "$D/ckpt/simopd/${ARM}_s${SEED}_16k/global_step_"* 2>/dev/null |
+          sed 's/.*global_step_//' | sort -n | tail -1)
+    if [ "${_ck:-0}" -ge "${FLEET_TOTAL_STEPS:-250}" ] 2>/dev/null; then
+        echo "lane ${ARM}: 已跑满 ${_ck} 步,跳过训练"
+        _eval_handoff "$ARM" "$GPUS"
+        continue
+    fi
     ( [ "$_ldelay" -gt 0 ] && sleep "$_ldelay"; _gpu_sweep "$GPUS"; _wait_gpu_free "$GPUS"
       _launch_lane "$ARM" "$GPUS" ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 & _lpids+=($!)
     _larms+=("$ARM"); _lgpus+=("$GPUS"); _lstart+=($(( _now0 + _ldelay ))); _lretry+=(0)
@@ -525,7 +566,10 @@ while [ "${#_lpids[@]}" -gt 0 ]; do
     _alive=(); _alive_arms=(); _alive_gpus=(); _alive_start=(); _alive_retry=(); _idx=0; _now=$(date +%s)
     for p in "${_lpids[@]}"; do
         _arm=${_larms[$_idx]}; _gp=${_lgpus[$_idx]}; _t0=${_lstart[$_idx]}; _rt=${_lretry[$_idx]}; _idx=$((_idx+1))
-        kill -0 "$p" 2>/dev/null || continue
+        if ! kill -0 "$p" 2>/dev/null; then
+            _eval_handoff "$_arm" "$_gp"     # 跑满的就地转 eval;没跑满的原样丢弃
+            continue
+        fi
         _llog=$LOGD/lane_${_arm}_s${SEED}.log
         _ref=$_t0
         if [ -f "$_llog" ]; then
