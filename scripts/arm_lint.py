@@ -74,6 +74,15 @@ def _term_family_problems(run_id, env):
 
 
 EXPECT_PG = {
+    "a1_gkd_mix0.5_n0": True,
+    "a3_offpolicy_n0": True,
+    "a4_dagger_anneal_n0": True,
+    "a5_aggrevate_n0": True,
+    "h6_gen_sched_n0": True,
+    "h7_gen512_n0": True,
+    "h8_gen2048_n0": True,
+    "h9_prune_adapt_n0": True,
+    "h10_task_subset_n0": True,
     "vanilla": True, "a1_gkd_mix0.5": True, "a3_offpolicy": True, "a2_coldstart": True,
     "a4_dagger_anneal": True, "a5_aggrevate": True,
     "b1_skew_kl": True, "b2_forward_kl": False, "b3_eopd_gate": True,

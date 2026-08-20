@@ -419,3 +419,12 @@
 18	any	f5_tanh_corr	0	tanh bound -- backlog
 18	any	h1_first_segment_corr	0	front window (audit: banked h1 already ~corrected, 0.07% exposure) -- backlog
 18	any	d1_tip_corr	0	TIP on the collapsed support -- backlog
+19	any	a1_gkd_mix0.5_n0	0	#w19-1 a1_gkd_mix0.5 + N0 under the v2 dual-stop contract; pairs a1_gkd_mix0.5_s0_16k (stop2)
+19	any	a3_offpolicy_n0	0	#w19-2 a3_offpolicy + N0 under the v2 dual-stop contract; pairs a3_offpolicy_s0_16k (stop2)
+19	any	a4_dagger_anneal_n0	0	#w19-3 a4_dagger_anneal + N0 under the v2 dual-stop contract; pairs a4_dagger_anneal_s0_16k (stop2)
+19	any	a5_aggrevate_n0	0	#w19-4 a5_aggrevate + N0 under the v2 dual-stop contract; pairs a5_aggrevate_s0_16k (stop2)
+19	any	h6_gen_sched_n0	0	#w19-5 h6_gen_sched + N0 under the v2 dual-stop contract; pairs h6_gen_sched_s0_16k (stop2)
+19	any	h7_gen512_n0	0	#w19-6 h7_gen512 + N0 under the v2 dual-stop contract; pairs h7_gen512_s0_16k (stop2)
+19	any	h8_gen2048_n0	0	#w19-7 h8_gen2048 + N0 under the v2 dual-stop contract; pairs h8_gen2048_s0_16k (stop2)
+19	any	h9_prune_adapt_n0	0	#w19-8 h9_prune_adapt + N0 under the v2 dual-stop contract; pairs h9_prune_adapt_s0_16k (stop2)
+19	any	h10_task_subset_n0	0	#w19-9 h10_task_subset + N0 under the v2 dual-stop contract; pairs h10_task_subset_s0_16k (stop2)

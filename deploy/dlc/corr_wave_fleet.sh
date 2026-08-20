@@ -74,7 +74,16 @@ _lanes_for() {
         *) echo "" ;;
     esac
 }
-LANES=$(_lanes_for "$SLOT")
+# WAVE QUEUE: an override file replaces the built-in slot map. Written by the operator
+# (hop pod) as $LOGD/slot<k>_s<seed>_lanes; the DONE idle loop below promotes a staged
+# .next file into it and re-execs, so successive waves chain with NO dlc action at all.
+_OVR="$LOGD/slot${SLOT}_s${SEED}_lanes"
+if [ -f "$_OVR" ]; then
+    LANES=$(cat "$_OVR")
+    echo "== lane map OVERRIDE from $_OVR: $LANES"
+else
+    LANES=$(_lanes_for "$SLOT")
+fi
 if [ -z "$LANES" ]; then
     if [ "${_slot_from_rank:-0}" = 1 ]; then
         while true; do echo "rank ${_rank} -> SLOT ${SLOT}: no lanes in the slot table (0-5); idling ($(date))"; sleep 600; done
@@ -553,3 +562,28 @@ if [ "$ok" -eq 0 ]; then
     done
 fi
 echo "CORR_WAVE_FLEET_SLOT${SLOT}_DONE"
+# Do NOT exit: a finished rank-0 script completes the whole pytorchjob and takes every
+# other slot's worker down with it (and a completed job cannot be reloaded -- the exact
+# trap the a/h fleets fell into on 2026-08-20). Hold the worker, poll the markers, and
+# promote a staged next-wave lane map if one appears.
+while true; do
+    _abort_check
+    if [ -f "$LOGD/fleet_relaunch_slot${SLOT}_s${SEED}" ]; then
+        rm -f "$LOGD/fleet_relaunch_slot${SLOT}_s${SEED}"
+        echo "== post-DONE relaunch requested ($(date)); re-exec"
+        [ -n "${_hb_pid:-}" ] && kill "$_hb_pid" 2>/dev/null
+        [ -n "${LOCK:-}" ] && rm -rf "$LOCK"
+        [ "${_slot_from_rank:-0}" = 1 ] && export SLOT=auto
+        exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
+    fi
+    if [ -f "$LOGD/slot${SLOT}_s${SEED}_lanes.next" ]; then
+        mv "$LOGD/slot${SLOT}_s${SEED}_lanes.next" "$LOGD/slot${SLOT}_s${SEED}_lanes"
+        echo "== next wave staged -> promoted: $(cat "$LOGD/slot${SLOT}_s${SEED}_lanes") ($(date)); re-exec"
+        [ -n "${_hb_pid:-}" ] && kill "$_hb_pid" 2>/dev/null
+        [ -n "${LOCK:-}" ] && rm -rf "$LOCK"
+        [ "${_slot_from_rank:-0}" = 1 ] && export SLOT=auto
+        exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
+    fi
+    echo "slot ${SLOT}: wave complete, holding for next wave / markers ($(date))"
+    sleep 120
+done

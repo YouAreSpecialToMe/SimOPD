@@ -2522,3 +2522,152 @@ arms:
       SIMOPD_STOP_IDS: "off"
       SIMOPD_EOS_AUX_COEF: "1.0"
       SIMOPD_SHADOW: "0"
+
+# --- wave 19: N0 x A/H (2026-08-20). Same cells as the collaborator's v2 restart wave
+#     (dual-stop contract stop2), with ONE knob added: vanilla's k1 replaced by k1_termfix
+#     (N0, event-level terminator reading; E_S = the v2 rollout stop set {eot, im_end},
+#     enforced by the eos_gather contract guard). Pairs each v2 run 1:1; a2_coldstart is
+#     EXCLUDED until its SFT rebuild (R5 appendix note 2). a5 note: the aggrevate teacher
+#     pool serves through the same vLLM prompt-logprobs seam, so the carrier applies;
+#     first N0 exposure -- rehearsal is the gate.
+
+  - run_id: a1_gkd_mix0.5_n0
+    status: stock
+    desc: "[wave19] a1_gkd_mix0.5 under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      SIMOPD_GKD_CACHE: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet"
+      SIMOPD_GKD_LAMBDA: "0.5"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: a3_offpolicy_n0
+    status: stock
+    desc: "[wave19] a3_offpolicy under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      SIMOPD_GKD_CACHE: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet"
+      SIMOPD_GKD_LAMBDA: "1.0"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: a4_dagger_anneal_n0
+    status: stock
+    desc: "[wave19] a4_dagger_anneal under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      SIMOPD_GKD_CACHE: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet"
+      SIMOPD_GKD_SCHEDULE: "mode=linear,start=1.0,end=0.0,warmup=0,decay=250"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: a5_aggrevate_n0
+    status: stock
+    desc: "[wave19] a5_aggrevate under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      SIMOPD_A5_TMAX_SCHEDULE: "mode=linear,start=0,end=16384,warmup=0,decay=250"
+      SIMOPD_A5_KEYS: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: h6_gen_sched_n0
+    status: stock
+    desc: "[wave19] h6_gen_sched under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      SIMOPD_H_SCHEDULE: "mode=linear,start=128,end=16384,warmup=0,decay=250"
+      SIMOPD_H_KEYS: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: h7_gen512_n0
+    status: stock
+    desc: "[wave19] h7_gen512 under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      MAX_RESPONSE_LENGTH: "512"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: h8_gen2048_n0
+    status: stock
+    desc: "[wave19] h8_gen2048 under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      MAX_RESPONSE_LENGTH: "2048"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: h9_prune_adapt_n0
+    status: stock
+    desc: "[wave19] h9_prune_adapt under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      SIMOPD_H9_ADAPT: "1"
+      SIMOPD_H_KEYS: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+  - run_id: h10_task_subset_n0
+    status: stock
+    desc: "[wave19] h10_task_subset under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
+    env:
+      TRAIN_FILE_BASENAME: "train_sub50.parquet"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
