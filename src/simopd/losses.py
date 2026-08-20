@@ -850,7 +850,8 @@ for _name, _extras in [
     # C axis supplements (2026-08-07): c3 thunlp intersection (their reduced direct
     # form), c4 [OURS] pi-tail budget -- the headline theorem's quantity as a knob.
     ("intersection_topk", ("c3_inter_size",)),
-    ("pi_tail_budget", ("c4_budget", "c4_pi_tail", "c4_eps_missed")),
+    ("pi_tail_budget", ("c4_budget", "c4_pi_tail", "c4_eps_missed",
+                        "c4_freeze_frac", "c4_hq_freeze", "c4_rep_freeze")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     # E axis supplements (2026-08-07): the within-support ladder's missing rungs --

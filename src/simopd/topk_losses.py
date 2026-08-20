@@ -1217,6 +1217,92 @@ def compute_eopd_gate_topk(student_logits, teacher_topk_log_probs, teacher_topk_
 # only in the padded view, so they live in the registry post-processor.
 JSD_BETA = float(os.environ.get("SIMOPD_JSD_BETA", "0.5"))
 PI_TAIL_EPS = float(os.environ.get("SIMOPD_PI_TAIL_EPS", "0.05"))
+# c4 state-adaptive controller (registered 2026-08-20; probe evidence docs/data/c_stop_hazard_*):
+# C4's pi-coverage rule misreads BOTH tails of student concentration. At a stopping landmark
+# the student's mass sits on eot OUTSIDE the teacher pool, the pool coverage cannot reach
+# 1-eps, and the rule falls back to the FULL pool -- maximum pull exactly where supervision
+# should stop (measured: stop-position m 0.18-0.27, T1 wrong-stop h 0.975->0.728). In deep
+# repetition the student is ultra-peaked ON the pool, so the support shrinks to 1 only after
+# the erosion already happened (c2 deep A_S -9.4 vs c4 -2.4). Two gates + one target fix:
+#   SIMOPD_C4_HQ=1   agreed-freeze: h=p_theta(E_S) high AND teacher termination q_T(E_T)
+#                    high -> support = top-1 (renorm KL on a singleton == zero gradient);
+#                    plus the coverage target moves to the CONTINUATION-conditional student
+#                    mass, target = (1-eps)*(1-min(h, cap)) -- a landmark no longer triggers
+#                    the full-pool fallback, while a PREMATURE stop (h high, q_T ~ 1e-16,
+#                    the functional overrun that carries c4's accuracy) is still taught.
+#                    Needs the exact-terminator carrier (SIMOPD_GATHER_EOS): q_T comes from
+#                    the gathered block, refused loudly if absent -- never a silent q=0.
+#   SIMOPD_C4_REP=1  rep-freeze: positions inside a repeated-n-gram RUN of >= MINRUN tokens
+#                    (the terminal-loop signature; incidental math repeats stay supervised)
+#                    -> support = top-1. Shrinks BEFORE the student peaks, and stops the
+#                    teacher's in-context 'continue the loop' supervision (q_rep ~ 1e-9).
+# h is DETACHED (it is the trained quantity; an attached gate opens a raise-h-to-escape
+# loop). Panels: c4_freeze_frac / c4_hq_freeze / c4_rep_freeze.
+C4_HQ = os.environ.get("SIMOPD_C4_HQ", "0") == "1"
+C4_REP = os.environ.get("SIMOPD_C4_REP", "0") == "1"
+C4_TAU_H = float(os.environ.get("SIMOPD_C4_TAU_H", "0.05"))
+C4_TAU_Q = float(os.environ.get("SIMOPD_C4_TAU_Q", "0.05"))
+C4_H_CAP = float(os.environ.get("SIMOPD_C4_H_CAP", "0.98"))
+REP_GATE_N = int(os.environ.get("SIMOPD_REP_GATE_N", "8"))
+REP_GATE_MINRUN = int(os.environ.get("SIMOPD_REP_GATE_MINRUN", "64"))
+
+
+def _rep_runs_packed(data, teacher_topk_log_probs, total, n, minrun):
+    """Packed-view bool mask of response positions inside a repeated-n-gram run of length
+    >= minrun. Same span layout as _stat_mask (each sequence's last resp_len rows), same
+    rolling-hash first-occurrence criterion as losses._repetition_mask, plus the run-length
+    filter that separates terminal loops (hundreds of tokens) from incidental repeats
+    (healthy math re-uses 8-grams at a 20-30% rate -- gating those would cut a third of
+    ordinary supervision). Loud on missing inputs: an arm whose point is this gate must not
+    silently run ungated."""
+    if data is None:
+        raise RuntimeError("SIMOPD_C4_REP=1 needs the batch dict (responses/response_mask); got data=None")
+    resp = data.get("responses", None)
+    rm = data.get("response_mask", None)
+    if resp is None or rm is None:
+        raise RuntimeError("SIMOPD_C4_REP=1: batch dict lacks responses/response_mask")
+    resp = getattr(resp, "data", resp)
+    rows = list(resp.unbind()) if getattr(resp, "is_nested", False) else list(resp)
+    if getattr(rm, "is_nested", False):
+        resp_lens = [int(x.sum()) for x in rm.unbind()]
+    else:
+        resp_lens = [int(x) for x in rm.sum(dim=-1).tolist()]
+    offs = teacher_topk_log_probs.offsets()
+    full_lens = [int(x) for x in (offs[1:] - offs[:-1]).tolist()]
+    if len(full_lens) != len(resp_lens) or sum(full_lens) != total:
+        raise RuntimeError(f"SIMOPD_C4_REP=1: span mismatch (teacher {sum(full_lens)}/{len(full_lens)} "
+                           f"vs responses {len(resp_lens)}, packed {total})")
+    m = torch.zeros(total, dtype=torch.bool)
+    pos = 0
+    for row, rl, fl in zip(rows, resp_lens, full_lens):
+        rl = min(int(rl), int(fl))
+        rep = torch.zeros(rl, dtype=torch.bool)
+        if rl >= n:
+            ids = row[:rl].long().cpu()
+            win = ids.unfold(0, n, 1)
+            hsh = win[:, 0].clone()
+            for j in range(1, n):
+                hsh = hsh * 1000003 + win[:, j]
+            uniq, inv = torch.unique(hsh, return_inverse=True)
+            L = hsh.shape[0]
+            ar = torch.arange(L)
+            first = torch.full((uniq.shape[0],), L, dtype=torch.long)
+            first = first.scatter_reduce(0, inv, ar, reduce="amin", include_self=True)
+            rep[n - 1:] = ar > first[inv]
+            # run-length filter: keep only runs of >= minrun consecutive rep positions
+            r = rep
+            starts = r & ~torch.cat((torch.zeros(1, dtype=torch.bool), r[:-1]))
+            seg = torch.cumsum(starts.long(), 0) * r.long()          # 0 outside runs, run id inside
+            nseg = int(seg.max())
+            if nseg > 0:
+                lens = torch.bincount(seg, minlength=nseg + 1)[1:]
+                good = (torch.nonzero(lens >= minrun).flatten() + 1)
+                rep = torch.isin(seg, good)
+            else:
+                rep = torch.zeros(rl, dtype=torch.bool)
+        m[pos + fl - rl: pos + fl] = rep
+        pos += fl
+    return m.unsqueeze(0).to(teacher_topk_log_probs.device)
 
 
 def compute_intersection_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
@@ -1271,18 +1357,59 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
     always kept. Realised budget (c4_budget) and realised student tail mass
     (c4_pi_tail) make the theorem's quantity a first-class logged series."""
     from verl.trainer.distillation.fsdp.losses import kl_divergence
+    from simopd import eos_gather as EG
 
     student_log_probs, t_lp, t_id, _, _ = _prepare(
         student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
     )
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    # Under the exact-terminator carrier the payload's LAST n columns are the gathered
+    # E_S/E_T/diag block, NOT teacher-rank candidates: they must never enter the pi-tail
+    # pool (a rank-prefix rule over a row that ends with out-of-rank extras is meaningless).
+    # Split them off; the teacher's termination mass q_T(E_T) is read from the block.
+    q_et = None
+    if EG.enabled():
+        n_x = EG.n_extra()
+        K_all = t_lp.shape[-1]
+        if K_all <= n_x:
+            raise RuntimeError(f"c4: DISTILLATION_TOPK={K_all} leaves no pool beside the {n_x} gathered ids")
+        x_lp, x_id = t_lp[..., K_all - n_x:], t_id[..., K_all - n_x:]
+        want = torch.tensor(EG.extra_ids(), device=x_id.device, dtype=x_id.dtype)
+        if not bool((x_id == want).all()):
+            raise RuntimeError("c4: the extra-id block does not carry the configured ids in order -- "
+                               "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
+        if not bool(torch.isfinite(x_lp).all()):
+            raise RuntimeError("c4: -inf in the gathered terminator block -- refusing a fabricated q=0")
+        t_cols = torch.tensor(EG.teacher_cols(), device=x_lp.device, dtype=torch.long)
+        q_et = torch.logsumexp(torch.index_select(x_lp, -1, t_cols).float(), dim=-1).exp()
+        t_lp, t_id = t_lp[..., : K_all - n_x], t_id[..., : K_all - n_x]
+    if C4_HQ and q_et is None:
+        raise RuntimeError("SIMOPD_C4_HQ=1 needs the exact-terminator carrier (SIMOPD_GATHER_EOS=1): "
+                           "the agreed-freeze gate reads q_T(E_T) from the gathered block")
+
     stu_at_teacher = torch.gather(student_log_probs, dim=-1, index=t_id)
     stu_topk_ids = _student_topk_ids(student_log_probs, k=t_lp.shape[-1])
-    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    # student stop hazard h = p_theta(E_S | s): DETACHED -- h is the trained quantity, and an
+    # attached gate opens a raise-h-to-escape-supervision loop. Boolean masks carry no grad
+    # anyway; the detach makes the continuation-conditional target principled too.
+    h = None
+    if C4_HQ:
+        stop_idx = torch.tensor(EG.stop_ids(), device=student_log_probs.device, dtype=torch.long)
+        h = torch.logsumexp(torch.index_select(student_log_probs, -1, stop_idx).float(), dim=-1).exp().detach()
 
     pi = stu_at_teacher.float().exp()
     cum = pi.cumsum(dim=-1)
-    target = 1.0 - PI_TAIL_EPS
-    reached = cum >= target
+    if h is not None:
+        # coverage target on the CONTINUATION-conditional student mass: at a landmark the
+        # eot mass no longer reads as "coverage shortfall -> full pool"; in the body h~1e-9
+        # and this is bit-identical to the scalar target.
+        target = (1.0 - PI_TAIL_EPS) * (1.0 - h.clamp(max=C4_H_CAP))
+        reached = cum >= target.unsqueeze(-1)
+    else:
+        target = 1.0 - PI_TAIL_EPS
+        reached = cum >= target
     # smallest prefix reaching the target; if never reached, the full pool
     first = torch.where(reached.any(dim=-1),
                         reached.float().argmax(dim=-1),
@@ -1290,6 +1417,21 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
                                    dtype=torch.long, device=reached.device))
     idx = torch.arange(t_lp.shape[-1], device=t_lp.device)
     keep = idx <= first.unsqueeze(-1)                                            # top-1 always in
+
+    # freeze -> support collapses to the teacher's top-1: renorm KL on a singleton is
+    # identically zero, so a frozen position contributes NO gradient (the loss-zeroing and
+    # support-singleton forms coincide for the renorm family).
+    hq_freeze = rep_freeze = None
+    if C4_HQ:
+        hq_freeze = (h > C4_TAU_H) & (q_et > C4_TAU_Q)
+    if C4_REP:
+        rep_freeze = _rep_runs_packed(data, teacher_topk_log_probs, t_lp.shape[1], REP_GATE_N, REP_GATE_MINRUN)
+    freeze = None
+    for f in (hq_freeze, rep_freeze):
+        if f is not None:
+            freeze = f if freeze is None else (freeze | f)
+    if freeze is not None:
+        keep = keep & (~freeze.unsqueeze(-1) | (idx == 0))
 
     neg = torch.finfo(torch.float32).min
     stu_k = stu_at_teacher.float().masked_fill(~keep, neg)
@@ -1307,6 +1449,12 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
     out["c4_budget"] = keep.float().sum(dim=-1)
     out["c4_pi_tail"] = (1.0 - (pi * keep).sum(dim=-1)).clamp(0.0, 1.0)
     out["c4_eps_missed"] = (~reached.any(dim=-1)).float()
+    if freeze is not None:
+        out["c4_freeze_frac"] = freeze.float()
+    if hq_freeze is not None:
+        out["c4_hq_freeze"] = hq_freeze.float()
+    if rep_freeze is not None:
+        out["c4_rep_freeze"] = rep_freeze.float()
     return out
 
 

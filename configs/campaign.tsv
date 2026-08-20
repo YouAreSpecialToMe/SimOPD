@@ -428,3 +428,6 @@
 19	any	h8_gen2048_n0	0	#w19-7 h8_gen2048 + N0 under the v2 dual-stop contract; pairs h8_gen2048_s0_16k (stop2)
 19	any	h9_prune_adapt_n0	0	#w19-8 h9_prune_adapt + N0 under the v2 dual-stop contract; pairs h9_prune_adapt_s0_16k (stop2)
 19	any	h10_task_subset_n0	0	#w19-9 h10_task_subset + N0 under the v2 dual-stop contract; pairs h10_task_subset_s0_16k (stop2)
+20	any	c4_rep	0	#w20-1 rep-freeze only, vs banked c4
+20	any	c4_hq	0	#w20-2 agreed-freeze + continuation target, vs banked c4
+20	any	c4_state	0	#w20-3 full controller, vs banked c4

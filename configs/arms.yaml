@@ -2671,3 +2671,44 @@ arms:
       SIMOPD_STOP_IDS: "151645"
       SIMOPD_SHADOW: "0"
     note: "ENLISTED 2026-08-20 wave 19. Pairing: <base>_s0_16k (v2 stop2 wave, collaborator) vs this run; both under SIMOPD_STOP_IDS=151645 (rollout stops on eot AND im_end), so the delta is N0 alone. TOPK 66 to match vanilla_corr's payload geometry."
+
+# --- wave 20 roster: c4 state-adaptive controller (2026-08-20). Probe-driven (docs/data/
+#     c_stop_hazard_*): C4's pi-coverage rule misreads landmarks (full-pool fallback where
+#     the student's mass sits on eot) and reaches |S|=1 in repetition only after the erosion.
+#     Split for attribution; all pair banked c4_pi_tail_budget (legacy contract pinned off).
+  - run_id: c4_rep
+    status: stock
+    desc: "[wave20] c4 + rep-freeze only: support -> top-1 inside repeated-n-gram runs >= 64 (terminal-loop signature); no carrier needed"
+    env:
+      DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      DISTILLATION_TOPK: "32"
+      SIMOPD_C4_REP: "1"
+      SIMOPD_STOP_IDS: "off"
+    note: "ENLISTED 2026-08-20. Prediction: deep-state A_S erosion capped at the global-sharpening floor (>= -2.4); greedy-32k truncation tail 32k -> base-like 8-15k self-stops; correct length/acc unchanged."
+  - run_id: c4_hq
+    status: stock
+    desc: "[wave20] c4 + agreed-freeze (h high AND q_T(E_T) high -> top-1) + continuation-conditional coverage target; needs the exact-terminator carrier"
+    env:
+      DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      DISTILLATION_TOPK: "34"
+      SIMOPD_C4_HQ: "1"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+    note: "ENLISTED 2026-08-20. TOPK 34 = 32-column pool + 2 gathered terminator columns (budget-matched to banked c4). Prediction: stop-position m 0.18-0.27 -> ~0.01; T1 wrong-stop erosion gone; premature-stop teaching (the acc source) preserved -- battery case C."
+  - run_id: c4_state
+    status: stock
+    desc: "[wave20] c4 + BOTH gates (agreed-freeze + continuation target + rep-freeze): the full state-adaptive controller"
+    env:
+      DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      DISTILLATION_TOPK: "34"
+      SIMOPD_C4_HQ: "1"
+      SIMOPD_C4_REP: "1"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+    note: "ENLISTED 2026-08-20. Prediction: correct ~1k/acc unchanged, wrong-but-stop stays ~6k, greedy-32k trunc 20% -> single digits. Not a 4-6k budget knob -- that is the budget-prior arm's job; this one removes the erosion."
