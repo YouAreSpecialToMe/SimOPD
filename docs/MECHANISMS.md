@@ -225,6 +225,35 @@ ladder = the two registered adjudicators.
 - a1/a3 length predictions: registered in spirit (teacher-short ⇒ a3 should be
   termination-safe by construction); formalize in the ledger at unlock time.
 
+### M-I generality: the collapse reproduces on a 4.7×/8× larger pair (2026-08-21)
+
+Found in already-banked runs, no new compute. The `w` cell is **Qwen3-8B-Base ←
+Qwen3-32B** (wandb group `Qwen3-8B-Base__from__Qwen3-32B__s0`, cap 8192) — a
+different pair carrying the SAME terminator mismatch, because the split is
+Base-vs-chat, not small-vs-large: 8B-Base's generation_config eos is 151643
+alone, 32B's is [151645, 151643], exactly the mainline asymmetry.
+
+`vanilla_s0_w` truncation: 0.011 @21 → 0.030 @31 → **0.834 @41** → 0.973 @51 →
+1.000 @75, length 1093 → 8192. The same U: down to a trough, then the whole ramp
+inside ~10 steps.
+
+The comparison must be made at MATCHED cap — the 16k mainline runs ramp later
+(~103) only because a bigger cap takes longer to register as truncation. Against
+the mainline's own 8k-era vanilla seeds (trunc .037/.036/.055 @26, .811/.770/.791
+@51), the w cell is **the same curve, ~10 steps earlier**. A 4.7× student and an
+8× teacher move the onset by ten steps and not by its shape: this is not a
+small-model artifact.
+
+Two more w-cell rows say the same thing about mitigations as the mainline does:
+`f2_hard_clip_s0_w` pushes onset 41 → 51-75 and `h1_first_segment_s0_w` pushes it
+to 51 → saturated by 125. **Both delay, neither prevents** — the same verdict the
+mainline F/H family earns, and the same shape as h2's N0 (delayed 54 steps, then
+exploded). Whatever prevents the collapse has to act on the terminator itself.
+
+Not yet answered here: no N0 cell exists on the w pair, so this replicates the
+DISEASE across pairs, not the cure. The cheapest test of the cure's generality is
+a `vanilla_corr`-equivalent on the w pair (8 GPUs, 81 s/step banked — ~6 h to 250).
+
 ## M-II · Entropy / sharpening dynamics
 
 **Banked evidence**:
