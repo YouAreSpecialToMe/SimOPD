@@ -73,6 +73,11 @@ def _term_family_problems(run_id, env):
     return out
 
 
+# 写 h9 预算中继的 loss mode(即 registry 函数里调用了 _h9_observe 的那些)。
+# 加新 mode 时若想让它支持 h9,先在 losses.py 里挂上钩子,再往这里加名字。
+H9_RELAY_MODES = {"k1_rec"}
+
+
 EXPECT_PG = {
     "c4_rep": False, "c4_hq": False, "c4_state": False, "c4_carrier": False,
     "a1_gkd_mix0.5_n0": True,
@@ -197,6 +202,16 @@ def main():
             problems.append(f"{tag} kernel unpacks the sampled column but SIMOPD_KEEP_SAMPLED != 1")
         if not wants_sampled and env.get("SIMOPD_KEEP_SAMPLED") == "1" and str(env.get("SIMOPD_GATHER_EOS", "")) != "1":
             notes.append(f"{tag} KEEP_SAMPLED set but kernel does not consume the column (harmless width)")
+
+        # h9 的预算是 trainer->server 的中继,而写中继的钩子 _h9_observe 只挂在 k1_rec 上。
+        # 换了 loss mode 的 h9 臂,服务端照常 armed、照常读中继,但没有任何东西写它,
+        # budget() 于是永远返回冷启动默认值(整个 16384 窗口)—— 那个臂看起来在跑 h9,
+        # 实际上是一条没有裁剪的 vanilla。h9_prune_adapt_n0 就这么烧了 66 步才被发现
+        # (2026-08-21),从 step 10 起长度就和基线差 4.6 倍。
+        if str(env.get("SIMOPD_H9_ADAPT", "")) not in ("", "0") and mode not in H9_RELAY_MODES:
+            problems.append(f"{tag} SIMOPD_H9_ADAPT=1 但 loss mode {mode!r} 不写预算中继 "
+                            f"(只有 {sorted(H9_RELAY_MODES)} 会调用 _h9_observe)—— "
+                            f"服务端会一直用冷启动默认 16384,这个臂等于没有 h9")
 
         # --- optimizer branch vs the r5 verdict ---
         pg = env.get("USE_POLICY_GRADIENT", "True") != "False"
