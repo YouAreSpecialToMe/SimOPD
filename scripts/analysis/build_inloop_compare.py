@@ -19,6 +19,47 @@ for arm in data:
     for wave in data[arm]:
         data[arm][wave].sort(key=lambda d: d["s"])
 
+
+SRC2 = os.path.join(os.path.dirname(__file__), "../../docs/data/inloop_corr_vs_mfleet.csv")
+data2 = collections.defaultdict(lambda: collections.defaultdict(list))
+if os.path.exists(SRC2):
+    for r in csv.DictReader(open(SRC2)):
+        def f2(k):
+            return float(r[k]) if r[k] not in ("", None) else None
+        data2[r["arm"]][r["wave"]].append({"s": int(r["step"]), "v": f2("val_acc"),
+                                           "l": f2("resp_len"), "c": f2("clip_ratio")})
+    for _a in data2:
+        for _w in data2[_a]:
+            data2[_a][_w].sort(key=lambda d: d["s"])
+
+CORR_CARDS = [
+    ("vanilla", "k1 采样列 · 主对照(legacy lock@122)", "预期:修复"),
+    ("b5_k2", "k2 采样列(监督式却撞帽的旧例外)", "预期:修复"),
+    ("b1_skew_kl", "skew-KL 有界 2.3 nat(legacy 迟锁 @247)", "预期:修复"),
+    ("f2_hard_clip", "k1 硬截断", "预期:修复"),
+    ("h2_last_segment", "只训最后 100 token(病灶=窗口饥饿)", "预期:残留"),
+    ("e2_set_coverage_a0", "集合质量抽干(病灶不在终止读数)", "预期:残留"),
+    ("n2", "termcal 终止校准通道", "对照"),
+]
+csnap = []
+for _a in sorted(data2):
+    pts = data2[_a].get("corr") or []
+    if not pts:
+        continue
+    lastv = next((d["v"] for d in reversed(pts) if d["v"] is not None), None)
+    lastc = next((d["c"] for d in reversed(pts) if d["c"] is not None), None)
+    csnap.append(f'<tr><th class=mono>{_a}</th><td class=n>{pts[-1]["s"]}</td>'
+                 f'<td class=n>{"·" if lastc is None else f"{lastc:.2f}"}</td>'
+                 f'<td class=n>{"·" if lastv is None else f"{lastv:.3f}"}</td></tr>')
+CORRSNAP = "\n".join(csnap)
+PROBETBL = (
+ '<tr><th class=mono>a1 50→125</th><td class=n>.582→.308</td><td class=n>.868→<b>.000</b></td>'
+ '<td class=n>.666→–</td><td class=n>.000(100/100 满帽)</td></tr>'
+ '<tr><th class=mono>a3 50→250</th><td class=n>.584→.416</td><td class=n>.848→<b>.034</b></td>'
+ '<td class=n>.682→.882</td><td class=n>.460(尾质量存活)</td></tr>'
+ '<tr><th class=mono>h6 25→175</th><td class=n>.630→.444</td><td class=n>.950→<b>.060</b></td>'
+ '<td class=n>.663→.900</td><td class=n>—</td></tr>')
+
 ARMS = [("a1_gkd_mix0.5", "GKD 在线混合 λ=.5"), ("a3_offpolicy", "纯离线缓存 λ=0 端点"),
         ("a4_dagger_anneal", "DAgger 退火"), ("a5_aggrevate", "AggreVaTe 教师续写"),
         ("a2_coldstart", "SFT 冷启动 → OPD(P-untaught 谱系)"),
@@ -117,13 +158,27 @@ footer{color:var(--ink3);font-size:11px;padding:0 28px 30px;max-width:1180px;mar
 <tbody>__SUMROWS__</tbody></table></div>
 <h2>逐臂曲线(左 val,右 rollout 长度)</h2>
 <div class="grid" id="grid"></div>
+<h2>corr 波 · N0 事件级终止修正(因果检验,在跑)</h2>
+<p class="note">同损失同数据,唯一旋钮:学生停止位上把 token 级 Δℓ 换成事件级
+log q<sub>T</sub>({eot,im_end}) − log p<sub>θ</sub>(E<sub>S</sub>)。左图为训练 rollout 截断率
+(<b>橙虚线 = legacy m-fleet</b>,一旦越 0.5 从未回头;<b>蓝实线 = corr</b>),右图 val。
+判读:采样列家族应被修复;窗口饥饿/质量抽干类病灶不经终止读数,预期残留——反例按预期出现是机制的反向确认。</p>
+<div class="grid" id="cgrid"></div>
+<h2>corr 全舰快照(最新步)</h2>
+<div class="tblwrap"><table style="min-width:520px"><thead><tr><th style="text-align:left">arm(corr)</th>
+<th>step</th><th>clip</th><th>last val</th></tr></thead><tbody>__CORRSNAP__</tbody></table></div>
+<h2>行为探针裁决(v2 波 · 贪心 math500 配对 + τ=1 判据)</h2>
+<p class="note">三臂 acc|finish 全升、损失全在 fin→trunc 迁移:in-loop 下降 = 终止塌缩,非推理退步。
+τ=1 判据分两种病理:a1 压制型(通道死),a3 降位型(尾质量活、丢 argmax)。全文见 docs/v2-inloop-decline-probe.md。</p>
+<div class="tblwrap"><table style="min-width:560px"><thead><tr><th style="text-align:left">配对</th>
+<th>score</th><th>P(finish)</th><th>acc|finish</th><th>τ=1 P(finish) @late</th></tr></thead><tbody>__PROBETBL__</tbody></table></div>
 <p class="note" style="margin-top:18px">读法:a1/a3/a4/a5(教师混合)v2 早段 val 全面高于
 legacy;a2 与 h10 的长度曲线是 P-untaught / P-suppress 病理的现场测量——v2 只修采样契约、
 不动损失,长度是否回落取决于终止符能否被(重新)学会。h6 长度贴 ramp 帽、h9 贴自适应预算,
 属设计而非病理。两波均为 seed 0 单种子,监控性读数;裁决以离线套件为准。</p>
 </main>
 <footer>数据:docs/data/inloop_v2_vs_legacy.csv(wandb 导出,多次开机按步合并,后开机胜)·
-生成 2026-08-20 · git c022d57 后</footer>
+刷新 2026-08-20 08:4x(集群)· corr 波在跑数据为中途快照</footer>
 <script>
 const DATA=__PAYLOAD__;
 const ARMS=__ARMS__;
@@ -166,10 +221,46 @@ for(const [arm,why] of ARMS){
    +'<div>'+panel(arm,"l",16800,v=>(v/1000|0)+"k",extra)+'</div></div>';
   g.appendChild(el);
 }
+
+const DATA2=__PAYLOAD2__;
+const CORR=__CORRCARDS__;
+function panel2(arm,yk,ymax,fmt,guide){
+  const W=250,H=120,PX=30,PY=16,xmax=250;
+  const co=(DATA2[arm]||{}).corr||[], mf=(DATA2[arm]||{}).mfleet||[];
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';
+  s+='<line class="axis" x1="'+PX+'" y1="'+(H-PY)+'" x2="'+(W-4)+'" y2="'+(H-PY)+'"/>';
+  s+='<line class="axis" x1="'+PX+'" y1="6" x2="'+PX+'" y2="'+(H-PY)+'"/>';
+  for(const t of [0,.5,1]){const y=H-PY-t*(H-PY-8);
+    s+='<text class="tick" x="'+(PX-4)+'" y="'+(y+3)+'" text-anchor="end">'+fmt(t*ymax)+'</text>';}
+  for(const t of [0,125,250]){const x=PX+(t/xmax)*(W-PX-6);
+    s+='<text class="tick" x="'+x+'" y="'+(H-4)+'" text-anchor="middle">'+t+'</text>';}
+  if(guide!=null){const y=H-PY-(guide/ymax)*(H-PY-8);
+    s+='<line x1="'+PX+'" y1="'+y+'" x2="'+(W-4)+'" y2="'+y+'" stroke="var(--cap)" stroke-width="1" stroke-dasharray="2 4"/>';}
+  const dm=line(mf,"s",yk,xmax,ymax,W,H,PX,PY);
+  if(dm)s+='<path d="'+dm+'" fill="none" stroke="var(--lg)" stroke-width="1.8" stroke-dasharray="5 4" opacity=".9"/>';
+  const dc=line(co,"s",yk,xmax,ymax,W,H,PX,PY);
+  if(dc)s+='<path d="'+dc+'" fill="none" stroke="var(--v2)" stroke-width="2"/>';
+  return s+"</svg>";
+}
+const cg=document.getElementById("cgrid");
+if(cg)for(const [arm,why,tag] of CORR){
+  if(!DATA2[arm])continue;
+  const el=document.createElement("div");el.className="card";
+  el.innerHTML='<h3><span class="mono">'+arm+'_corr</span> · '+why+' <span style="color:var(--ink3)">['+tag+']</span></h3>'
+   +'<div class="why">左:rollout 截断率(参考线 0.5 = legacy 不归点)  右:in-house val</div>'
+   +'<div class="duo"><div>'+panel2(arm,"c",1.05,v=>v.toFixed(1),0.5)+'</div>'
+   +'<div>'+panel2(arm,"v",0.7,v=>v.toFixed(1),null)+'</div></div>';
+  cg.appendChild(el);
+}
+
 </script>
 """
 stephead = "".join(f"<th>@{s}</th>" for s in STEPS)
 html = html.replace("__STEPHEAD__", stephead).replace("__SUMROWS__", "\n".join(sumrows))
 html = html.replace("__PAYLOAD__", payload).replace("__ARMS__", arms_js)
+payload2 = json.dumps({a: data2[a] for a in data2}, separators=(",", ":"))
+corr_js = json.dumps([list(t) for t in CORR_CARDS], ensure_ascii=False)
+html = html.replace("__PAYLOAD2__", payload2).replace("__CORRCARDS__", corr_js)
+html = html.replace("__CORRSNAP__", CORRSNAP).replace("__PROBETBL__", PROBETBL)
 open(DST, "w").write(html)
 print(DST, len(html), "bytes")
