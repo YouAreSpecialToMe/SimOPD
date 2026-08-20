@@ -97,6 +97,7 @@ EXPECT_PG = {
     "c2_quantile_budget": False,
     "c2_qb_fixed8": False, "c2_qb_perseq": False,
     "c3_intersection": False, "c4_pi_tail_budget": False,
+    "c4_pi_tail_budget_corr": False, "c2_quantile_budget_corr": False,
     "d1_tip": True, "d2_selectkd": True, "d3_teachability": True,
     "e1_pl_rank": False, "e1_pl_rank_a0": False, "e2_set_coverage": False,
     "e2_set_coverage_a0": False, "e3_zvalue": False,

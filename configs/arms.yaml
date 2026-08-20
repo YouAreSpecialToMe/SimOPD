@@ -2745,6 +2745,72 @@ arms:
       SIMOPD_EOS_TEACHER_IDS: "151643,151645"
       SIMOPD_STOP_IDS: "off"
     note: "ENLISTED 2026-08-20. Prediction: correct ~1k/acc unchanged, wrong-but-stop stays ~6k, greedy-32k trunc 20% -> single digits. Not a 4-6k budget knob -- that is the budget-prior arm's job; this one removes the erosion."
+  - run_id: c4_pi_tail_budget_corr
+    axis: N
+    cohort: supplement
+    status: stock
+    desc: "[OURS] N0 + c4:pi-tail 预算规则跑在修正后的终止符表示上 —— corr 波唯一漏掉的两个 C 格之一"
+    env:
+      DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      DISTILLATION_TOPK: 34
+      SIMOPD_PI_TAIL_EPS: "0.05"
+      SIMOPD_TERM_EVENT: "1"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      USE_POLICY_GRADIENT: "False"
+    note: "ENLISTED 2026-08-21。corr 波覆盖了 19 个臂却跳过了 c2 和 c4 —— C 族唯一的 N0
+           证据是 c3_intersection_corr(+24.8% 变长),而它不能外推:三个臂都开
+           TERM_EVENT=1 走 Path 2,但 c3 的支撑是学生秩前缀、c4 的是学生质量前缀,
+           对'终止符坐标被塌到 eot 上'的反应不是一回事。
+           WHY(逐位置台账 2026-08-21,c4 ckpt 50/100/250,reverse KL 口径):停止处
+           学生几乎全部质量在 eot 上,而 pi-tail 规则必须一路吃到把 eot 包进支撑才够
+           1-eps —— 实测 '采样 token 在支撑内 = 98.8%',所以那 8 nat 的惩罚是实打实
+           进 c4 的 loss 的,豁免根本没发生。决策格里终止符从 step 50 的 4.0% 涨到
+           250 的 7.5%(算上 '\n\n -> im_end' 是 11.4%):其它决策错误被修掉了,这一类
+           修不掉。
+           PREDICTION,三条都可证伪:(1) 停止地标处支撑从全池回落塌回 1-2 列
+           (探针的 sup_size 直接读);(2) 决策格里终止符那 11% 归零;(3) 长度动没动 ——
+           如果'停下来要挨罚'是 c4 稳在 8.8k 的原因之一,拿掉它长度应该降,这是目前
+           唯一一条从机理指向 4k/6k 的线索。
+           这也是 c4_hq 的原理版:hq 门手工造'在双方同意的停止地标处冻结',wave 20
+           实测它 3.5 万个 token 才发火一次(2.9e-05),做不了旋钮;N0 不靠门,改的是
+           表示本身,每个停止处都生效。
+           判据对 c4_pi_tail_budget 的三种子行读(step 100 长度 8849 离散 0.8%、
+           clip 0.042;step 250 长度 8939、acc 0.640)。direct 分支必须钉住,PG 会让
+           比较混进'换了个优化器'(2026-08-20 lint 拦下过一次)。"
+  - run_id: c2_quantile_budget_corr
+    axis: N
+    cohort: supplement
+    status: stock
+    desc: "[OURS] N0 + c2:分位数预算规则跑在修正后的终止符表示上"
+    env:
+      DISTILLATION_LOSS_MODE: "qb_quantile_budget"
+      DISTILLATION_TOPK: 66
+      SIMOPD_QB_MARGIN: "max"
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_TERM_EVENT: "1"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      USE_POLICY_GRADIENT: "False"
+    note: "ENLISTED 2026-08-21,与 c4_pi_tail_budget_corr 同一批。TOPK 64 -> 66(64 真
+           top-k + 2 个 gathered 终止符,预算与已入库的 c2 行对齐)。
+           c2 单独值得一个格,因为它的规则和 c4 的失效方式不同:c2 的 tau 是 BATCH
+           分位数,而且实测从 step 50 起 qb_budget 就钉死在目标值 8.00、captured_mass
+           0.999 —— 自适应已经退化成'永远取 8 列'。所以它对终止符的处理不是'把 eot
+           吃进支撑',而是'看 max(q, pi) 够不够 tau'。停止处学生 pi(eot) ~ 1,margin
+           必然过关,eot 照样在支撑里 —— 预期与 c4 同向,但支撑大小不会变(它本来就
+           恒等于 8),所以三条预测里只有 (2)(3) 适用,(1) 不适用。这个差异本身就是
+           一个判据:如果 c2 也变短而支撑没动,说明起作用的是 loss 项而不是支撑形状。
+           判据对已入库的 c2 三种子行(step 100 长度 9010 离散 2.9%、clip 0.075;
+           step 250 长度 8899、acc 0.682)。"
   - run_id: c4_carrier
     axis: C
     cohort: supplement

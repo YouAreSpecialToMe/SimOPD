@@ -102,6 +102,7 @@ ARMS = [  # ledger order: axis order from the plan
     "d1_tip_corr", "d2_selectkd_corr", "d3_teachability_corr",
     "b2_forward_kl_corr", "e2_set_coverage_a0_corr", "c3_intersection_corr",
     "c4_rep", "c4_hq", "c4_state", "c4_carrier",
+    "c4_pi_tail_budget_corr", "c2_quantile_budget_corr",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.
@@ -110,7 +111,9 @@ ARMS = [  # ledger order: axis order from the plan
 # (same carrier, every gate off) -- otherwise the carrier lands in the controller's column.
 BASE_OVERRIDES = {"j1_kdrl": "vanilla_n8",
                   "c4_rep": "c4_pi_tail_budget", "c4_carrier": "c4_pi_tail_budget",
-                  "c4_hq": "c4_carrier", "c4_state": "c4_carrier"}
+                  "c4_hq": "c4_carrier", "c4_state": "c4_carrier",
+                  "c4_pi_tail_budget_corr": "c4_pi_tail_budget",
+                  "c2_quantile_budget_corr": "c2_quantile_budget"}
 TRANSFER = ("humanevalplus", "mbppplus", "ifeval")  # amc23 is in-domain (suite); audit S3
 
 

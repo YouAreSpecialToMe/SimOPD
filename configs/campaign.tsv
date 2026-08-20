@@ -432,3 +432,5 @@
 20	any	c4_hq	0	#w20-2 agreed-freeze + continuation target, vs banked c4
 20	any	c4_state	0	#w20-3 full controller, vs banked c4
 20	any	c4_carrier	0	#w20-4 carrier-only control (all gates off): separates controller from KEEP_SAMPLED/TOPK34
+21	any	c4_pi_tail_budget_corr	0	#w21-1 N0 x c4:corr 波漏掉的 C 格,对已入库 c4 单旋钮
+21	any	c2_quantile_budget_corr	0	#w21-2 N0 x c2:同上
