@@ -39,6 +39,43 @@ print(f"{'class':<12} " + " ".join(f"{'step ' + str(s):>18}" for s in steps))
 for r in rows:
     print(f"{r['class']:<12} " + " ".join(f"{r[s][0]*100:>7.1f}% ({r[s][1]*100:>5.1f}%)" for s in steps))
 
+# ---- A2. 具体是哪些词。类别是稳的那一层,但"word 扛了 46%"没法行动 —— 要能行动
+# 就得知道是哪些词。按 |Δℓ| 的总量排(不是均值:一个出现两次的词均值再高也不重要),
+# 同时给出现次数和均值,好把"高频平庸"和"低频剧毒"分开。
+TOPN = int(__import__("os").environ.get("LEDGER_TOPN", "25"))
+print()
+print("=" * 78)
+print(f"A2  扛 |Δℓ| 最多的 {TOPN} 个 token(按总量;share=占全部 |Δℓ| 的比例)")
+print("=" * 78)
+for s in steps:
+    ds = d[d.ckpt_step == s]
+    g = ds.groupby(["token_str", "tok_class"]).agg(
+        mass=("absdl", "sum"), n=("absdl", "size"), mean=("absdl", "mean"),
+        agree=("agree", "mean"), ent=("t_ent", "mean")).reset_index()
+    g["share"] = g["mass"] / ds.absdl.sum() * 100
+    g = g.sort_values("mass", ascending=False).head(TOPN)
+    print(f"\n-- step {s}(共 {len(ds)} 位置,{ds.token_str.nunique()} 个不同 token)")
+    print(f"{'token':<18} {'class':<11} {'share':>7} {'n':>6} {'mean|dl|':>9} {'agree':>7} {'教师熵':>7}")
+    for _, r in g.iterrows():
+        print(f"{repr(r.token_str)[:18]:<18} {r.tok_class:<11} {r.share:>6.2f}% {int(r.n):>6} "
+              f"{r['mean']:>9.3f} {r.agree*100:>6.1f}% {r.ent:>7.3f}")
+
+# ---- A3. 每一类内部再看头部,免得 word 这种大类把别的类挤掉
+print()
+print("=" * 78)
+print("A3  每个类别内部扛 |Δℓ| 最多的 token(末个 ckpt)")
+print("=" * 78)
+ds = d[d.ckpt_step == steps[-1]]
+for cls, g0 in sorted(ds.groupby("tok_class"), key=lambda kv: -kv[1].absdl.sum()):
+    g = g0.groupby("token_str").agg(mass=("absdl", "sum"), n=("absdl", "size"),
+                                    agree=("agree", "mean")).reset_index()
+    g["share"] = g["mass"] / ds.absdl.sum() * 100
+    g = g.sort_values("mass", ascending=False).head(8)
+    head = "  ".join(f"{repr(r.token_str)[:14]}({r.share:.1f}%/{int(r.n)}/{r.agree*100:.0f}%)"
+                     for _, r in g.iterrows())
+    print(f"{cls:<12} 占 {g0.absdl.sum()/ds.absdl.sum()*100:>5.1f}% | {head}")
+print("  (括号内 = share / 出现次数 / top1 一致率)")
+
 # ---- B. 按位置段
 print()
 print("=" * 78)
