@@ -1379,8 +1379,16 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
     # E_S/E_T/diag block, NOT teacher-rank candidates: they must never enter the pi-tail
     # pool (a rank-prefix rule over a row that ends with out-of-rank extras is meaningless).
     # Split them off; the teacher's termination mass q_T(E_T) is read from the block.
+    # TERM_EVENT=1(Path 2)时这一段必须整体跳过。_split_and_collapse 已经在 _prepare
+    # 里把终止符坐标塌到学生的 stop id 上、并按教师 log-prob 重新排过序 —— 行又变回
+    # 一个规规矩矩的 rank-ordered top-k,STOP 插在它真实的秩上。此时:
+    #   * 没有"末 n 列是 extras"这个布局了(重排之后 extras 不在末尾),按老布局去切
+    #     会切到别的列,id 检查必然失败,臂在第 1 步就死 —— 和 2026-08-20 哑行那次同类;
+    #   * 也不该切:塌完之后 STOP 是支撑的合法成员,携带的正是教师真实的终止质量,
+    #     pi-tail 规则本来就应该按秩把它包进来。这正是 wave 21 要测的东西。
+    # C4_HQ 需要 q_et,在这条路径上拿不到 —— 下面那条 guard 会响亮地拒绝,不静默。
     q_et = None
-    if EG.enabled():
+    if EG.enabled() and not TERM_EVENT:
         n_x = EG.n_extra()
         K_all = t_lp.shape[-1]
         if K_all <= n_x:
