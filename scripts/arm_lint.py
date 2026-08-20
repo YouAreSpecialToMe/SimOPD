@@ -74,7 +74,7 @@ def _term_family_problems(run_id, env):
 
 
 EXPECT_PG = {
-    "c4_rep": False, "c4_hq": False, "c4_state": False,
+    "c4_rep": False, "c4_hq": False, "c4_state": False, "c4_carrier": False,
     "a1_gkd_mix0.5_n0": True,
     "a3_offpolicy_n0": True,
     "a4_dagger_anneal_n0": True,

@@ -2712,3 +2712,26 @@ arms:
       SIMOPD_EOS_TEACHER_IDS: "151643,151645"
       SIMOPD_STOP_IDS: "off"
     note: "ENLISTED 2026-08-20. Prediction: correct ~1k/acc unchanged, wrong-but-stop stays ~6k, greedy-32k trunc 20% -> single digits. Not a 4-6k budget knob -- that is the budget-prior arm's job; this one removes the erosion."
+  - run_id: c4_carrier
+    status: stock
+    desc: "[wave20] c4 on the carrier with EVERY controller gate OFF: the control that separates 'the controller did it' from 'the carrier did it'"
+    env:
+      DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      DISTILLATION_TOPK: "34"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+    note: "ENLISTED 2026-08-20, wave 20 lane 4 (user go-ahead). WHY IT EXISTS: c4_hq and
+           c4_state cannot read q_T(E_T) without the carrier, so they run at TOPK 34 with
+           KEEP_SAMPLED=1 while the banked c4_pi_tail_budget rows are TOPK 32 with neither.
+           That is a second knob, and the corr-wave audit (docs/data/n0_effect_audit.txt,
+           2026-08-20) is the reason we no longer assume it is inert: KEEP_SAMPLED forces the
+           sampled token into the pool, and c4's rule is a RANK-PREFIX over that pool -- for a
+           support-ordered rule an extra member is not a diagnostic. This arm pins the carrier
+           and turns every gate off (no C4_HQ, no C4_REP), so c4_hq/c4_state read against it
+           instead of against the banked rows. c4_rep needs no such control: TOPK 32, no
+           carrier, single knob against the bank. Expect this arm to sit ON the banked c4
+           trajectory (length ~8.8k, clip ~0.01 by step 100); if it does not, the wave-20
+           comparisons are all against THIS row and the bank is retired for c4."
