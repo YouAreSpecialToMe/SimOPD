@@ -2681,6 +2681,9 @@ arms:
     desc: "[wave20] c4 + rep-freeze only: support -> top-1 inside repeated-n-gram runs >= 24 (calibrated 2026-08-20); no carrier needed"
     env:
       DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      # direct branch, same as the banked c4/c2/c3 rows -- PG here would compare two
+      # different optimizers and call the difference "the controller" (lint caught it 2026-08-20)
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "32"
       SIMOPD_C4_REP: "1"
       SIMOPD_STOP_IDS: "off"
@@ -2690,6 +2693,9 @@ arms:
     desc: "[wave20] c4 + agreed-freeze (h high AND q_T(E_T) high -> top-1) + continuation-conditional coverage target; needs the exact-terminator carrier"
     env:
       DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      # direct branch, same as the banked c4/c2/c3 rows -- PG here would compare two
+      # different optimizers and call the difference "the controller" (lint caught it 2026-08-20)
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "34"
       SIMOPD_C4_HQ: "1"
       SIMOPD_KEEP_SAMPLED: "1"
@@ -2703,6 +2709,9 @@ arms:
     desc: "[wave20] c4 + BOTH gates (agreed-freeze + continuation target + rep-freeze): the full state-adaptive controller"
     env:
       DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      # direct branch, same as the banked c4/c2/c3 rows -- PG here would compare two
+      # different optimizers and call the difference "the controller" (lint caught it 2026-08-20)
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "34"
       SIMOPD_C4_HQ: "1"
       SIMOPD_C4_REP: "1"
@@ -2717,6 +2726,9 @@ arms:
     desc: "[wave20] c4 on the carrier with EVERY controller gate OFF: the control that separates 'the controller did it' from 'the carrier did it'"
     env:
       DISTILLATION_LOSS_MODE: "pi_tail_budget"
+      # direct branch, same as the banked c4/c2/c3 rows -- PG here would compare two
+      # different optimizers and call the difference "the controller" (lint caught it 2026-08-20)
+      USE_POLICY_GRADIENT: "False"
       DISTILLATION_TOPK: "34"
       SIMOPD_KEEP_SAMPLED: "1"
       SIMOPD_GATHER_EOS: "1"
