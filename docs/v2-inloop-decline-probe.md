@@ -195,3 +195,20 @@ step 100 with boxed=1 and 1-3% post-answer tail (perfect stop discipline on the 
 the death markers (boxed 538, distinct-20gram 0.09, tail 19%) all flip together in the 100->125
 window, and "We are done" enters the loop body only at 150+ (2.9 -> 147/resp by 225) — the
 teacher-corpus phrase k1-amplified into the dominant cycle.
+
+### 7.2 Candidate aligned student: Qwen3-1.7B (instruct) — terminator and style pre-aligned
+
+Config: eos_token_id = [151645, 151643], identical to the teacher (the Base student has 151643 only).
+Real rollouts (120 math500 prompts x {greedy, tau=1}, `scripts/analysis/probe_q17b.py`): **235/235
+stopped rollouts end on `<|im_end|>`, zero on `<|endoftext|>`**; greedy 115 stop + 5 length,
+tau1 120/120 stop, len p50 ~480. Style row (full greedy cell, `evals_style/q17b_it_greedy_text*`):
+score 0.702, trunc 2.6% (Base: 17%), len p90 1992 (Base: 16384), teacher scaffold 96-100% INCLUDING
+the ✅ signature at 79.8% (which 250 steps of OPD never taught c2/c4: 2%), Wait 1.4/resp,
+python-block artifact 0%, single boxed, 2.0% post-answer tail. It is a miniature teacher — same
+Qwen alignment recipe, officially distilled from the flagship — so swapping it in dissolves the
+terminator mismatch AND the style-transfer task simultaneously, changing the experiment from
+cold-start base->instruct distillation (the campaign setting) to instruct->instruct polish
+(0.702 -> 0.900 headroom). Registered implication: a `q17b_vanilla` control cell (aligned student x
+UNCORRECTED k1, seed 0) pre-registers as no-collapse; paired with vanilla_corr (misaligned student x
+corrected loss) it pincers the causal claim "collapse = spelling mismatch x sampled-column gradient"
+from both sides.
