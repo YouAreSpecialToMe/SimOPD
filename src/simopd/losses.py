@@ -304,20 +304,30 @@ def _h9_observe(teacher, mask):
 def _h9_observe_from_output(model_output, data):
     """_h9_observe for the top-k arms, whose registry fn never unpacks logprobs itself.
 
-    Reads the teacher's sampled-token log-probs the same way _unpack does, so under
-    SIMOPD_TERM_EVENT=1 the controller sees the EVENT-fixed values -- which is the
-    reading h9 wants anyway: its lost-the-thread event is log q_T(student token) at
-    ORDINARY positions, and at stops the event-level value is the meaningful one.
-    Env-gated and non-propagating, exactly like _h9_observe."""
+    Deliberately NOT _unpack: its else-branch reads data["teacher_logprobs"], which for a
+    top-k arm is the whole [B, T, K] block rather than the sampled column, and its shape
+    assert then fires. The termination family's kernels emit the sampled column directly
+    (tf_tch_lp, set unconditionally by compute_termfix_topk), so read that through the
+    same no_padding_2_padding call the termination panels have been using in production.
+    Under SIMOPD_TERM_EVENT=1 those values are EVENT-fixed at stops, which is the reading
+    h9 wants anyway: its lost-the-thread event is log q_T(student token) at ORDINARY
+    positions. Arms with neither key get one loud line, not a silent unclamped run."""
     if os.environ.get("SIMOPD_H9_ADAPT", "") == "":
         return
     try:
-        _, teacher, mask = _unpack(model_output, data)
+        if "tf_tch_lp" in model_output:
+            teacher = no_padding_2_padding(model_output["tf_tch_lp"], data)
+        else:
+            _, teacher, _ = _unpack(model_output, data)
+        mask = data["response_mask"]
+        mask = mask.to_padded_tensor(False).bool() if mask.is_nested else mask.bool()
+        if teacher.shape != mask.shape:
+            raise RuntimeError(f"teacher {tuple(teacher.shape)} vs mask {tuple(mask.shape)}")
     except Exception as e:
         if not _h9["warned"]:
             _h9["warned"] = True
-            print(f"[simopd] h9: cannot unpack teacher logprobs ({e!r}); budget relay "
-                  f"is NOT being written -- this arm is running unclamped",
+            print(f"[simopd] h9: cannot read sampled-token teacher logprobs ({e!r}); "
+                  f"budget relay is NOT being written -- this arm is running unclamped",
                   file=sys.stderr, flush=True)
         return
     _h9_observe(teacher, mask)
