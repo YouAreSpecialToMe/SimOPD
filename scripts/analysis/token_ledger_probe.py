@@ -208,6 +208,7 @@ else:
     print(f"[ledger] 教师缓存已写 {os.path.basename(TCACHE)}", flush=True)
 
 stu = load(CKPT)
+stash = []
 for k, e in enumerate(examples):
     lg = logits_for(stu, e)
     lse = torch.logsumexp(lg, dim=-1, keepdim=True)
@@ -232,9 +233,25 @@ for k, e in enumerate(examples):
     tt_ids = tc["t_top_ids"].to(DEVICE)
     q = tc["t_top_lp"].to(DEVICE).float()
     q = (q - torch.logsumexp(q, dim=-1, keepdim=True))
-    p_on = lp.gather(1, tt_ids)
-    p_on = p_on - torch.logsumexp(p_on, dim=-1, keepdim=True)
+    p_on_raw = lp.gather(1, tt_ids)                             # 未重归一化:学生在池内各列的真实质量
+    p_on = p_on_raw - torch.logsumexp(p_on_raw, dim=-1, keepdim=True)
     kl_topk = (q.exp() * (q - p_on)).sum(-1)
+
+    # 臂自己的支撑上的重归一化 KL。这是关键的一列:c2/c4 根本看不到全词表 k1,
+    # 它们只在自己选出来的支撑上算 KL,支撑外的 token 贡献恒为 0 —— 所以"哪些
+    # token 扛着 c4 的 loss"这个问题,先要问"哪些 token 在支撑里"。
+    # c4 的规则是逐位置的(教师秩前缀 / 学生质量到 1-eps),这里就地算;
+    # c2 的 tau 是 BATCH 分位数,要等所有位置都过一遍才能定,所以留到循环外。
+    # 必须用未重归一化的质量:c4 的规则是"累计学生质量达到 1-eps",而学生压在池外
+    # 的那部分(停止地标处就是 eot)正是让规则够不到目标、退化成全池回落的原因。
+    # 用重归一化后的 p_on,累计和恒为 1,那个回落就永远看不到了 —— 而它恰恰是我们
+    # 要研究的现象。
+    pi_on = p_on_raw.exp()                                      # [R,K] 学生在教师 top-K 上的真实质量
+    y_col = (tt_ids == y.unsqueeze(1))
+    in_pool = y_col.any(-1)
+    y_idx = torch.where(in_pool, y_col.float().argmax(-1), torch.full_like(in_pool, -1, dtype=torch.long))
+    stash.append(dict(k=k, q=q.cpu(), p_on=p_on.cpu(), pi_on=pi_on.cpu(),
+                      t_top_lp=tc["t_top_lp"], y_idx=y_idx.cpu(), in_pool=in_pool.cpu()))
 
     rep = rep_mask(e["r_ids"])
     strs = tok.convert_ids_to_tokens(e["r_ids"])
@@ -259,12 +276,76 @@ for k, e in enumerate(examples):
         torch.cuda.empty_cache()
     print(f"[ledger] student {k+1}/{len(examples)}", flush=True)
 
+# ---- 臂自己的支撑规则(移植自 c_stop_hazard_probe.py,同一套判据)
+PI_TAIL_EPS = float(os.environ.get("SIMOPD_PI_TAIL_EPS", "0.05"))
+QB_BUDGET = float(os.environ.get("SIMOPD_QB_TARGET_BUDGET", "8"))
+RULE = os.environ.get("LEDGER_RULE", "c2" if ARM.startswith("c2") else
+                      "c3" if ARM.startswith("c3") else
+                      "c4" if ARM.startswith("c4") else "none")
+
+
+def support_c4(pi):
+    cum = pi.cumsum(-1)
+    reached = cum >= (1.0 - PI_TAIL_EPS)
+    first = torch.where(reached.any(-1), reached.float().argmax(-1),
+                        torch.full(reached.shape[:-1], pi.shape[-1] - 1, dtype=torch.long))
+    return torch.arange(pi.shape[-1]).unsqueeze(0) <= first.unsqueeze(-1)
+
+
+keeps = {}
+if RULE == "c2":
+    # tau 是 micro-batch 上的分位数;探针的全体位置在这里扮演那个 micro-batch。
+    marg = [torch.maximum(st["t_top_lp"].exp().float(), st["pi_on"]) for st in stash]
+    frac = 1.0 - min(QB_BUDGET / K, 1.0)
+    tau = torch.quantile(torch.cat([m.flatten() for m in marg]), frac)
+    for st, m in zip(stash, marg):
+        kp = m >= tau
+        kp[:, 0] = True                     # 教师第一名恒在支撑里,否则会出现空支撑
+        keeps[st["k"]] = kp
+    print(f"[ledger] c2 tau={float(tau):.4g} (frac {frac}); 实际预算均值="
+          f"{float(torch.cat([keeps[st['k']].float().sum(-1) for st in stash]).mean()):.2f}", flush=True)
+elif RULE == "c4":
+    for st in stash:
+        keeps[st["k"]] = support_c4(st["pi_on"])
+    print(f"[ledger] c4 实际预算均值="
+          f"{float(torch.cat([keeps[st['k']].float().sum(-1) for st in stash]).mean()):.2f}", flush=True)
+elif RULE == "c3":
+    # thunlp 交集:学生 top-K 与教师 top-K 的交 —— 学生在教师池内的质量排前 K 的那些
+    for st in stash:
+        r = st["pi_on"].argsort(dim=-1, descending=True).argsort(dim=-1)
+        keeps[st["k"]] = r < K
+else:
+    for st in stash:
+        keeps[st["k"]] = torch.ones_like(st["pi_on"], dtype=torch.bool)
+
+for st, frame in zip(stash, recs):
+    kp = keeps[st["k"]]
+    q = st["q"].clone()
+    p = st["p_on"].clone()
+    NEG = torch.finfo(q.dtype).min
+    q = torch.where(kp, q, torch.full_like(q, NEG))
+    p = torch.where(kp, p, torch.full_like(p, NEG))
+    q = q - torch.logsumexp(q, -1, keepdim=True)
+    p = p - torch.logsumexp(p, -1, keepdim=True)
+    kl = (q.exp() * (q - p)).sum(-1)
+    yi = st["y_idx"]
+    in_sup = torch.zeros_like(st["in_pool"])
+    ok = st["in_pool"]
+    if bool(ok.any()):
+        in_sup[ok] = kp[ok, yi[ok].clamp(min=0)]
+    frame["kl_arm"] = kl.numpy()
+    frame["sup_size"] = kp.sum(-1).numpy()
+    frame["in_pool"] = st["in_pool"].numpy()
+    frame["in_sup"] = in_sup.numpy()
+
 out = pd.concat(recs, ignore_index=True)
+out["rule"] = RULE
 out["arm"] = ARM
 out["ckpt_step"] = CKPT_STEP
 out["txt_step"] = TXT_STEP
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 out.to_parquet(OUT, index=False)
 print(f"[ledger] {len(out)} 行 -> {OUT}")
+print(f"[ledger] rule={RULE} 支撑均值={out.sup_size.mean():.2f} 采样 token 在支撑内={out.in_sup.mean():.3f}")
 print(f"[ledger] agree={out.agree.mean():.3f}  M_t>0={float((out.M_t > 0).mean()):.3f}  "
       f"rank_t_top1 中位={int(out.rank_t_top1.median())}  |dl| 均值={out.dl_sampled.abs().mean():.3f}")
