@@ -264,7 +264,17 @@ REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch
                     "simopd.gkd_stats", "simopd.a5_aggrevate", "simopd.h_horizon",
                     "simopd.h_budget", "simopd.h9_controller",
                     "simopd.teacher_registry", "simopd.b3_additive",
-                    "simopd.eos_gather", "simopd.stop_set")
+                    "simopd.eos_gather", "simopd.stop_set", "simopd.traj_dump")
+
+
+def _after_ray_trainer():
+    """SIMOPD_TRAJ_DIR 有值时,给 verl 的 rollout 落盘补一份 token id 版。
+
+    自带那份是 batch_decode(skip_special_tokens=True) —— 终止符在写盘那一刻就没了,
+    而整个战役的头号机制正是两个终止符的身份错配。"""
+    from simopd import traj_dump
+
+    traj_dump.install()
 
 
 # verl module -> what to run once it has finished executing
@@ -293,6 +303,9 @@ _TARGETS = {
     # legacy sampler in every teacher process and the runner never called it). Teacher
     # scoring only -- the hook targets the prompt-logprobs module, not the sampler.
     "vllm.v1.worker.gpu.sample.prompt_logprob": _after_vllm_v2_prompt_logprob,
+    # SIMOPD_TRAJ_DIR only: wrap the trainer's rollout dump so the ids are kept
+    # alongside verl's specials-stripped text. Gated inside install().
+    "verl.trainer.ppo.ray_trainer": _after_ray_trainer,
 }
 
 

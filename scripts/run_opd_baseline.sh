@@ -103,6 +103,13 @@ ARM_ARGS=()
 #   top-level key silently loads no function and every IF val dies NotImplementedError.
 [ -n "${LOSS_MAX_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.loss_max_clamp="${LOSS_MAX_CLAMP}")
 [ -n "${LOG_PROB_MIN_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.log_prob_min_clamp="${LOG_PROB_MIN_CLAMP}")
+# Trajectory dump (2026-08-21). simopd.traj_dump wraps RayPPOTrainer._log_rollout_data to
+# add a token-ID parquet next to verl's own dump, whose text is decoded with
+# skip_special_tokens=True -- i.e. with the terminators, the campaign's headline mechanism,
+# removed. verl only CALLS that method when trainer.rollout_data_dir is set, so setting
+# SIMOPD_TRAJ_DIR alone would arm a wrapper around a function nobody invokes: exactly the
+# shape of the h9 relay that burned 66 steps looking armed. Wire both from the one env var.
+[ -n "${SIMOPD_TRAJ_DIR:-}" ] && ARM_ARGS+=(trainer.rollout_data_dir="${SIMOPD_TRAJ_DIR}/_verl_text/${EXPERIMENT_NAME:-run}")
 
 train_batch_size=${TRAIN_BATCH_SIZE:-128}
 ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}   # = train batch: single epoch per rollout batch

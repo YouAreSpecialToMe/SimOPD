@@ -413,6 +413,19 @@ def main():
                         # SIMOPD_EVAL_SAVE_TEXT=0 restores the old artifact shape.
                         **({"response": comp.text}
                            if os.environ.get("SIMOPD_EVAL_SAVE_TEXT", "1") == "1" else {}),
+                        # The ids, not just the text (2026-08-21). vLLM decodes `text`
+                        # with skip_special_tokens=True, so every terminator is gone from
+                        # the saved artifact -- the 43 finish_reason="stop" rows of
+                        # b2_forward_kl@150 provably sampled a stop token and contain no
+                        # <|endoftext|> at all. Any question of the form "does this arm end
+                        # on eot or im_end", which is the campaign's headline mechanism, is
+                        # unanswerable from text and free from ids: they are already in hand
+                        # (resp_len is len(comp.token_ids)) and were simply dropped.
+                        # last_token_id answers it per row without reading the list column.
+                        # SIMOPD_EVAL_SAVE_IDS=0 restores the old shape.
+                        **({"token_ids": list(comp.token_ids),
+                            "last_token_id": (int(comp.token_ids[-1]) if len(comp.token_ids) else -1)}
+                           if os.environ.get("SIMOPD_EVAL_SAVE_IDS", "1") == "1" else {}),
                         **extra,   # always carries `correct`; transfer adds its own columns
                     }
                 )
