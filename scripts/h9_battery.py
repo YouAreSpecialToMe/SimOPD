@@ -137,6 +137,41 @@ SCRIPT.append(lambda p: TokenOutput([1]))
 run(P1)
 ok(CALLS[-1][1]["max_tokens"] == 512, "clamp follows budget updates")
 
+# ------------------------------------- cold relay must be LOUD, not silent ---
+# The 2026-08-21 failure: h9_prune_adapt_n0 swapped its loss mode, nothing wrote the
+# relay, budget() returned the cold-start 16384 forever, and the arm trained 66 steps
+# as an unclamped vanilla with NOTHING saying so. The trainer hook is fixed; this case
+# pins the consumer-side alarm, which is what catches the NEXT way it can go cold.
+import io  # noqa: E402
+from contextlib import redirect_stderr  # noqa: E402
+
+from simopd import h_horizon as _hh  # noqa: E402
+
+_b, _row = h_budget.budget_row()
+ok(_row and _b == 512, "budget_row returns budget and row from one read")
+
+_saved_path = os.environ["SIMOPD_H_BUDGET"]
+os.environ["SIMOPD_H_BUDGET"] = os.path.join(tmpdir, "never_written.jsonl")
+h_budget._read["offset"], h_budget._read["row"] = 0, None
+_hh._cold["n"], _hh._cold["warned_at"] = 0, 0
+buf = io.StringIO()
+with redirect_stderr(buf):
+    for _ in range(60):
+        _v = _hh._h_at(1)
+ok(_v == 16384, "cold relay still returns the full window (fail-open, not fail-stop)")
+ok("still EMPTY" in buf.getvalue(), "cold relay warns on stderr once past the threshold")
+ok(buf.getvalue().count("still EMPTY") == 1, "warning is rate-limited, not per-request")
+
+buf2 = io.StringIO()
+with redirect_stderr(buf2):
+    h_budget.append({"budget": 1024})
+    ok(_hh._h_at(1) == 1024, "a written relay takes effect")
+    for _ in range(60):
+        _hh._h_at(1)
+ok("still EMPTY" not in buf2.getvalue(), "no warning once the relay is warm")
+os.environ["SIMOPD_H_BUDGET"] = _saved_path
+h_budget._read["offset"], h_budget._read["row"] = 0, None
+
 # ------------------------------------------ torch controller (if available) ---
 try:
     import torch

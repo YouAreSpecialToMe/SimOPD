@@ -76,10 +76,17 @@ def latest():
     return _read["row"]
 
 
-def budget():
+def budget_row():
+    """(budget, row) from ONE read. generate() runs per request, so the caller that
+    also needs to know whether the relay has ever been written must not pay a second
+    open() for it -- row is falsy exactly when nobody has written the relay yet."""
     row = latest() or {}
     try:
         b = int(row.get("budget", DEFAULT_BUDGET))
     except (TypeError, ValueError):
         b = DEFAULT_BUDGET
-    return max(1, min(b, DEFAULT_BUDGET))
+    return max(1, min(b, DEFAULT_BUDGET)), row
+
+
+def budget():
+    return budget_row()[0]

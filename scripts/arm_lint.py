@@ -73,9 +73,11 @@ def _term_family_problems(run_id, env):
     return out
 
 
-# 写 h9 预算中继的 loss mode(即 registry 函数里调用了 _h9_observe 的那些)。
-# 加新 mode 时若想让它支持 h9,先在 losses.py 里挂上钩子,再往这里加名字。
-H9_RELAY_MODES = {"k1_rec"}
+# 不写 h9 预算中继的 loss mode。2026-08-21 之前这里是一份白名单({"k1_rec"}),
+# 因为钩子只挂在 k1_rec 上;现在 _h9_observe 同时挂在 k1_rec 和 top-k 工厂
+# (_topk_registry_fn)上,覆盖了除下面这些之外的全部 mode,所以改成黑名单——
+# 白名单会随着每加一个 top-k 臂就漏报一次,方向反了。
+H9_NO_RELAY_MODES = {"k1"}   # verl 自带的原版 k1:不经过我们的任何 registry 函数
 
 
 EXPECT_PG = {
@@ -209,10 +211,10 @@ def main():
         # budget() 于是永远返回冷启动默认值(整个 16384 窗口)—— 那个臂看起来在跑 h9,
         # 实际上是一条没有裁剪的 vanilla。h9_prune_adapt_n0 就这么烧了 66 步才被发现
         # (2026-08-21),从 step 10 起长度就和基线差 4.6 倍。
-        if str(env.get("SIMOPD_H9_ADAPT", "")) not in ("", "0") and mode not in H9_RELAY_MODES:
+        if str(env.get("SIMOPD_H9_ADAPT", "")) not in ("", "0") and mode in H9_NO_RELAY_MODES:
             problems.append(f"{tag} SIMOPD_H9_ADAPT=1 但 loss mode {mode!r} 不写预算中继 "
-                            f"(只有 {sorted(H9_RELAY_MODES)} 会调用 _h9_observe)—— "
-                            f"服务端会一直用冷启动默认 16384,这个臂等于没有 h9")
+                            f"(不经过 _h9_observe 的挂钩点)—— 服务端会一直用冷启动 "
+                            f"默认 16384,这个臂等于没有 h9")
 
         # --- optimizer branch vs the r5 verdict ---
         pg = env.get("USE_POLICY_GRADIENT", "True") != "False"

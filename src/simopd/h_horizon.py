@@ -70,11 +70,32 @@ def _adapt_mode():
     return os.environ.get("SIMOPD_H9_ADAPT", "") != ""
 
 
+_cold = {"n": 0, "warned_at": 0}
+
+
 def _h_at(step):
     if _adapt_mode():
         from simopd import h_budget
 
-        return h_budget.budget()
+        b, row = h_budget.budget_row()
+        # A relay nobody writes returns the cold-start full window forever, and the arm
+        # then trains as an unclamped vanilla under h9's name -- 66 wasted steps on
+        # h9_prune_adapt_n0 before a human noticed the length curve (2026-08-21). The
+        # trainer-side hook is fixed, but the failure must also be loud from the side
+        # that CONSUMES the budget: only this side knows the relay stayed cold.
+        if row:
+            _cold["n"] = 0
+        else:
+            _cold["n"] += 1
+            # 首次在第 50 次调用时响(给 bringup 留出余量),之后每 200 次重复一遍。
+            if _cold["n"] >= 50 and (_cold["warned_at"] == 0
+                                     or _cold["n"] - _cold["warned_at"] >= 200):
+                _cold["warned_at"] = _cold["n"]
+                print(f"[simopd] h_horizon: budget relay still EMPTY after {_cold['n']} "
+                      f"generate calls -- clamping at the cold-start {b}, i.e. NOT "
+                      f"clamping. This arm is not running h9. Check that its loss mode "
+                      f"reaches losses._h9_observe.", file=sys.stderr, flush=True)
+        return b
     global _sched
     if _sched is None:
         _sched = gkd_schedule.parse(os.environ["SIMOPD_H_SCHEDULE"])

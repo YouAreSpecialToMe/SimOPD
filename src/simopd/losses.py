@@ -278,7 +278,7 @@ if (os.environ.get("SIMOPD_GKD_CACHE", "") != ""
     _gkd_stats_bringup.path()
 
 
-_h9 = {"warned": False}
+_h9 = {"warned": False, "fed": False}
 
 
 def _h9_observe(teacher, mask):
@@ -293,11 +293,34 @@ def _h9_observe(teacher, mask):
         from simopd import h9_controller
 
         h9_controller.observe(teacher, mask)
+        _h9["fed"] = True
     except Exception as e:
         if not _h9["warned"]:
             _h9["warned"] = True
             print(f"[simopd] h9_controller failed ({e!r}); budget frozen at its "
                   f"last value, training continues", file=sys.stderr, flush=True)
+
+
+def _h9_observe_from_output(model_output, data):
+    """_h9_observe for the top-k arms, whose registry fn never unpacks logprobs itself.
+
+    Reads the teacher's sampled-token log-probs the same way _unpack does, so under
+    SIMOPD_TERM_EVENT=1 the controller sees the EVENT-fixed values -- which is the
+    reading h9 wants anyway: its lost-the-thread event is log q_T(student token) at
+    ORDINARY positions, and at stops the event-level value is the meaningful one.
+    Env-gated and non-propagating, exactly like _h9_observe."""
+    if os.environ.get("SIMOPD_H9_ADAPT", "") == "":
+        return
+    try:
+        _, teacher, mask = _unpack(model_output, data)
+    except Exception as e:
+        if not _h9["warned"]:
+            _h9["warned"] = True
+            print(f"[simopd] h9: cannot unpack teacher logprobs ({e!r}); budget relay "
+                  f"is NOT being written -- this arm is running unclamped",
+                  file=sys.stderr, flush=True)
+        return
+    _h9_observe(teacher, mask)
 
 
 @register_distillation_loss(
@@ -823,6 +846,15 @@ def _topk_registry_fn(*extra_keys, signal="loss"):
             if key in model_output:
                 v = no_padding_2_padding(model_output[key], data)
                 metrics[f"distillation/{key}"] = Metric(aggregation=AggregationType.MEAN, value=v[mask].float().mean())
+        # Sidebands live here, not only in k1_rec (2026-08-21). h9_prune_adapt_n0 swapped
+        # its loss mode to k1_termfix and thereby lost BOTH halves at once: nothing called
+        # _h9_observe, so h_budget was never written and the server clamped at the
+        # cold-start 16384 -- and nothing called _gkd_relay_metrics either, so the h9_*
+        # panel that would have shown budget=16384/calls=0 was absent too. A silent knob
+        # plus a silent panel is how an arm trains 66 steps as an unclamped vanilla while
+        # its name says h9. Both are env-gated no-ops for arms that do not arm them.
+        _h9_observe_from_output(model_output, data)
+        metrics.update(_gkd_relay_metrics())
         return losses, metrics
 
     return fn
