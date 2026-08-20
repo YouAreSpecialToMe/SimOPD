@@ -492,7 +492,14 @@ _launch_lane() {  # ARM GPUS
             export CUDA_VISIBLE_DEVICES=$GPUS
             export TOTAL_TRAINING_STEPS=250
             export MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-16384}
-            export WANDB_RUN_GROUP="Qwen3-1.7B-Base__from__Qwen3-4B-Instruct-2507__s${SEED}"
+            # Derived, not hardcoded (2026-08-21): arm.py's env above is exactly the step
+            # that can swap the pair (a2_coldstart replaces STUDENT_MODEL, the I-axis and
+            # any future pair cell replaces TEACHER_MODEL). A literal group name files
+            # those runs under the pair they are NOT -- the one label whose whole job is
+            # to say which pair a curve belongs to. Same derivation as deploy/dsw/_lane.sh;
+            # defaults mirror run_opd_baseline.sh, which is where they live.
+            _short() { local q="${1%/}"; q="${q%/hf}"; basename "$q"; }
+            export WANDB_RUN_GROUP="$(_short "${STUDENT_MODEL:-Qwen/Qwen3-1.7B-Base}")__from__$(_short "${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}")__s${SEED}"
             export WANDB_TAGS="${ARM},N,seed${SEED},dlc_corr_wave1,slot${SLOT}"
             # every *_corr arm env pins SIMOPD_STOP_IDS=off; n2_termcal (backlog fill) does too
             echo "lane ${ARM}: SIMOPD_STOP_IDS=${SIMOPD_STOP_IDS:-<unset>} SIMOPD_TERM_EVENT=${SIMOPD_TERM_EVENT:-0} GPUS=${GPUS}"
