@@ -16,14 +16,23 @@ if not FILES:
     print(__doc__)
     sys.exit(2)
 d = pd.concat([pd.read_parquet(f) for f in FILES], ignore_index=True)
-d["absdl"] = d.dl_sampled.abs()
+# 归因用哪个量。dl_sampled = log q_T(y_t) - log p_theta(y_t) 是采样 token 上的全词表
+# k1,与臂无关,所以跨臂可比 —— 但 C 族根本不优化它(它们看的是自己支撑上的重归一化
+# KL)。要问"c4 自己的 loss 落在哪些 token 上",得换成 kl_topk(教师 top-K 上重归一化,
+# 固定 K 只为可比)。默认 dl,LEDGER_METRIC=kl_topk 切换。
+import os as _os
+METRIC = _os.environ.get("LEDGER_METRIC", "dl")
+if METRIC not in ("dl", "kl_topk"):
+    raise SystemExit(f"LEDGER_METRIC 只能是 dl 或 kl_topk,收到 {METRIC!r}")
+d["absdl"] = d.dl_sampled.abs() if METRIC == "dl" else d.kl_topk
+MNAME = "|Δℓ|" if METRIC == "dl" else "KL_topk"
 steps = sorted(d.ckpt_step.unique())
 print(f"台账 {len(d)} 行,arm={sorted(d.arm.unique())},文本 step={sorted(d.txt_step.unique())},"
       f"权重 step={steps}\n")
 
 # ---- A. loss 按 token 类别:占比,不是均值 —— 我们问的是"谁扛着",那是质量占比。
 print("=" * 78)
-print("A  |Δℓ| 的质量占比 × token 类别(括号内是该类的位置占比)")
+print(f"A  {MNAME} 的质量占比 × token 类别(括号内是该类的位置占比)")
 print("=" * 78)
 tot = d.groupby("ckpt_step").absdl.sum()
 cnt = d.groupby("ckpt_step").size()
@@ -45,25 +54,26 @@ for r in rows:
 TOPN = int(__import__("os").environ.get("LEDGER_TOPN", "25"))
 print()
 print("=" * 78)
-print(f"A2  扛 |Δℓ| 最多的 {TOPN} 个 token(按总量;share=占全部 |Δℓ| 的比例)")
+print(f"A2  扛 {MNAME} 最多的 {TOPN} 个 token(按总量;share=占全部 {MNAME} 的比例)")
 print("=" * 78)
 for s in steps:
     ds = d[d.ckpt_step == s]
     g = ds.groupby(["token_str", "tok_class"]).agg(
         mass=("absdl", "sum"), n=("absdl", "size"), mean=("absdl", "mean"),
-        agree=("agree", "mean"), ent=("t_ent", "mean")).reset_index()
+        agree=("agree", "mean"), ent=("t_ent", "mean"),
+        over=("dl_sampled", lambda x: float((x < 0).mean()))).reset_index()
     g["share"] = g["mass"] / ds.absdl.sum() * 100
     g = g.sort_values("mass", ascending=False).head(TOPN)
     print(f"\n-- step {s}(共 {len(ds)} 位置,{ds.token_str.nunique()} 个不同 token)")
-    print(f"{'token':<18} {'class':<11} {'share':>7} {'n':>6} {'mean|dl|':>9} {'agree':>7} {'教师熵':>7}")
+    print(f"{'token':<18} {'class':<11} {'share':>7} {'n':>6} {'mean':>8} {'agree':>7} {'教师熵':>7} {'过自信':>7}")
     for _, r in g.iterrows():
         print(f"{repr(r.token_str)[:18]:<18} {r.tok_class:<11} {r.share:>6.2f}% {int(r.n):>6} "
-              f"{r['mean']:>9.3f} {r.agree*100:>6.1f}% {r.ent:>7.3f}")
+              f"{r['mean']:>8.3f} {r.agree*100:>6.1f}% {r.ent:>7.3f} {r.over*100:>6.0f}%")
 
 # ---- A3. 每一类内部再看头部,免得 word 这种大类把别的类挤掉
 print()
 print("=" * 78)
-print("A3  每个类别内部扛 |Δℓ| 最多的 token(末个 ckpt)")
+print(f"A3  每个类别内部扛 {MNAME} 最多的 token(末个 ckpt)")
 print("=" * 78)
 ds = d[d.ckpt_step == steps[-1]]
 for cls, g0 in sorted(ds.groupby("tok_class"), key=lambda kv: -kv[1].absdl.sum()):
@@ -79,7 +89,7 @@ print("  (括号内 = share / 出现次数 / top1 一致率)")
 # ---- B. 按位置段
 print()
 print("=" * 78)
-print("B  |Δℓ| 均值 × 位置段(in-loop 面板的离线复核,并加上 top1 一致率)")
+print(f"B  {MNAME} 均值 × 位置段(in-loop 面板的离线复核,并加上 top1 一致率)")
 print("=" * 78)
 BANDS = ["0-100", "100-500", "500-2k", "2k+"]
 print(f"{'band':<10} " + " ".join(f"{'step ' + str(s):>20}" for s in steps))
@@ -158,3 +168,56 @@ else:
             print(f"   {name:<16} {len(g):>7} {gp:>7.2f}% {ln:>7.2f}% {gp-ln:>+7.2f}%")
         cls = j[gain].tok_class.value_counts(normalize=True).head(4)
         print("   翻正最集中的 token 类:" + ", ".join(f"{k} {v*100:.0f}%" for k, v in cls.items()))
+
+# ---- E/F. 决策 token。"后期 acc 还在涨"要有个可操作的落点:哪些位置的选择才真的
+# 影响结果。用 (教师确定吗) x (学生同意吗) 的 2x2 切:
+#   已学会   教师确定 + 学生同意      -> 没得学了
+#   决策点   教师确定 + 学生不同意    -> 教师知道该走哪,学生走错;贪心解码下这就是错
+#   风格噪声 教师不确定 + 学生不同意  -> 教师自己重采也会换,不可约
+#   巧合     教师不确定 + 学生同意
+# 只有"决策点"那一格是既错又可修的 —— 它的收缩速度才是后期学习的真实进度条。
+ENT_LO = float(_os.environ.get("LEDGER_ENT_LO", "0.3"))
+print()
+print("=" * 78)
+print(f"E  决策 token 的 2x2((教师熵<{ENT_LO})x(学生 top1 同意)),占位置数 / 占 {MNAME}")
+print("=" * 78)
+
+
+def cells(dd):
+    conf, ag = dd.t_ent < ENT_LO, dd.agree
+    return [("已学会", dd[conf & ag]), ("决策点", dd[conf & ~ag]),
+            ("风格噪声", dd[~conf & ~ag]), ("巧合", dd[~conf & ag])]
+
+
+print(f"{'格':<10} " + " ".join(f"{'step ' + str(s):>24}" for s in steps))
+print(f"{'':<10} " + " ".join(f"{'位置%   loss%   均值':>24}" for _ in steps))
+for i, name in enumerate([n for n, _ in cells(d[d.ckpt_step == steps[0]])]):
+    row = []
+    for s in steps:
+        ds_ = d[d.ckpt_step == s]
+        g = cells(ds_)[i][1]
+        row.append(f"{len(g)/max(len(ds_),1)*100:>6.1f}% {g.absdl.sum()/max(ds_.absdl.sum(),1e-9)*100:>6.1f}% "
+                   f"{g.absdl.mean() if len(g) else 0:>7.3f}" if len(ds_) else f"{'-':>24}")
+    print(f"{name:<10} " + " ".join(f"{c:>24}" for c in row))
+
+print()
+print("=" * 78)
+print(f"F  决策 token 里具体是哪些(教师熵<{ENT_LO} 且学生 top1 不同意),按 {MNAME} 总量")
+print("=" * 78)
+for s in steps:
+    ds_ = d[d.ckpt_step == s]
+    g0 = ds_[(ds_.t_ent < ENT_LO) & (~ds_.agree)]
+    if not len(g0):
+        print(f"-- step {s}: 该格为空"); continue
+    keys = ["token_str", "tok_class"] + (["t_top1_str"] if "t_top1_str" in g0.columns else [])
+    g = g0.groupby(keys).agg(mass=("absdl", "sum"), n=("absdl", "size"),
+                             mean=("absdl", "mean")).reset_index()
+    g["share"] = g["mass"] / g0.absdl.sum() * 100
+    g = g.sort_values("mass", ascending=False).head(15)
+    print(f"\n-- step {s}:{len(g0)} 个决策位置(占 {len(g0)/len(ds_)*100:.1f}%),"
+          f"扛 {g0.absdl.sum()/ds_.absdl.sum()*100:.1f}% 的 {MNAME}")
+    print(f"{'文本里是':<16} {'教师想要':<16} {'class':<10} {'share':>7} {'n':>5} {'mean':>8}")
+    for _, r in g.iterrows():
+        want = repr(r.t_top1_str)[:16] if "t_top1_str" in g.columns else "-"
+        print(f"{repr(r.token_str)[:16]:<16} {want:<16} {r.tok_class:<10} "
+              f"{r.share:>6.2f}% {int(r.n):>5} {r['mean']:>8.3f}")

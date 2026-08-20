@@ -265,6 +265,10 @@ for k, e in enumerate(examples):
         tok_class=[classify(s, i) for s, i in zip(strs, e["r_ids"])],
         is_rep=rep,
         t_top1=tc["t_top1"], t_top1_lp=tc["t_top1_lp"], t_ent=tc["t_ent"],
+        # 教师在那个位置想写什么 —— "学生写了 X,教师要的是 Y" 才是可行动的一对,
+        # 只知道 X 贵没法改任何东西。
+        t_top1_str=[tok.convert_tokens_to_string([t]) for t in
+                    tok.convert_ids_to_tokens([int(v) for v in tc["t_top1"]])],
         q_sampled=tc["q_sampled"], p_sampled=p_sampled.cpu().numpy(),
         dl_sampled=dl, kl_topk=kl_topk.cpu().numpy(),
         s_top1=top2.indices[:, 0].cpu().numpy(),
