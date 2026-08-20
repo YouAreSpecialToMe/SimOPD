@@ -235,7 +235,12 @@ for k, e in enumerate(examples):
     q = (q - torch.logsumexp(q, dim=-1, keepdim=True))
     p_on_raw = lp.gather(1, tt_ids)                             # 未重归一化:学生在池内各列的真实质量
     p_on = p_on_raw - torch.logsumexp(p_on_raw, dim=-1, keepdim=True)
-    kl_topk = (q.exp() * (q - p_on)).sum(-1)
+    # 方向必须和 kernel 一致:verl 的 kl_divergence(log_q, log_p) = sum p (log p - log q),
+    # C 族一律以 log_p=学生 调用(topk_losses.py:109 的注释写得明白),所以它们优化的是
+    # REVERSE KL —— 按学生的质量加权。写成 forward 会把归因整个调头:reverse 下"学生
+    # 压了质量而教师不要"的 token 最贵(停止处的 eot 就是),forward 下最贵的是"教师
+    # 要而学生没有"的 token。两者在终止符这件事上正好指向相反的一侧。
+    kl_topk = (p_on.exp() * (p_on - q)).sum(-1)
 
     # 臂自己的支撑上的重归一化 KL。这是关键的一列:c2/c4 根本看不到全词表 k1,
     # 它们只在自己选出来的支撑上算 KL,支撑外的 token 贡献恒为 0 —— 所以"哪些
@@ -331,7 +336,7 @@ for st, frame in zip(stash, recs):
     p = torch.where(kp, p, torch.full_like(p, NEG))
     q = q - torch.logsumexp(q, -1, keepdim=True)
     p = p - torch.logsumexp(p, -1, keepdim=True)
-    kl = (q.exp() * (q - p)).sum(-1)
+    kl = (p.exp() * (p - q)).sum(-1)          # reverse KL,与 kernel 同向
     yi = st["y_idx"]
     in_sup = torch.zeros_like(st["in_pool"])
     ok = st["in_pool"]

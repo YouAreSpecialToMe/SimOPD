@@ -21,11 +21,13 @@ d = pd.concat([pd.read_parquet(f) for f in FILES], ignore_index=True)
 # KL)。要问"c4 自己的 loss 落在哪些 token 上",得换成 kl_topk(教师 top-K 上重归一化,
 # 固定 K 只为可比)。默认 dl,LEDGER_METRIC=kl_topk 切换。
 import os as _os
-METRIC = _os.environ.get("LEDGER_METRIC", "dl")
-if METRIC not in ("dl", "kl_topk"):
-    raise SystemExit(f"LEDGER_METRIC 只能是 dl 或 kl_topk,收到 {METRIC!r}")
-d["absdl"] = d.dl_sampled.abs() if METRIC == "dl" else d.kl_topk
-MNAME = "|Δℓ|" if METRIC == "dl" else "KL_topk"
+METRIC = _os.environ.get("LEDGER_METRIC", "kl_arm" if "kl_arm" in d.columns else "dl")
+if METRIC not in ("dl", "kl_topk", "kl_arm"):
+    raise SystemExit(f"LEDGER_METRIC 只能是 dl / kl_topk / kl_arm,收到 {METRIC!r}")
+if METRIC == "kl_arm" and "kl_arm" not in d.columns:
+    raise SystemExit("这份台账没有 kl_arm 列(探针是加支撑规则之前的版本)")
+d["absdl"] = d.dl_sampled.abs() if METRIC == "dl" else d[METRIC]
+MNAME = {"dl": "|Δℓ|", "kl_topk": "KL_topk", "kl_arm": "KL_臂支撑"}[METRIC]
 steps = sorted(d.ckpt_step.unique())
 print(f"台账 {len(d)} 行,arm={sorted(d.arm.unique())},文本 step={sorted(d.txt_step.unique())},"
       f"权重 step={steps}\n")
