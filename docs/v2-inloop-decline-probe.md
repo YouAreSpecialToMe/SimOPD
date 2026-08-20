@@ -165,3 +165,33 @@ distinct-20gram 0.037. Healthy and sick trained students are the same species st
 the disease is only the full stop. (5) Length growth decomposes into a benign component
 (verification amplification, +3.5x, shared by healthy arms) and the malignant one (terminator
 death, unbounded, vanilla only).
+
+### 7.1 Training-parameter rows: temperature is NOT the teacher-length confound — the prompt distribution is
+
+Two further cells at the real training sampling params (tau=1.0, top_p=1.0; run_opd_baseline.sh:447,
+gen_offpolicy.py:116), plus the decoded actual teacher cache (1,500 of 14,467 rows):
+
+| | score | trunc% | len med | Wait/resp | verify/resp | "We are done"/resp | note |
+|---|---|---|---|---|---|---|---|
+| teacher @tau1, math500 | .914 | 0.6 | **722** | 3.6 | 1.4 | 0.000 | == greedy teacher (694): temperature does NOT lengthen it |
+| student @tau1, math500 | .116 | 2.6 | 318 | 0.8 | 0.2 | 0.000 | 68% produce NO boxed; short drifty non-answerer, not a looper |
+| **teacher cache (real demos, train prompts)** | – | **8.6** | **6449** | **21.8** | 6.4 | **0.170** | the wander-style corpus |
+
+The 9x teacher length gap (722 vs 6449) is prompt-distribution, not temperature: the train parquet's
+`extra_info.orig_source` is **acereason_math** (competition-hard; the `data_source` string
+DigitalLearningGmbH/MATH-lighteval is scorer routing, not provenance). On genuinely hard prompts the
+free-running teacher deliberates at length: Wait 21.8/resp (6x its math500 rate), 8.6% of demos
+hit the 16k cap with no terminator, and "We are done" — the exact phrase of the late loop body —
+appears in ~1 of 6 real demos. Earlier session claims that "the teacher is verbose at temperature 1"
+are corrected accordingly: it is verbose on the training distribution.
+
+Closure numbers: every arm's training-rollout length settles at 8.4-9.5k ~ the free-run teacher
+equilibrium on these prompts; the healthy arms' permanent clip floor (0.02-0.08) is the same order
+as the teacher's own 8.6% cap rate. The first clip hump (steps 35-55, peak 0.4-0.8, universal across
+vanilla/c2/c4/corr) is the style tide toward that equilibrium; only the second hump (terminator
+death) is pathology. Style trajectory on the vanilla sweep dates the tide: Wait bursts 0 -> 13.8/resp
+at step 50 (entropy min 0.11 @35-45 turns upward exactly there); scaffold completes 19% -> 91% by
+step 100 with boxed=1 and 1-3% post-answer tail (perfect stop discipline on the eve of the cliff);
+the death markers (boxed 538, distinct-20gram 0.09, tail 19%) all flip together in the 100->125
+window, and "We are done" enters the loop body only at 150+ (2.9 -> 147/resp by 225) — the
+teacher-corpus phrase k1-amplified into the dominant cycle.
