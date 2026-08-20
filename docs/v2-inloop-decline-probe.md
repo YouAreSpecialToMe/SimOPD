@@ -137,3 +137,31 @@ mojibake) — stop-desire is only legible in clean final-answer loops, which is 
 Corollary for `vanilla_corr`: the event-level read converts terminal positions into honest,
 bounded placement supervision — log q_T(E_T) is ~-2.3 at "not quite yet" and ~-0.1 at "stop now",
 instead of a flat -25 spelling artifact.
+
+## 7. Style anatomy: teacher, base student, healthy-trained, sick-trained (2026-08-20)
+
+Four fresh greedy math500 cells with full text (`evals_style/`; tools `scripts/analysis/style_cells.sh`
++ `style_anatomy.py`), vanilla@250 from the sweep as the sick contrast:
+
+| | score | trunc% | len med | scaffold (###/$$/---) | ✅ | Wait /resp | verify /resp | "We are done" /resp | boxed med | post-answer tail |
+|---|---|---|---|---|---|---|---|---|---|---|
+| teacher 4B | .900 | 1.0 | 694 | 92/95/92% | **84%** | 1.7 | 0.6 | 0.0 | 1 | 2.4% |
+| base 1.7B | .458 | 17.0 | 553 | 6/0/0% | 0 | **0.0** | 0.1 | 0.0 | 1 | 1.3% |
+| c2@250 | .674 | 10.8 | 2400 | 97/97/98% | 2% | 8.0 | 2.3 | 0.0 | 2 | 9.5% |
+| c4@250 | .656 | 21.6 | 2810 | 98/95/97% | 2% | 12.0 | 2.5 | 0.0 | 2 | 19.3% |
+| vanilla@250 | .462 | 95.8 | 16384 | 97/91/98% | 1% | 9.5 | 3.2 | **142.0** | **712** | (loop) |
+
+Readings. (1) The base student is terse numbered-list prose with a 27.6% hallucinated-python-block
+rate, zero verification vocabulary (Wait 0.00/resp), and stops within 1.3% of its answer — but
+already blows the 16k cap on 17% of problems untrained. (2) The teacher builds to its answer at the
+97.5% position of the text and closes within 2.4%. (3) c2/c4 adopted the teacher's full scaffold
+(97-98% marker rates; the ✅ signature notably did NOT transfer, 2%) and AMPLIFIED the verification
+habit 5-7x beyond the teacher (Wait 8-12 vs 1.7; second-method re-solves; dedicated Verification
+sections; the answer stated twice) — hence 3.5-4x the teacher's length. The wander-loop raw material
+is therefore measured as teacher-descended vocabulary amplified by the optimization, not present in
+the base model. (4) vanilla@250 is style-identical to c2/c4 (same scaffold, same amplified checking)
+— the ONLY stylistic fork is that its terminator is dead: "We are done" x142, boxed x712,
+distinct-20gram 0.037. Healthy and sick trained students are the same species stylistically;
+the disease is only the full stop. (5) Length growth decomposes into a benign component
+(verification amplification, +3.5x, shared by healthy arms) and the malignant one (terminator
+death, unbounded, vanilla only).
