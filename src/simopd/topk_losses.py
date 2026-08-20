@@ -1387,13 +1387,26 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
             raise RuntimeError(f"c4: DISTILLATION_TOPK={K_all} leaves no pool beside the {n_x} gathered ids")
         x_lp, x_id = t_lp[..., K_all - n_x:], t_id[..., K_all - n_x:]
         want = torch.tensor(EG.extra_ids(), device=x_id.device, dtype=x_id.dtype)
-        if not bool((x_id == want).all()):
-            raise RuntimeError("c4: the extra-id block does not carry the configured ids in order -- "
-                               "the teacher server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
-        if not bool(torch.isfinite(x_lp).all()):
-            raise RuntimeError("c4: -inf in the gathered terminator block -- refusing a fabricated q=0")
+        # verl appends ONE all-zero dummy row per sequence (see _verl_dummy_rows); it sits
+        # outside the loss window but every kernel sees it, so the contract checks must
+        # exempt it exactly as the N0 reader below does. Without this the row's zero ids
+        # fail the id check and the arm dies at step 1 with a message blaming the teacher
+        # server -- which is armed (2026-08-20: the whole wave-20 carrier trio, caught by
+        # the 3-step rehearsal; the c4_state battery never saw it because synthetic
+        # payloads carry no dummy row).
+        dummy = _verl_dummy_rows(t_id)
+        ids_ok = (x_id == want).all(dim=-1) | dummy
+        if not bool(ids_ok.all()):
+            raise RuntimeError(f"c4: the extra-id block does not carry the configured ids in order on "
+                               f"{int((~ids_ok).sum())} position(s) (want {EG.extra_ids()}) -- the teacher "
+                               "server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
+        lp_ok = torch.isfinite(x_lp).all(dim=-1) | dummy
+        if not bool(lp_ok.all()):
+            raise RuntimeError(f"c4: -inf in the gathered terminator block on {int((~lp_ok).sum())} "
+                               "position(s) -- refusing a fabricated q=0")
         t_cols = torch.tensor(EG.teacher_cols(), device=x_lp.device, dtype=torch.long)
         q_et = torch.logsumexp(torch.index_select(x_lp, -1, t_cols).float(), dim=-1).exp()
+        q_et = torch.where(dummy, torch.zeros_like(q_et), q_et)   # the dummy row's block is 0.0, not a probability
         t_lp, t_id = t_lp[..., : K_all - n_x], t_id[..., : K_all - n_x]
     if C4_HQ and q_et is None:
         raise RuntimeError("SIMOPD_C4_HQ=1 needs the exact-terminator carrier (SIMOPD_GATHER_EOS=1): "

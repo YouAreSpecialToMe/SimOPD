@@ -240,4 +240,47 @@ except RuntimeError as e:
     ok("SIMOPD_GATHER_EOS" in str(e), "hq gate refuses loudly without the carrier")
 EG._ENABLED = True
 
+# ------------------------------------------------- G. verl's dummy last row ---
+# What every case above missed: build_payload strips the payload's last row ([:-1]),
+# but verl DELIVERS it -- one all-zero dummy row per sequence, outside the loss window,
+# seen by every kernel. The c4 extras check had no exemption for it, so all three
+# wave-20 carrier arms died at step 1 blaming an armed teacher server (2026-08-20,
+# caught by the 3-step rehearsal on the 8-card box, not by this battery).
+print("== G. verl's per-sequence dummy row is exempt and inert")
+
+
+def build_payload_keep_dummy(teacher_logits, sampled):
+    """build_payload without the [:-1] -- i.e. exactly what verl hands the kernel."""
+    wrapped = EG._wrap(fake_original, LogprobsTensors)
+    tw = wrapped(teacher_logits.log_softmax(-1), K, sampled)
+    dicts = []
+    for r in range(tw.logprob_token_ids.shape[0]):
+        rk = [int(tw.selected_token_ranks[r])] + list(range(1, K + 1))
+        dicts.append({int(t): types.SimpleNamespace(logprob=float(l), rank=rr)
+                      for t, l, rr in zip(tw.logprob_token_ids[r].tolist(), tw.logprobs[r].tolist(), rk)})
+    o = types.SimpleNamespace(prompt_token_ids=[0] + sampled.tolist(), prompt_logprobs=[None] + dicts)
+    rr = {}
+    teacher_patch._extract_with_eos(lambda *a: None)(o, K, rr)
+    return (torch.nested.nested_tensor([torch.tensor(rr["prompt_logprobs"])], layout=torch.jagged),
+            torch.nested.nested_tensor([torch.tensor(rr["prompt_ids"])], layout=torch.jagged))
+
+
+t_lps_d, t_ids_d = build_payload_keep_dummy(tch, sampled)
+ok(t_ids_d.values().shape[0] == TL + 1, "kept payload is one row longer than the stripped one")
+ok(bool((t_ids_d.values()[-1] == 0).all()), "that extra row is all-zero ids (what _verl_dummy_rows keys on)")
+# student side padded to match; the appended response token is unique so it cannot
+# extend a repetition run and change the rep gate's verdict on the real rows.
+z_d = torch.cat([stu_base, stu_base[:, -1:, :]], dim=1).clone().requires_grad_(True)
+resp_d = torch.cat([resp, torch.full((1, 1), V - 1)], dim=1)
+data_d = {"response_mask": torch.ones(1, TL + 1, dtype=torch.bool), "responses": resp_d}
+T.C4_HQ, T.C4_REP = True, True
+out_d = T.compute_pi_tail_budget_topk(z_d, t_lps_d, t_ids_d, CFG, None, data=data_d)
+ok(True, "kernel accepts the dummy row instead of blaming an armed teacher server")
+l_d = out_d["distillation_losses"]
+ok(bool(torch.isfinite(l_d).all()), "no NaN/inf anywhere, dummy row included")
+z_s = stu_base.clone().requires_grad_(True)
+l_s = run(z_s, True, True)["distillation_losses"]
+ok(bool(torch.allclose(l_d[..., :TL], l_s, atol=1e-6)),
+   "the real rows are unchanged by the dummy row's presence (exempt AND inert)")
+
 print(f"\nALL PASS ({PASS} checks)")
