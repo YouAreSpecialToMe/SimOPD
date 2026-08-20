@@ -63,10 +63,12 @@ _check() {
         fi
         _say "lane$lane ($arm): 死了(静默 ${age}m,GPU [$gpus] 空)step=${step:-none} -> 重新拉起"
         if [ "$DRY" = 1 ]; then _say "lane$lane: DRY,不拉起"; continue; fi
-        ( cd "$ROOT" && RAY_TMPDIR_TAG="wd${lane}_" LANES=1 GPU_LIST="$gpus" STEPS="$STEPS" \
-            SIMOPD_VENV="$VENV" nohup bash deploy/dsw/run_parallel.sh "$spec" \
+        # WD_TAG:同机跑两个看门狗实例(w20 剩余臂 + w21)时各给一个前缀,
+        # 否则两边的 lane 0 救活都叫 wd0_,ray 临时目录撞名。
+        ( cd "$ROOT" && RAY_TMPDIR_TAG="${WD_TAG:-wd}${lane}_" LANES=1 GPU_LIST="$gpus" STEPS="$STEPS" \
+            SIMOPD_VENV="$VENV" LOG_DIR="$LOG_DIR" nohup bash deploy/dsw/run_parallel.sh "$spec" \
             >> "${LAUNCH_LOG%.log}_wd.log" 2>&1 & )
-        _say "lane$lane ($arm): 已提交(GPU_LIST=$gpus, ray tag wd${lane}_)"
+        _say "lane$lane ($arm): 已提交(GPU_LIST=$gpus, ray tag ${WD_TAG:-wd}${lane}_)"
         sleep 60      # 错开,别让两条同时重建
     done <<< "$(_map)"
 }
