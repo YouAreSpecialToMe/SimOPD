@@ -3,7 +3,7 @@
     python scripts/make_dynamics_page.py            # -> docs/arm-dynamics.html
     python scripts/make_dynamics_page.py --every 2  # smaller file
 
-All 29 arms are drawn together in every panel; hovering or clicking one arm
+Every arm in the loaded dumps is drawn together in every panel; hovering or clicking one arm
 spotlights it in ALL panels at once, so an arm's val / length / entropy /
 truncation are read against the whole field simultaneously. Up to three arms
 pin in distinct colours for direct comparison, and when exactly one is pinned
@@ -174,13 +174,16 @@ def r4(v):
 
 def main():
     ap = argparse.ArgumentParser()
-    # BOTH metric dumps by default: the 16k batch (29 arms) and the expansion
-    # batch (13 more -- c1_direct, qb_fixed8, f5_tanh, ...). Passing one alone
-    # silently drops the other half of the campaign from the page, which is how
-    # a regeneration can look successful and lose 13 arms.
+    # ALL metric dumps by default: the 16k batch (29 arms), the expansion
+    # batch (13 more -- c1_direct, qb_fixed8, f5_tanh, ...), and since 2026-08-22 the
+    # corr/n0 wave (vanilla_corr, *_corr, *_n0, c4_rep/c4_carrier, c5_union_*), which is
+    # the campaign actually running. Passing one alone silently drops the others from the
+    # page, which is how a regeneration can look successful and lose half the arms.
+    # The corr dump is refreshed by scripts/export_wave_metrics.py --since 2026-08-19.
     ap.add_argument("--csv", nargs="+", default=[
         os.path.join(ROOT, "docs/data/training_metrics_16k_allkeys.csv.gz"),
-        os.path.join(ROOT, "docs/data/training_metrics_exp_allkeys.csv.gz")])
+        os.path.join(ROOT, "docs/data/training_metrics_exp_allkeys.csv.gz"),
+        os.path.join(ROOT, "docs/data/training_metrics_corr_allkeys.csv.gz")])
     ap.add_argument("--out", default=os.path.join(ROOT, "docs/arm-dynamics.html"))
     ap.add_argument("--every", type=int, default=1)
     ap.add_argument("--suite-md", default=os.path.join(ROOT, "docs/campaign_16k_report.md"),
@@ -438,7 +441,7 @@ $("#foot").innerHTML=`细线 = 该臂三种子均值;固定臂另画三条种子
  +` 两个信号面板<b>刻意分开</b>:k1 族报 Δℓ,top-k 族报散度 loss,量纲不同不得同图。`
  +` <b>两块记分牌不可混读</b>:in-loop 是 greedy·16k 帽的健康遥测,离线套件是 τ=0.7·top-p0.95·32k·avg@3 的正式测量;`
  +` 终止受损的臂在 greedy 下会一路复读到帽而取不出答案,套件分因此可高出 0.2 以上(f3:0.473 → 0.684)。`
- +` 数据 <span class="mono">docs/data/training_metrics_16k_allkeys.csv.gz</span> + 套件表取自 <span class="mono">docs/campaign_16k_report.md</span>(489/861 格已完成),`
+ +` 数据 <span class="mono">docs/data/training_metrics_{16k,exp,corr}_allkeys.csv.gz</span> 三份合并(corr 波由 <span class="mono">scripts/export_wave_metrics.py</span> 刷新)+ 套件表取自 <span class="mono">docs/campaign_16k_report.md</span>,`
  +` 由 <span class="mono">scripts/make_dynamics_page.py</span> 生成。`;
 
 /* ---------- sidebar ---------- */
