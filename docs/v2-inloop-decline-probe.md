@@ -212,3 +212,30 @@ cold-start base->instruct distillation (the campaign setting) to instruct->instr
 UNCORRECTED k1, seed 0) pre-registers as no-collapse; paired with vanilla_corr (misaligned student x
 corrected loss) it pincers the causal claim "collapse = spelling mismatch x sampled-column gradient"
 from both sides.
+
+## 8. Two adjudications: b2's late collapse is drain (not drift); the N0 event read teaches events, not spellings
+
+**b2_forward_kl autopsy** (`clock_b2.py` + `probe_b2.py`, banks 25-175). Two-spelling clock at the
+15 fixed answer-complete states: p(im_end) NEVER rises above 5.7e-7 at any bank — the forward-KL
+stop-position teaching (1 position/rollout) is outgunned ~1:6000 by body-position normalization
+drain, which crushes p(eot) 0.997 -> 0.022 (@125) -> 6.6e-5 (@175). Dual-contract rollouts: zero
+im_end tokens anywhere (mid-text or terminal) in 240 rollouts; dual-stop rescues nothing
+(b2@50: 75 vs 77 stops; b2@175: 120/120 truncated under both contracts). VERDICT: pure
+suppression via mass drain — the P-drift hypothesis is REFUTED for b2 (contrast legacy a1, R5 P3,
+where dual-stop re-eval rescued .383 -> .118). The exposure taxonomy's two kill paths now each have
+an anatomical specimen: sampled-column spelling tax (vanilla; clock cliff inside the behavioral
+window) and normalization drain (b2; fixed-state clock leads the behavioral cliff, 75-125 vs
+125-150). b2_corr (unnormalized + collapsed support + N0) runs at literal-zero truncation
+(clip 0.0078 = 1/batch floor) — the drain path, plugged, leaves forward KL healthy.
+
+**n0 A-axis spelling verdict** (`clock_n0.py`, banks 25/50/75 x {a1,a4,a5,a3}_n0 + dual-stop
+rollouts @75). All four arms hold p(eot) at 0.90-1.0 with stop=top1 15/15 (the N0 fix working:
+no suppression, no drain) while p(im_end) stays at noise (1e-13..2.3e-7) — and 125/125 stopped
+rollouts end on eot, zero on im_end. Under the OLD token-level read the same demos taught the
+teacher's spelling outright (legacy a1 emitted im_end by step 50, R5); under the event-level read
+the demo ending credits log p(E_S) proportionally to current shares — rich-get-richer lands on the
+student's own spelling. Off-policy demos under N0 teach WHERE to stop, not HOW to spell it; the
+demo-token im_end -> eot swap question is thereby empirically closed (no-op under termfix, and the
+students have already done the translation themselves). Watch item: a3_n0 is the only arm with
+p(eot) softening (0.995 -> 0.905) and p(im_end) rising (23x) — the pure-off-policy body-position
+pull still mildly dilutes non-demo tokens; same direction as its v2 demotion pathology, much milder.
