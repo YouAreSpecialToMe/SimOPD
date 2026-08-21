@@ -14,6 +14,7 @@ SRC=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/forever.sh
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export ROOT=$T/tree SIMOPD_STORE=$T/data SEED=0 SLOT=3 FOREVER_FORCE=1
 export IDLE_S=1 MIN_RUN_S=3 BACKOFF_S0=1 BACKOFF_MAX=4 POLL_S=1
+export HB_EVERY_S=1 HB_CLAIM=0 FOREVER_SCYTHE=0   # 认领与镰刀各有专属 case;镰刀在共享机器上永不真挥
 F=$T/data/forever; R=$F/run/slot3
 mkdir -p "$ROOT/deploy/dlc" "$T/data/corr_wave" "$F"
 # 兜底 payload(载体在没有 payload 时会跑它)
@@ -114,7 +115,11 @@ sleep 4
 ok $([ -f "$MARK" ] && echo 1 || echo 0) "payload 的子进程在跑(留下心跳文件)"
 touch "$F/stop_slot3"; sleep 6
 rm -f "$MARK"; sleep 3
-ok $([ ! -f "$MARK" ] && echo 1 || echo 0) "stop 之后子进程也死了(进程组连坐,不留孤儿)"
+if command -v setsid >/dev/null 2>&1; then
+    ok $([ ! -f "$MARK" ] && echo 1 || echo 0) "stop 之后子进程也死了(进程组连坐,不留孤儿)"
+else
+    echo "  skip 本机无 setsid(macOS):进程组连坐只在 Linux 可测,集群电池覆盖"
+fi
 ok $(grep -q "空转待命" "$T/out" && echo 1 || echo 0) "stop 后进入空转待命"
 kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
 
@@ -167,12 +172,157 @@ total=$(grep -c "^LINE-" "$T/stream" 2>/dev/null || echo 0)
 ok $([ "$total" = 6 ] && echo 1 || echo 0) "结束后 6 行齐全,无重复无丢失(得 $total)"
 ok $(grep -q "LINE-1" "$T/stream" && grep -q "LINE-6" "$T/stream" && echo 1 || echo 0) "首尾行都在"
 
-# watch:共享盘上的文件直接 tail,不走通道
-echo "SHARED-LINE" > "$T/shared.log"
-r=$(timeout 3 bash "$TASK" watch 3 "$T/shared.log" 2>&1 | head -3)
-ok $(echo "$r" | grep -q "直接跟随" && echo 1 || echo 0) "共享盘路径识别为直接 tail(不绕通道)"
-ok $(echo "$r" | grep -q "SHARED-LINE" && echo 1 || echo 0) "直接跟随能读到内容"
+# watch:共享盘上的文件直接 tail,不走通道(要用 timeout 掐掉 tail -f,macOS 没有则跳过)
+if command -v timeout >/dev/null 2>&1; then
+    echo "SHARED-LINE" > "$T/shared.log"
+    r=$(timeout 3 bash "$TASK" watch 3 "$T/shared.log" 2>&1 | head -3)
+    ok $(echo "$r" | grep -q "直接跟随" && echo 1 || echo 0) "共享盘路径识别为直接 tail(不绕通道)"
+    ok $(echo "$r" | grep -q "SHARED-LINE" && echo 1 || echo 0) "直接跟随能读到内容"
+else
+    echo "  skip 本机无 timeout:watch 直连测试留给集群电池"
+fi
 
 kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
+# --- 13. 空转期发 swap 不误杀下一轮(竞态回归):标记必须在 launch 前被消费
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+unset RANK; export SLOT=3
+printf '#!/usr/bin/env bash\necho P1-RAN\nsleep 4\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+IDLE_S=30 bash "$SRC" > "$T/out" 2>&1 & BG=$!
+for i in $(seq 40); do grep -q "第 1 轮结束" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "第 1 轮结束" "$T/out" && echo 1 || echo 0) "第一轮自然跑完,载体进入长空转(IDLE_S=30)"
+printf '#!/usr/bin/env bash\necho P2-START\nsleep 4\necho P2-END\n' > "$F/payload_slot3.sh"
+touch "$F/swap_slot3"
+for i in $(seq 30); do grep -q "P2-END" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "P2-END" "$T/out" && echo 1 || echo 0) "空转被 swap 掐短,新 payload 完整跑完(没被误杀)"
+ok $(grep -q "收到 swap" "$T/out" && echo 0 || echo 1) "swap 在 launch 前就被消费,监督循环没把它当杀令"
+ok $([ ! -f "$F/swap_slot3" ] && echo 1 || echo 0) "swap 标记已消费"
+ok $([ -s "$F/log/slot3.log" ] && grep -q "第 1 轮" "$F/log/slot3.log" && echo 1 || echo 0) "载体叙述 tee 进共享盘 log/slot3.log(跳板机可读)"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
+# --- 14. reload 掐短退避:修完 payload 不用干等退避跑满
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+printf '#!/usr/bin/env bash\necho QER\nexit 1\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+BACKOFF_S0=20 BACKOFF_MAX=40 bash "$SRC" > "$T/out" 2>&1 & BG=$!
+for i in $(seq 20); do grep -q "退避 20s" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "退避 20s" "$T/out" && echo 1 || echo 0) "秒退进入 20s 退避"
+touch "$F/reload_slot3"
+for i in $(seq 10); do grep -q "第 2 轮" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "掐短" "$T/out" && echo 1 || echo 0) "reload 把退避等待掐短(有日志)"
+ok $(grep -q "第 2 轮" "$T/out" && echo 1 || echo 0) "没等满 20s 就进了第 2 轮"
+ok $([ ! -f "$F/reload_slot3" ] && echo 1 || echo 0) "reload 标记被消费"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
+# --- 15. rc=42 挂起:一次性任务的正门 —— 跑一次就停,不算异常,go/换 payload 解除
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+printf '#!/usr/bin/env bash\necho DONE-42\nexit 42\n' > "$F/payload_slot3.sh"
+run_for 6
+n=$(grep -c "DONE-42" "$T/out" || true)
+ok $([ "$n" = 1 ] && echo 1 || echo 0) "exit 42 只跑一次就挂起(得 $n 次)"
+ok $([ -f "$F/parked_slot3" ] && echo 1 || echo 0) "parked 标记已写"
+ok $(grep -q "挂起待命" "$T/out" && echo 1 || echo 0) "挂起有日志"
+ok $(grep -q "判为异常" "$T/out" && echo 0 || echo 1) "rc=42 的秒退不算异常,不触发退避"
+TASK=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/task.sh
+bash "$TASK" go 3 >/dev/null
+ok $([ ! -f "$F/parked_slot3" ] && echo 1 || echo 0) "task.sh go 解除 parked"
+run_for 5
+n=$(grep -c "DONE-42" "$T/out" || true)
+ok $([ "$n" = 1 ] && echo 1 || echo 0) "解除后再跑一次又自行挂起(新一段跑了 $n 次)"
+touch "$F/parked_slot3"
+printf '#!/usr/bin/env bash\necho X\nsleep 4\n' > "$T/np.sh"
+bash "$TASK" set 3 "$T/np.sh" >/dev/null
+ok $([ ! -f "$F/parked_slot3" ] && echo 1 || echo 0) "set 换 payload 也解除 parked"
+
+# --- 16. 心跳 + 槽位认领:活没活跳板机可判;双载体不抢同一个槽
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+printf '#!/usr/bin/env bash\nwhile true; do sleep 1; done\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 3
+ok $([ -f "$F/hb_slot3" ] && echo 1 || echo 0) "心跳文件在写(hb_slot3)"
+a=$(( $(date +%s) - $(stat -c %Y "$F/hb_slot3" 2>/dev/null || stat -f %m "$F/hb_slot3") ))
+ok $([ "$a" -le 2 ] && echo 1 || echo 0) "心跳新鲜(${a}s 前;HB_EVERY_S=1)"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+printf '#!/usr/bin/env bash\necho CLAIM-RAN\nsleep 4\n' > "$F/payload_slot3.sh"
+echo other-carrier-token > "$F/hb_slot3"     # 假装槽上已有活载体
+: > "$T/out"
+HB_CLAIM=1 HB_STALE_S=5 HB_WAIT_S=1 HB_VERIFY_S=0 bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 2
+ok $(grep -q "疑似双载体" "$T/out" && echo 1 || echo 0) "心跳新鲜时识别为疑似双载体并等待"
+ok $(grep -q "CLAIM-RAN" "$T/out" && echo 0 || echo 1) "等待期间不跑 payload(不会两份写一个检查点)"
+for i in $(seq 24); do grep -q "CLAIM-RAN" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "槽位认领成功" "$T/out" && echo 1 || echo 0) "心跳变陈(HB_STALE_S=5)后认领接管"
+ok $(grep -q "CLAIM-RAN" "$T/out" && echo 1 || echo 0) "接管后正常跑 payload"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
+# --- 17. 调试命令后台化:长命令不挡 swap、不陪葬;CMD_T 随件放宽/收紧超时
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+printf '#!/usr/bin/env bash\necho LOOP-UP\nwhile true; do sleep 1; done\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 3
+export SIMOPD_STORE=$T/data WAIT_S=30
+if command -v timeout >/dev/null 2>&1; then
+    t0=$(date +%s)
+    r=$(CMD_T=2 bash "$TASK" sh 3 'sleep 10; echo NEVER' 2>&1); rc=$?
+    el=$(( $(date +%s) - t0 ))
+    ok $([ "$rc" = 124 ] && echo 1 || echo 0) "CMD_T=2 随件生效,长命令被掐(rc=$rc)"
+    ok $([ "$el" -le 7 ] && echo 1 || echo 0) "掐在 ~2s 而非默认 300s(实测 ${el}s)"
+    ok $(echo "$r" | grep -q NEVER && echo 0 || echo 1) "被掐的命令没跑到最后"
+else
+    echo "  skip 本机无 timeout:CMD_T 掐断只在集群电池可测"
+fi
+bash "$TASK" sh 3 'sleep 5; echo SLOWCMD-DONE' > "$T/slow" 2>&1 & SP=$!
+sleep 1
+printf '#!/usr/bin/env bash\necho AFTER-SWAP\nsleep 4\n' > "$T/np2.sh"
+bash "$TASK" swap 3 "$T/np2.sh" >/dev/null
+sleep 3
+ok $(grep -q "收到 swap" "$T/out" && echo 1 || echo 0) "长命令在跑时 swap 3s 内被响应(命令不再垫背轮询)"
+wait $SP 2>/dev/null || true
+ok $(grep -q "SLOWCMD-DONE" "$T/slow" && echo 1 || echo 0) "调试命令不在 payload 进程组:payload 被杀它照常跑完"
+ok $(grep -q "跳过镰刀" "$T/out" && echo 1 || echo 0) "非 pod 环境/FOREVER_SCYTHE=0 不挥镰刀,只留说明"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
+# --- 18. 镰刀候选(只列不杀,Linux 才有 /proc):按 cmdline 认人,与执刀分离
+if [ -d /proc ]; then
+    bash -c 'exec -a EngineCoreDecoy sleep 30' & DEC=$!
+    sleep 0.5
+    lst=$(FOREVER_LIST_SCYTHE=1 bash "$SRC" 2>/dev/null)
+    ok $(echo "$lst" | grep -qx "$DEC" && echo 1 || echo 0) "镰刀候选认出化名 EngineCore 的进程(/proc cmdline 扫描)"
+    kill -9 "$DEC" 2>/dev/null; wait "$DEC" 2>/dev/null || true
+else
+    echo "  skip 无 /proc(macOS):镰刀候选扫描留给集群电池"
+fi
+
+# --- 19. PTY 桥 server 协议(真交互 shell 的 pod 侧):字节流文件里进出一个真 bash。
+# attach 端要真终端(raw 模式)没法无头测,由集群上手工验;这里钉 server 协议本身:
+# cd 跨命令保留(调试通道做不到的核心诉求)、python -i、窗口尺寸下发、退出码回传。
+PB=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/ptybridge.py
+SD=$T/ttysess
+mkdir -p "$SD"
+PTY_CHB_GRACE_S=60 python3 "$PB" serve "$SD" & PS=$!
+for i in $(seq 20); do [ -f "$SD/shb" ] && break; sleep 0.5; done
+ok $([ -f "$SD/shb" ] && echo 1 || echo 0) "PTY server 起来并写心跳 shb"
+echo 1 > "$SD/chb"
+printf 'cd /tmp\n' >> "$SD/i"; sleep 1
+printf 'echo XPWDX-$PWD\n' >> "$SD/i"
+for i in $(seq 20); do grep -q "XPWDX-/tmp" "$SD/o" 2>/dev/null && break; sleep 0.5; done
+ok $(grep -q "XPWDX-/tmp" "$SD/o" && echo 1 || echo 0) "cd 跨命令保留(调试通道做不到,PTY 桥做到了)"
+printf 'python3 -q\n' >> "$SD/i"; sleep 2
+printf 'print(40+2)\n' >> "$SD/i"; sleep 1
+printf 'exit()\n' >> "$SD/i"
+for i in $(seq 20); do grep -q "^42" "$SD/o" 2>/dev/null && break; sleep 0.5; done
+ok $(grep -q "^42" "$SD/o" && echo 1 || echo 0) "python -i 交互可用(REPL 里算出 42)"
+printf '37 91' > "$SD/winsz"; sleep 1
+printf 'stty size\n' >> "$SD/i"
+for i in $(seq 20); do grep -q "37 91" "$SD/o" 2>/dev/null && break; sleep 0.5; done
+ok $(grep -q "37 91" "$SD/o" && echo 1 || echo 0) "窗口尺寸经 winsz 下发到 PTY(vim/top 的排版前提)"
+printf 'exit 5\n' >> "$SD/i"
+for i in $(seq 20); do [ -f "$SD/rc" ] && break; sleep 0.5; done
+ok $([ -f "$SD/rc" ] && [ "$(cat "$SD/rc")" = 5 ] && echo 1 || echo 0) "shell 退出码回传 rc 文件(得 $(cat "$SD/rc" 2>/dev/null))"
+wait $PS 2>/dev/null || true
 
 echo "forever battery ${PASS}/${PASS} pass"
