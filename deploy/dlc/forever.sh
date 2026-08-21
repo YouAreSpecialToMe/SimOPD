@@ -12,8 +12,14 @@
 # 之后在跳板机上换任务(不碰 DLC):
 #   vi  $D/forever/payload_slot3.sh      # 只给 slot3 换
 #   vi  $D/forever/payload.sh            # 给所有槽换(每槽 payload 优先)
-#   touch $D/forever/reload_slot3        # 让 slot3 当前这轮结束后立刻重读(不加也行,跑完自然重读)
-#   touch $D/forever/stop_slot3          # 让 slot3 空转待命(不杀正在跑的那轮)
+#   touch $D/forever/swap_slot3          # 立刻换:终止 slot3 正在跑的 payload 并重读
+#   touch $D/forever/stop_slot3          # 立刻停:终止并空转待命,直到删掉标记
+#   touch $D/forever/reload_slot3        # 温和换:等这一轮自然结束再重读
+#
+# swap 和 stop 是"立刻"的,因为 payload 可能永远不结束 —— corr_wave_fleet.sh 的臂全部
+# 跑满后会进它自己的 holding 死循环,温和的 reload 就永远等不到那一刻,人还得回去重投
+# DLC,那正是这个载体要消灭的事。代价说清楚:正在训练时 swap/stop 会让那些 lane 回退
+# 到最近检查点(<=25 步),所以它是明确的人为动作,不是自动行为。
 #
 # payload 契约:一个普通 bash 脚本,能拿到 SLOT / SEED / ROOT / D / LOGD;正常返回即
 # 本轮结束,载体休息 IDLE_S 秒后重读。不设 payload 时跑 corr_wave_fleet.sh(即现状)。
@@ -113,11 +119,39 @@ while true; do
     rm -f "$FDIR/reload_slot${SLOT}"     # 本轮已经重读过了
     _say "第 ${_round} 轮:payload=$src  sha=$(md5sum "$run" 2>/dev/null | cut -c1-8)  $(git -C "$ROOT" log --oneline -1 2>/dev/null | cut -c1-40)"
 
+    # setsid:payload 自成进程组,这样 swap/stop 能连它拉起的 lane 子进程一起收掉。
+    # 不这么做的话 kill 只打到 payload 自己,verl/ray 会变成孤儿继续占着卡。
     t0=$(date +%s)
-    bash "$run"
-    rc=$?
+    # setsid 在 pod(Linux)上一定有;macOS 上没有,电池在那里跑时退化为普通后台任务 ——
+    # 那时 kill -TERM -$pid 打不到组,只能打到 payload 自己。功能上够用,但孤儿清理弱,
+    # 所以退化路径要说出来而不是静默生效。
+    if command -v setsid >/dev/null 2>&1; then
+        setsid bash "$run" &
+    else
+        _say "本机无 setsid,payload 不独立成组(孤儿清理会弱一些)"
+        bash "$run" &
+    fi
+    _pg=$!
+    _killed=""
+    while kill -0 "$_pg" 2>/dev/null; do
+        if [ -f "$FDIR/swap_slot${SLOT}" ] || [ -f "$FDIR/stop_slot${SLOT}" ]; then
+            _killed=$([ -f "$FDIR/stop_slot${SLOT}" ] && echo stop || echo swap)
+            _say "收到 ${_killed}:终止当前 payload 进程组(正在训练的 lane 会回退到最近检查点)"
+            kill -TERM -"$_pg" 2>/dev/null || kill -TERM "$_pg" 2>/dev/null
+            pkill -TERM -P "$_pg" 2>/dev/null
+            for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$_pg" 2>/dev/null || break; sleep 1; done
+            kill -KILL -"$_pg" 2>/dev/null || kill -KILL "$_pg" 2>/dev/null
+            pkill -KILL -P "$_pg" 2>/dev/null
+            break
+        fi
+        sleep "${POLL_S:-10}"
+    done
+    wait "$_pg" 2>/dev/null; rc=$?
+    rm -f "$FDIR/swap_slot${SLOT}"        # swap 是一次性的;stop 要人手删,它是持续状态
     dt=$(( $(date +%s) - t0 ))
-    _say "第 ${_round} 轮结束 rc=$rc,历时 $((dt/60)) 分钟"
+    _say "第 ${_round} 轮结束 rc=$rc,历时 $((dt/60)) 分钟${_killed:+(被 ${_killed} 终止)}"
+    # 被人为终止的不算"秒退",不该触发退避
+    [ -n "$_killed" ] && { _backoff=0; continue; }
 
     # 规则 3:秒退退避。语法没问题但一跑就退(缺文件、缺环境变量……)同样会热循环。
     if [ "$dt" -lt "$MIN_RUN_S" ]; then

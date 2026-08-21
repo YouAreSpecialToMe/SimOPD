@@ -13,7 +13,7 @@ ok() { if [ "$1" = 1 ]; then PASS=$((PASS+1)); echo "  ok  $2"; else echo "FAIL:
 SRC=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/forever.sh
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export ROOT=$T/tree SIMOPD_STORE=$T/data SEED=0 SLOT=3 FOREVER_FORCE=1
-export IDLE_S=1 MIN_RUN_S=3 BACKOFF_S0=1 BACKOFF_MAX=4
+export IDLE_S=1 MIN_RUN_S=3 BACKOFF_S0=1 BACKOFF_MAX=4 POLL_S=1
 F=$T/data/forever; R=$F/run/slot3
 mkdir -p "$ROOT/deploy/dlc" "$T/data/corr_wave" "$F"
 # 兜底 payload(载体在没有 payload 时会跑它)
@@ -84,5 +84,38 @@ mkdir -p "$F/run/slot5"
 run_for 6
 ok $(grep -q "RANK5" "$T/out" && echo 1 || echo 0) "SLOT=auto 时按 RANK 推导槽号(RANK=5 -> slot5)"
 ok $(grep -q "slot5:" "$T/out" && echo 1 || echo 0) "日志带槽号前缀"
+
+# --- 9. swap:payload 陷在死循环里也能被换掉(本次改动的全部意义)
+# 现实原型:corr_wave_fleet.sh 的臂全跑满后进 "wave complete, holding" 死循环,
+# 温和的 reload 永远等不到那一刻 —— 不能换就还得回去重投 DLC。
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+unset RANK; export SLOT=3
+printf '#!/usr/bin/env bash\necho LOOPER-STARTED\nwhile true; do sleep 1; done\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 4
+ok $(grep -q "LOOPER-STARTED" "$T/out" && echo 1 || echo 0) "死循环 payload 已起来"
+printf '#!/usr/bin/env bash\necho NEWTASK-RAN\nsleep 30\n' > "$F/payload_slot3.sh"
+touch "$F/swap_slot3"
+sleep 6
+ok $(grep -q "收到 swap" "$T/out" && echo 1 || echo 0) "swap 被识别"
+ok $(grep -q "NEWTASK-RAN" "$T/out" && echo 1 || echo 0) "死循环被终止后跑起了新 payload"
+ok $([ ! -f "$F/swap_slot3" ] && echo 1 || echo 0) "swap 是一次性的,已被消费"
+ok $(grep -q "判为异常;退避" "$T/out" && echo 0 || echo 1) "人为终止不算秒退,未触发退避"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
+# --- 10. 进程组连坐:payload 拉起的子进程也要被收掉(否则 verl/ray 变孤儿占着卡)
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+MARK=$T/child_alive
+printf '#!/usr/bin/env bash\n( while true; do touch %s; sleep 1; done ) &\necho PARENT-UP\nwhile true; do sleep 1; done\n' "$MARK" > "$F/payload_slot3.sh"
+: > "$T/out"
+bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 4
+ok $([ -f "$MARK" ] && echo 1 || echo 0) "payload 的子进程在跑(留下心跳文件)"
+touch "$F/stop_slot3"; sleep 6
+rm -f "$MARK"; sleep 3
+ok $([ ! -f "$MARK" ] && echo 1 || echo 0) "stop 之后子进程也死了(进程组连坐,不留孤儿)"
+ok $(grep -q "空转待命" "$T/out" && echo 1 || echo 0) "stop 后进入空转待命"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
 
 echo "forever battery ${PASS}/${PASS} pass"
