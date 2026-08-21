@@ -1490,6 +1490,136 @@ def compute_pi_tail_budget_topk(student_logits, teacher_topk_log_probs, teacher_
     return out
 
 
+def _union_support_core(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data, direction):
+    """C axis, c5 [OURS]: RKL/FKL on the UNION support -- teacher top-k ∪ student top-k
+    ∪ the two terminator coordinates (exact, from the N0 carrier's gathered block),
+    WITHOUT the N0 event semantics (SIMOPD_TERM_EVENT must be off; this cell exists to
+    separate "the support finally SEES the student's own coordinates" from "the stop
+    event is re-read semantically" -- 2026-08-21, the wave-21 entropy surprise).
+
+    Family completion: c1 = RKL on teacher-only support (blind to the student's head),
+    b2 = FKL on teacher-only support (+tail bucket), c3 = intersection. The union is
+    the missing corner. What it changes mechanically, at a stop state where the student
+    holds p(eot)~0.5 and the teacher holds q(im_end)~0.1:
+      * RKL-union: the eot column enters the support with its EXACT q~1e-12, so the
+        objective pays p*(log p - log q) ~ +13 nats THERE, densely, at every position
+        in proportion to p(eot) -- the sampled-k1 artifact made dense. Pre-registered
+        ordering: union_rkl explodes EARLIER than vanilla (~120), c1 (blind, entropy
+        cliff only after ~175) latest: union_rkl < vanilla < c1.
+      * FKL-union: b2's tail bucket pushes eot down with weight ~q_tail (3e-4); the
+        explicit column pushes it down with weight ~p(eot) (0.5) while pulling im_end
+        up -- "teach the teacher's convention, suppress the student's". Under the
+        legacy contract (only eot ends a rollout) that suppresses stopping and should
+        ALSO explode; the readout that matters is un_p_imend rising, which licenses
+        the v2-contract sibling ("cure by teaching" vs N0's "cure by translation").
+
+    Approximation, registered: student-only columns get q̂ = min of the teacher pool
+    row (an UPPER bound on their true q, since they are outside the top-k) -- so the
+    RKL penalty on non-terminator student-head tokens is a LOWER bound. The terminator
+    columns, where the mechanism lives, are exact via the carrier. Both sides are
+    renormalized on the realised union (c1's convention)."""
+    from verl.trainer.distillation.fsdp.losses import kl_divergence
+    from simopd import eos_gather as EG
+
+    if TERM_EVENT:
+        raise RuntimeError("union_rkl/union_fkl: SIMOPD_TERM_EVENT=1 would collapse and re-sort "
+                           "the payload, destroying the trailing gathered block this kernel reads "
+                           "-- and the cell's whole point is NO event semantics. Unset it.")
+    if not EG.enabled():
+        raise RuntimeError("union_rkl/union_fkl need the exact-terminator carrier "
+                           "(SIMOPD_GATHER_EOS=1): without it the terminator columns would ride "
+                           "the q̂ upper bound exactly where exactness is the point.")
+
+    student_log_probs, t_lp, t_id, _, _ = _prepare(
+        student_logits, teacher_topk_log_probs, teacher_topk_ids, config, want_sampled=False
+    )
+    stat = _stat_mask(teacher_topk_log_probs, data, t_lp.shape[1])
+
+    # Trailing gathered block: same guards as c4's split (dummy-row exemption included),
+    # but KEEP the columns -- exact q at both terminators is this kernel's asset.
+    n_x = EG.n_extra()
+    K_all = t_lp.shape[-1]
+    if K_all <= n_x:
+        raise RuntimeError(f"union: DISTILLATION_TOPK={K_all} leaves no pool beside the {n_x} gathered ids")
+    x_lp, x_id = t_lp[..., K_all - n_x:], t_id[..., K_all - n_x:]
+    want = torch.tensor(EG.extra_ids(), device=x_id.device, dtype=x_id.dtype)
+    dummy = _verl_dummy_rows(t_id)
+    ids_ok = (x_id == want).all(dim=-1) | dummy
+    if not bool(ids_ok.all()):
+        raise RuntimeError(f"union: the extra-id block does not carry the configured ids in order on "
+                           f"{int((~ids_ok).sum())} position(s) (want {EG.extra_ids()}) -- the teacher "
+                           "server is not running eos_gather (SIMOPD_GATHER_EOS unset there?)")
+    lp_ok = torch.isfinite(x_lp).all(dim=-1) | dummy
+    if not bool(lp_ok.all()):
+        raise RuntimeError(f"union: -inf in the gathered terminator block on {int((~lp_ok).sum())} "
+                           "position(s) -- refusing a fabricated q=0")
+    pool_lp, pool_id = t_lp[..., : K_all - n_x], t_id[..., : K_all - n_x]
+
+    stu_at_pool = torch.gather(student_log_probs, dim=-1, index=pool_id)
+    stu_topk_ids = _student_topk_ids(student_log_probs, k=pool_lp.shape[-1])
+
+    # Dedup masks. A duplicated id would count its mass twice and quietly corrupt both
+    # renormalizations, so student columns yield to the pool and to the gathered block;
+    # gathered columns yield to the pool (im_end IS in the teacher's top-k at stop states).
+    dup_stu = ((stu_topk_ids.unsqueeze(-1) == pool_id.unsqueeze(-2)).any(dim=-1)
+               | (stu_topk_ids.unsqueeze(-1) == want.view(1, 1, -1)).any(dim=-1))
+    dup_x = (x_id.unsqueeze(-1) == pool_id.unsqueeze(-2)).any(dim=-1)
+    dup_x = dup_x | dummy.unsqueeze(-1)          # the dummy row's zeros are not coordinates
+
+    # q per column: pool exact; gathered exact; student-only columns bounded above by the
+    # pool minimum (they are outside the top-k by construction).
+    q_hat = pool_lp.float().min(dim=-1, keepdim=True).values.expand_as(stu_topk_ids.float())
+    q_cols = torch.cat([pool_lp.float(), q_hat, x_lp.float()], dim=-1)
+    p_cols = torch.cat([
+        stu_at_pool.float(),
+        torch.gather(student_log_probs, dim=-1, index=stu_topk_ids).float(),
+        torch.gather(student_log_probs, dim=-1, index=x_id.long()).float(),
+    ], dim=-1)
+    keep = torch.cat([torch.ones_like(pool_id, dtype=torch.bool), ~dup_stu, ~dup_x], dim=-1)
+
+    neg = torch.finfo(torch.float32).min
+    q_k = q_cols.masked_fill(~keep, neg)
+    p_k = p_cols.masked_fill(~keep, neg)
+    q_n = q_k - torch.logsumexp(q_k, dim=-1, keepdim=True)
+    p_n = p_k - torch.logsumexp(p_k, dim=-1, keepdim=True)
+    q_n = q_n.masked_fill(~keep, neg)
+    p_n = p_n.masked_fill(~keep, neg)
+    if direction == "rkl":
+        losses = kl_divergence(log_q=q_n, log_p=p_n)      # student-mass-weighted
+    else:
+        losses = kl_divergence(log_q=p_n, log_p=q_n)      # teacher-mass-weighted
+
+    out = _overlap_diagnostics(student_log_probs, pool_lp, pool_id, stu_topk_ids)
+    if SHADOW_ENABLED:
+        out.update(_shadow_panel(student_log_probs, pool_lp, pool_id, stu_at_pool, stu_topk_ids, stat))
+    out["distillation_losses"] = losses.to(student_log_probs.dtype)
+    out["un_budget"] = keep.float().sum(dim=-1)
+    out["un_dup_frac"] = dup_stu.float().mean(dim=-1)
+    # The mechanism readout, raw (pre-renorm) probabilities at the two terminators.
+    # Ids derived from the carrier config, not hardcoded: E_S[0] is the student's own
+    # terminator ("eot"), the first teacher id outside E_S is the teacher's ("imend") --
+    # 151643/151645 for the registered arms, toy ids under the CPU battery.
+    ex = list(EG.extra_ids())
+    stop0 = EG.stop_ids()[0]
+    t_only = [i for i in EG.teacher_ids() if i not in EG.stop_ids()]
+    for name, tok in (("eot", stop0), ("imend", t_only[0] if t_only else None)):
+        if tok is not None and tok in ex:
+            j = ex.index(tok)
+            out[f"un_q_{name}"] = torch.where(dummy, torch.zeros_like(x_lp[..., j]), x_lp[..., j].exp()).float()
+            out[f"un_p_{name}"] = torch.gather(
+                student_log_probs, dim=-1,
+                index=torch.full_like(pool_id[..., :1], tok)).squeeze(-1).exp().float()
+    return out
+
+
+def compute_union_rkl_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    return _union_support_core(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data, "rkl")
+
+
+def compute_union_fkl_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
+    return _union_support_core(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data, "fkl")
+
+
 def compute_jsd_topk(student_logits, teacher_topk_log_probs, teacher_topk_ids, config, data_format, data=None):
     """B axis, b4 (supplement cohort): GKD's generalized JSD-beta on the teacher's
     renormalized top-k support (2306.13649; TRL's canonical interpolation, audited
@@ -1851,6 +1981,8 @@ TOPK_DISPATCH.update(
         "jsd_topk": compute_jsd_topk,
         "intersection_topk": compute_intersection_topk,
         "pi_tail_budget": compute_pi_tail_budget_topk,
+        "union_rkl": compute_union_rkl_topk,
+        "union_fkl": compute_union_fkl_topk,
         "qb_quantile_budget": compute_quantile_budget_topk,
         "pl_rank_anchor": compute_pl_rank_topk,
         "set_coverage_anchor": compute_set_coverage_topk,

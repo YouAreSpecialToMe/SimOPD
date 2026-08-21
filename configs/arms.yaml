@@ -2839,3 +2839,62 @@ arms:
            carrier, single knob against the bank. Expect this arm to sit ON the banked c4
            trajectory (length ~8.8k, clip ~0.01 by step 100); if it does not, the wave-20
            comparisons are all against THIS row and the bank is retired for c4."
+
+  - run_id: c5_union_rkl
+    axis: C
+    cohort: supplement
+    status: stock
+    desc: "[wave22, OURS] RKL on the UNION support (teacher top-k + student top-k + exact terminator columns), NO N0 -- the support-geometry corner c1/b2/c3 leave open"
+    env:
+      DISTILLATION_LOSS_MODE: "union_rkl"
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "34"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-21 (user: '不加N0 但是做student teacher top-k both 然后rkl或者fkl').
+           WHY: wave-21 showed TERM_EVENT retarding entropy collapse far beyond the stop
+           positions' 6e-5 share, so the suspicion is support GEOMETRY (the loss finally
+           seeing the student's own coordinates), not event semantics. This cell tests the
+           geometry alone. Support = teacher pool(32) ∪ student top-32 (dedup-masked;
+           student-only columns ride q̂ = pool-min, an upper bound, so their penalty is a
+           LOWER bound) ∪ the two terminator columns EXACT from the carrier's gathered
+           block. Both sides renormalized on the realised union (c1's convention), direct
+           branch. PRE-REGISTERED ORDERING: the eot column enters with exact q~1e-12, so
+           the sampled-k1 stop artifact becomes DENSE (paid at every position ∝ p(eot))
+           -> union_rkl explodes EARLIER than vanilla (~120); c1 (teacher-only support,
+           blind to eot, entropy cliff only ~175) stays latest: union_rkl < vanilla < c1.
+           If instead union_rkl does NOT explode early, density is not the artifact's
+           binding constraint and the N0-vs-geometry story needs rework. Contract pinned
+           legacy (STOP_IDS off) to stay single-knob against banked c1/vanilla."
+
+  - run_id: c5_union_fkl
+    axis: C
+    cohort: supplement
+    status: stock
+    desc: "[wave22, OURS] FKL on the same UNION support, NO N0 -- 'teach the teacher's terminator convention' vs N0's 'translate it'"
+    env:
+      DISTILLATION_LOSS_MODE: "union_fkl"
+      USE_POLICY_GRADIENT: "False"
+      DISTILLATION_TOPK: "34"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+    note: "ENLISTED 2026-08-21, pair of c5_union_rkl (same support, direction flipped).
+           MECHANISM DELTA vs b2 (teacher-only FKL + tail bucket): b2 pushes the student's
+           eot down with weight ~q_tail (3e-4/step); the explicit eot column pushes with
+           weight ~p(eot) (0.5 at stop states) while pulling im_end up with weight
+           q(im_end) -- active convention transfer on both terminators. Under the legacy
+           contract only eot ends a rollout, so suppressing it should ALSO explode
+           (prediction: onset earlier than b2's 163-171); the readout that matters is
+           un_p_imend RISING while un_p_eot falls -- the student learning the teacher's
+           terminator as a TOKEN. If that shows, the v2-contract sibling (STOP_IDS
+           151643,151645, where im_end actually stops the rollout) is the registered
+           follow-up: 'cure by teaching' head-to-head against N0's 'cure by translation'.
+           Contract pinned legacy here to stay single-knob against banked b2."

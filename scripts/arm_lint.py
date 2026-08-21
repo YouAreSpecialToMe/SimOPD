@@ -82,6 +82,7 @@ H9_NO_RELAY_MODES = {"k1"}   # verl 自带的原版 k1:不经过我们的任何 
 
 EXPECT_PG = {
     "c4_rep": False, "c4_hq": False, "c4_state": False, "c4_carrier": False,
+    "c5_union_rkl": False, "c5_union_fkl": False,
     "a1_gkd_mix0.5_n0": True,
     "a3_offpolicy_n0": True,
     "a4_dagger_anneal_n0": True,

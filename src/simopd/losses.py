@@ -894,6 +894,13 @@ for _name, _extras in [
     ("intersection_topk", ("c3_inter_size",)),
     ("pi_tail_budget", ("c4_budget", "c4_pi_tail", "c4_eps_missed",
                         "c4_freeze_frac", "c4_hq_freeze", "c4_rep_freeze")),
+    # c5 (2026-08-21): union support, the family's missing corner -- teacher top-k ∪
+    # student top-k ∪ exact terminator columns, no N0 event semantics. un_p_imend is
+    # the headline readout (is FKL actually teaching the teacher's terminator?).
+    ("union_rkl", ("un_budget", "un_dup_frac", "un_p_eot", "un_p_imend",
+                   "un_q_eot", "un_q_imend")),
+    ("union_fkl", ("un_budget", "un_dup_frac", "un_p_eot", "un_p_imend",
+                   "un_q_eot", "un_q_imend")),
     ("qb_quantile_budget", ("qb_budget", "qb_captured_mass")),
     ("pl_rank_anchor", ("pl_rank_loss", "pl_value_anchor")),
     # E axis supplements (2026-08-07): the within-support ladder's missing rungs --

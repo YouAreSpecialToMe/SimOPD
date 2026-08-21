@@ -434,3 +434,5 @@
 20	any	c4_carrier	0	#w20-4 carrier-only control (all gates off): separates controller from KEEP_SAMPLED/TOPK34
 21	any	c4_pi_tail_budget_corr	0	#w21-1 N0 x c4:corr 波漏掉的 C 格,对已入库 c4 单旋钮
 21	any	c2_quantile_budget_corr	0	#w21-2 N0 x c2:同上
+22	any	c5_union_rkl	0	#w22-1 union support RKL, no N0: dense version of the stop artifact; ordering union_rkl < vanilla < c1
+22	any	c5_union_fkl	0	#w22-2 union support FKL, no N0: teach-the-convention; watch un_p_imend
