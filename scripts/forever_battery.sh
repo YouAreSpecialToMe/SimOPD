@@ -146,4 +146,33 @@ rm -f "$F/stop_slot3"
 
 kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
 
+# --- 12. 流式输出:长命令要边跑边吐,不能等跑完才一次性出来
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+unset RANK; export SLOT=3
+printf '#!/usr/bin/env bash\nwhile true; do sleep 1; done\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 4
+TASK=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/task.sh
+export SIMOPD_STORE=$T/data WAIT_S=30
+# 一条跑 6 秒、每秒吐一行的命令:第 3 秒时就该已经看到前几行
+bash "$TASK" sh 3 'for i in 1 2 3 4 5 6; do echo LINE-$i; sleep 1; done' > "$T/stream" 2>&1 &
+SP=$!
+sleep 4
+early=$(grep -c "^LINE-" "$T/stream" 2>/dev/null || echo 0)
+ok $([ "$early" -ge 1 ] && [ "$early" -le 5 ] && echo 1 || echo 0) \
+   "命令跑到一半时已经吐出部分输出(4 秒时 $early 行,既非 0 也非全部 6)"
+wait $SP 2>/dev/null || true
+total=$(grep -c "^LINE-" "$T/stream" 2>/dev/null || echo 0)
+ok $([ "$total" = 6 ] && echo 1 || echo 0) "结束后 6 行齐全,无重复无丢失(得 $total)"
+ok $(grep -q "LINE-1" "$T/stream" && grep -q "LINE-6" "$T/stream" && echo 1 || echo 0) "首尾行都在"
+
+# watch:共享盘上的文件直接 tail,不走通道
+echo "SHARED-LINE" > "$T/shared.log"
+r=$(timeout 3 bash "$TASK" watch 3 "$T/shared.log" 2>&1 | head -3)
+ok $(echo "$r" | grep -q "直接跟随" && echo 1 || echo 0) "共享盘路径识别为直接 tail(不绕通道)"
+ok $(echo "$r" | grep -q "SHARED-LINE" && echo 1 || echo 0) "直接跟随能读到内容"
+
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
 echo "forever battery ${PASS}/${PASS} pass"

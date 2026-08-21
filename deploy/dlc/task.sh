@@ -9,6 +9,7 @@
 #   task.sh clear <槽>             卸掉 payload,回到默认(corr_wave_fleet.sh)
 #   task.sh sh    <槽> '<命令>'    在那个 pod 上执行并回显(像 ssh 一样调试)
 #   task.sh sh    <槽> -f <脚本>   同上,但送一个脚本文件
+#   task.sh watch <槽> <文件>      跟随文件(/mgfs 上的直接 tail -f;pod 本地的走通道)
 #   槽可以写 all
 #
 # 为什么要这个而不是直接 vi:载体虽然有语法门和 last_good 兜底,但那是最后一道防线。
@@ -20,6 +21,21 @@ SLOTS_ALL="0 1 2 3 4 5 6"
 mkdir -p "$F" 2>/dev/null || true
 
 _slots() { [ "$1" = all ] && echo "$SLOTS_ALL" || echo "$1"; }
+_size() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null || echo 0; }
+# 边跑边把新产生的字节吐出来。命令的输出直接重定向进 .out,所以它是随写随长的;
+# 等 .rc 出现才打印的话,一条跑十分钟的命令就十分钟不吭声,那不叫调试。
+_stream_until() {   # 输出文件 完成标志文件 超时秒
+    local out=$1 doneflag=$2 limit=$3 seen=0 sz i=0
+    while [ ! -f "$doneflag" ] && [ "$i" -lt "$limit" ]; do
+        if [ -f "$out" ]; then
+            sz=$(_size "$out")
+            [ "$sz" -gt "$seen" ] && { tail -c +$((seen + 1)) "$out"; seen=$sz; }
+        fi
+        sleep 1; i=$((i + 1))
+    done
+    [ -f "$out" ] && { sz=$(_size "$out"); [ "$sz" -gt "$seen" ] && tail -c +$((seen + 1)) "$out"; }
+    [ -f "$doneflag" ]
+}
 
 _install() {   # 槽 脚本
     local k=$1 src=$2 dst="$F/payload_slot$1.sh"
@@ -65,19 +81,28 @@ case "${1:-status}" in
         printf '%s\n' "${*:?命令}" > "$C/inbox/.$id.sh"
     fi
     mv "$C/inbox/.$id.sh" "$C/inbox/$id.sh"      # 原子出现,pod 不会取到半截
-    for i in $(seq 1 "${WAIT_S:-300}"); do
-        [ -f "$C/out/$id.rc" ] && break
-        sleep 1
-    done
-    if [ -f "$C/out/$id.rc" ]; then
-        cat "$C/out/$id.out" 2>/dev/null
+    if _stream_until "$C/out/$id.out" "$C/out/$id.rc" "${WAIT_S:-300}"; then
         rc=$(cat "$C/out/$id.rc")
         [ "$rc" = 0 ] || echo "[rc=$rc]"
         rm -f "$C/out/$id".{sh,out,rc}
         exit "$rc"
     fi
-    echo "!! 等了 ${WAIT_S:-300}s 没回应 —— slot$k 的载体没在跑?(task.sh status 看看)"
+    echo "!! 等了 ${WAIT_S:-300}s 没等到结束 —— 命令还在跑,或 slot$k 的载体没起来(task.sh status)"
+    echo "   命令仍在 pod 上跑完;输出留在 $C/out/$id.out"
     exit 124
     ;;
-  *) sed -n '2,18p' "$0"; exit 2 ;;
+  watch)
+    # 跟随一个文件。/mgfs 上的东西跳板机本来就能直接读 —— 舰队日志全在那儿,
+    # 所以那种情况根本不用走通道,直接 tail -f,零延迟。只有 pod 本地的路径
+    # (/tmp、/root 之类)才需要通过命令通道去 tail。
+    k=${2:?槽}; path=${3:?文件}
+    if [ -e "$path" ]; then
+        echo "== $path 在共享盘上,直接跟随(Ctrl-C 停)"
+        exec tail -f "$path"
+    fi
+    echo "== $path 是 slot$k 的 pod 本地路径,经命令通道跟随 ${WATCH_S:-600}s(Ctrl-C 停)"
+    WAIT_S=$(( ${WATCH_S:-600} + 30 )) exec "$0" sh "$k" \
+        "timeout ${WATCH_S:-600} tail -n ${WATCH_N:-40} -F '$path'"
+    ;;
+  *) sed -n '2,19p' "$0"; exit 2 ;;
 esac
