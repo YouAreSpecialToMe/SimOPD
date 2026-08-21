@@ -7,6 +7,8 @@
 #   task.sh stop  <槽>             立刻停,空转待命
 #   task.sh go    <槽>             解除 stop
 #   task.sh clear <槽>             卸掉 payload,回到默认(corr_wave_fleet.sh)
+#   task.sh sh    <槽> '<命令>'    在那个 pod 上执行并回显(像 ssh 一样调试)
+#   task.sh sh    <槽> -f <脚本>   同上,但送一个脚本文件
 #   槽可以写 all
 #
 # 为什么要这个而不是直接 vi:载体虽然有语法门和 last_good 兜底,但那是最后一道防线。
@@ -48,5 +50,34 @@ case "${1:-status}" in
   stop)  for k in $(_slots "${2:?槽}"); do touch "$F/stop_slot$k"; echo "slot$k 停(空转待命),恢复用: $0 go $k"; done ;;
   go)    for k in $(_slots "${2:?槽}"); do rm -f "$F/stop_slot$k"; echo "slot$k 恢复"; done ;;
   clear) for k in $(_slots "${2:?槽}"); do rm -f "$F/payload_slot$k.sh"; echo "slot$k 卸掉 payload,下一轮回到默认"; done ;;
-  *) sed -n '2,16p' "$0"; exit 2 ;;
+  sh)
+    # 同步调试:写进 inbox,等 .rc 出现(它最后写,所以读到时 .out 一定完整),打印输出。
+    # 载体在跑 payload / stop 空转 / 退避时都服务命令 —— 想调试的时刻正是这些时刻。
+    k=${2:?槽}; shift 2
+    [ "$k" = all ] && { echo "!! sh 一次只对一个槽"; exit 2; }
+    C=$F/cmd/slot$k; mkdir -p "$C/inbox" "$C/out"
+    id=$(date +%s)-$$-$RANDOM
+    if [ "${1:-}" = -f ]; then
+        [ -s "${2:?脚本}" ] || { echo "!! $2 不存在或为空"; exit 1; }
+        bash -n "$2" || { echo "!! 语法不过,没发"; exit 1; }
+        cp "$2" "$C/inbox/.$id.sh"
+    else
+        printf '%s\n' "${*:?命令}" > "$C/inbox/.$id.sh"
+    fi
+    mv "$C/inbox/.$id.sh" "$C/inbox/$id.sh"      # 原子出现,pod 不会取到半截
+    for i in $(seq 1 "${WAIT_S:-300}"); do
+        [ -f "$C/out/$id.rc" ] && break
+        sleep 1
+    done
+    if [ -f "$C/out/$id.rc" ]; then
+        cat "$C/out/$id.out" 2>/dev/null
+        rc=$(cat "$C/out/$id.rc")
+        [ "$rc" = 0 ] || echo "[rc=$rc]"
+        rm -f "$C/out/$id".{sh,out,rc}
+        exit "$rc"
+    fi
+    echo "!! 等了 ${WAIT_S:-300}s 没回应 —— slot$k 的载体没在跑?(task.sh status 看看)"
+    exit 124
+    ;;
+  *) sed -n '2,18p' "$0"; exit 2 ;;
 esac

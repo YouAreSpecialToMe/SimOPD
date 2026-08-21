@@ -118,4 +118,32 @@ ok $([ ! -f "$MARK" ] && echo 1 || echo 0) "stop 之后子进程也死了(进程
 ok $(grep -q "空转待命" "$T/out" && echo 1 || echo 0) "stop 后进入空转待命"
 kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
 
+# --- 11. 调试通道端到端:payload 在跑的同时,敲命令要能回显
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+unset RANK; export SLOT=3
+printf '#!/usr/bin/env bash\necho BUSY-PAYLOAD\nwhile true; do sleep 1; done\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+bash "$SRC" > "$T/out" 2>&1 & BG=$!
+sleep 4
+ok $(grep -q "BUSY-PAYLOAD" "$T/out" && echo 1 || echo 0) "长跑 payload 已起来"
+
+TASK=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/task.sh
+export SIMOPD_STORE=$T/data WAIT_S=20
+r=$(bash "$TASK" sh 3 'echo HELLO-FROM-POD; echo $SLOT' 2>&1)
+ok $(echo "$r" | grep -q "HELLO-FROM-POD" && echo 1 || echo 0) "payload 在跑时命令仍被执行并回显(得 '$(echo "$r" | head -1)')"
+ok $(echo "$r" | grep -q "^3$" && echo 1 || echo 0) "命令能拿到 SLOT 等环境变量"
+
+r=$(bash "$TASK" sh 3 'exit 7' 2>&1); rc=$?
+ok $([ "$rc" = 7 ] && echo 1 || echo 0) "退出码原样透传(得 $rc)"
+
+ok $([ -z "$(ls "$F/cmd/slot3/out" 2>/dev/null)" ] && echo 1 || echo 0) "取回后清理干净,不留垃圾"
+
+# stop 空转时也要能调试 —— 那正是最需要调试的时候
+touch "$F/stop_slot3"; sleep 4
+r=$(bash "$TASK" sh 3 'echo DEBUG-WHILE-STOPPED' 2>&1)
+ok $(echo "$r" | grep -q "DEBUG-WHILE-STOPPED" && echo 1 || echo 0) "stop 空转时调试通道照常服务"
+rm -f "$F/stop_slot3"
+
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+
 echo "forever battery ${PASS}/${PASS} pass"
