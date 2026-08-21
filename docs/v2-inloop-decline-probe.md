@@ -225,7 +225,11 @@ suppression via mass drain — the P-drift hypothesis is REFUTED for b2 (contras
 where dual-stop re-eval rescued .383 -> .118). The exposure taxonomy's two kill paths now each have
 an anatomical specimen: sampled-column spelling tax (vanilla; clock cliff inside the behavioral
 window) and normalization drain (b2; fixed-state clock leads the behavioral cliff, 75-125 vs
-125-150). b2_corr (unnormalized + collapsed support + N0) runs at literal-zero truncation
+125-150). Quantified rescue table (7 banks, archived legacy single-stop vs fresh dual-stop, same
+tau=0.7 avg@3 protocol): trunc 25: .057->.059, 50: .223->.263, 75: .070->.085, 100: .038->.068,
+125: .056->.062, **150: .971->.975, 175: .992->.993**; scores identical within +-.006 at every
+bank. Dual-stop rescues NOTHING at any age — the pre-registered zero-rescue prediction lands
+exactly, closing the adjudication. b2_corr (unnormalized + collapsed support + N0) runs at literal-zero truncation
 (clip 0.0078 = 1/batch floor) — the drain path, plugged, leaves forward KL healthy.
 
 **n0 A-axis spelling verdict** (`clock_n0.py`, banks 25/50/75 x {a1,a4,a5,a3}_n0 + dual-stop
