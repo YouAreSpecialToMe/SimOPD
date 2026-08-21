@@ -253,6 +253,30 @@ _EVALQ_EXP=$D/evalq_exp
 touch "$_EVALQ_EXP/PAUSE.slot${SLOT}" 2>/dev/null || true
 _eval_unpause() { rm -f "$_EVALQ_EXP/PAUSE.slot${SLOT}" 2>/dev/null || true; }
 
+# Bringup scythe (2026-08-21). _gpu_sweep kills by nvidia-smi pid, and inside this
+# container nvidia-smi can report HOST pids -- at slot6's relaunch it printed
+# "leftover compute pids [3969741 322737]" and 80GB stayed allocated: two eval-vLLM
+# EngineCore orphans it could not signal, and c5_union_fkl OOMed 3x on cards that
+# looked swept. Same disease as the zzx14 EngineCore orphans; same cure: ignore
+# nvidia-smi's pid column and scan our own /proc by cmdline. Pod-wide, so it is
+# ONLY safe here at bringup, before any lane of ours is running -- mid-wave sweeps
+# must keep using _gpu_sweep's pair-scoped kill. Eval workers' bash loops hold no
+# GPU and do not match; their killed inference children re-queue via stale claims.
+_pod_scythe() {
+    local me=$$ pid c n=0
+    for pid in $(ls /proc 2>/dev/null | grep -E "^[0-9]+$"); do
+        [ "$pid" = "$me" ] && continue
+        c=$(tr "\0" " " < "/proc/$pid/cmdline" 2>/dev/null) || continue
+        case "$c" in
+            *VLLM::*|*EngineCore*|*vllm*|*ray::*|*raylet*|*verl.trainer.main_ppo*|*eval_offline.py*|*eval_suite.py*)
+                kill -9 "$pid" 2>/dev/null && n=$((n+1)) ;;
+        esac
+    done
+    echo "== bringup scythe: SIGKILLed $n GPU-resident leftover(s) by /proc cmdline scan"
+    sleep 5
+}
+_pod_scythe
+
 # ------------------------------------------------------------ Phase R 彩排门 --
 # The carrier proof (rehearsal_vanilla_corr.OK) + each slot arm's own marker, or the batch
 # marker rehearsal_corr_wave.OK. Missing markers are NOT waited on: this pod has 8 idle
