@@ -1498,7 +1498,10 @@ def _union_support_core(student_logits, teacher_topk_log_probs, teacher_topk_ids
     event is re-read semantically" -- 2026-08-21, the wave-21 entropy surprise).
 
     Family completion: c1 = RKL on teacher-only support (blind to the student's head),
-    b2 = FKL on teacher-only support (+tail bucket), c3 = intersection. The union is
+    b2 = FKL on teacher-only support (verl's kernel: full-vocab log-softmax gathered on
+    the teacher top-k, NOT renormalized -- an earlier draft of this docstring said "+tail
+    bucket", which is false; the tail bucket is c1_tailbucket's SUPPORT_MODE, not b2's),
+    c3 = intersection. The union is
     the missing corner. What it changes mechanically, at a stop state where the student
     holds p(eot)~0.5 and the teacher holds q(im_end)~0.1:
       * RKL-union: the eot column enters the support with its EXACT q~1e-12, so the
@@ -1506,7 +1509,7 @@ def _union_support_core(student_logits, teacher_topk_log_probs, teacher_topk_ids
         in proportion to p(eot) -- the sampled-k1 artifact made dense. Pre-registered
         ordering: union_rkl explodes EARLIER than vanilla (~120), c1 (blind, entropy
         cliff only after ~175) latest: union_rkl < vanilla < c1.
-      * FKL-union: b2's tail bucket pushes eot down with weight ~q_tail (3e-4); the
+      * FKL-union: b2 never sees eot at all (it is outside the teacher's top-k); the
         explicit column pushes it down with weight ~p(eot) (0.5) while pulling im_end
         up -- "teach the teacher's convention, suppress the student's". Under the
         legacy contract (only eot ends a rollout) that suppresses stopping and should
@@ -1577,17 +1580,28 @@ def _union_support_core(student_logits, teacher_topk_log_probs, teacher_topk_ids
     ], dim=-1)
     keep = torch.cat([torch.ones_like(pool_id, dtype=torch.bool), ~dup_stu, ~dup_x], dim=-1)
 
+    # Normalization follows EACH DIRECTION'S OWN BASELINE, so each arm is a single knob:
+    #   rkl -> c1's renormalized convention;
+    #   fkl -> b2's convention, which is verl's compute_forward_kl_topk: full-vocab
+    #          log-softmax, gathered on the support, NOT renormalized.
+    # Renormalizing the FKL was a real defect, not a style choice (2026-08-22): a
+    # renormalized forward KL has no anchor for the mass OUTSIDE the support -- the
+    # student can match the shape inside the union while dumping mass outward, and
+    # c5_union_fkl duly ran at entropy 5.9-6.5 (b2 at the same step: 1.49) with the
+    # loss happily decreasing and reward depressed. The unnormalized form has the
+    # anchor implicitly: log p_S there is the true full-vocab log-prob, so raising it
+    # must take mass from somewhere.
     neg = torch.finfo(torch.float32).min
     q_k = q_cols.masked_fill(~keep, neg)
     p_k = p_cols.masked_fill(~keep, neg)
-    q_n = q_k - torch.logsumexp(q_k, dim=-1, keepdim=True)
-    p_n = p_k - torch.logsumexp(p_k, dim=-1, keepdim=True)
-    q_n = q_n.masked_fill(~keep, neg)
-    p_n = p_n.masked_fill(~keep, neg)
     if direction == "rkl":
+        q_n = (q_k - torch.logsumexp(q_k, dim=-1, keepdim=True)).masked_fill(~keep, neg)
+        p_n = (p_k - torch.logsumexp(p_k, dim=-1, keepdim=True)).masked_fill(~keep, neg)
         losses = kl_divergence(log_q=q_n, log_p=p_n)      # student-mass-weighted
     else:
-        losses = kl_divergence(log_q=p_n, log_p=q_n)      # teacher-mass-weighted
+        # masked columns carry q = e^neg ~ 0, so they contribute nothing to the
+        # teacher-weighted sum; no renormalization anywhere.
+        losses = kl_divergence(log_q=p_k, log_p=q_k)      # teacher-mass-weighted
 
     out = _overlap_diagnostics(student_log_probs, pool_lp, pool_id, stu_topk_ids)
     if SHADOW_ENABLED:

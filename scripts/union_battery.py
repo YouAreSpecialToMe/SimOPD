@@ -10,8 +10,10 @@ The extras-guard failure modes (shuffled ids, -inf, verl's dummy row) are shared
 copied from c4's kernel and battle-tested in that battery's case A/G; here the cases
 are the union-specific math:
 
-  A  runs + hand-check: renormalized RKL/FKL against an independent formula on a
-     position built by hand
+  A  runs + hand-check: each direction against an independent formula on a hand-built
+     position, in ITS OWN normalization convention -- rkl renormalized (c1), fkl raw
+     (b2/verl). Getting fkl renormalized was the 2026-08-22 defect: no anchor for the
+     off-support mass, entropy ran 4x b2's.
   B  dedup: overlapping student columns are masked; nothing counts twice
   C  terminator columns are EXACT: un_q_imend reads the gathered value, not q̂
   D  the mechanism: at a stop-state row (student mass on eot, outside the pool),
@@ -19,6 +21,7 @@ are the union-specific math:
      on the same row barely sees it -- the blindness the union removes
   E  TERM_EVENT=1 refused loudly
   F  gradients flow, finite everywhere
+  G  FKL 用 b2/verl 的原始(不重归一化)约定:判别式 + 支撑外质量的锚
 """
 import os
 import sys
@@ -137,8 +140,8 @@ qm = q.masked_fill(~keep, NEG)
 pm = p.masked_fill(~keep, NEG)
 qn = qm - qm.logsumexp(-1)
 pn = pm - pm.logsumexp(-1)
-rkl_hand = (pn.exp() * (pn - qn))[keep].sum()
-fkl_hand = (qn.exp() * (qn - pn))[keep].sum()
+rkl_hand = (pn.exp() * (pn - qn))[keep].sum()          # 重归一化(c1 约定)
+fkl_hand = (qm.exp() * (qm - pm))[keep].sum()          # 不重归一化(b2/verl 约定)
 ok(abs(float(out_r["distillation_losses"][0, row]) - float(rkl_hand)) < 5e-3,
    f"RKL matches hand formula ({float(out_r['distillation_losses'][0, row]):.4f} vs {float(rkl_hand):.4f})")
 ok(abs(float(out_f["distillation_losses"][0, row]) - float(fkl_hand)) < 5e-3,
@@ -211,4 +214,30 @@ ok(bool(torch.isfinite(z5.grad).all()), "FKL grads finite")
 ok(bool(torch.isfinite(out_r["distillation_losses"]).all()) and bool(torch.isfinite(out_f["distillation_losses"]).all()),
    "losses finite everywhere")
 
-print(f"union battery {PASS}/{PASS} pass")
+# ------------------------------- G. FKL 必须不重归一化(2026-08-22 缺陷回归测试) ---
+# 重归一化的 FKL 对"把质量甩到支撑外"免疫,于是学生越训越平(实测熵 5.9 vs b2 的 1.49)。
+# 两条判据:
+#  (1) 判别式 —— FKL 必须等于原始式、且明显不等于重归一化式(A 组只证了前一半);
+#  (2) 锚 —— 压低支撑外 logits(只会让支撑内 p 变大,不可能引入新的 top-k 成员,
+#      所以并集成员不变、扰动干净)时,原始式 FKL 必须下降;重归一化的 RKL 形状不变、
+#      几乎不动。反过来抬高支撑外是错的测法:那会把新 token 挤进学生 top-k,改变并集本身。
+print("== G. FKL 不重归一化:判别式 + 支撑外锚")
+fkl_renorm_hand = float((qn.exp() * (qn - pn))[keep].sum())
+f_now = float(out_f["distillation_losses"][0, row])
+ok(abs(f_now - float(fkl_hand)) < 5e-3, "FKL == 原始(b2/verl)式")
+ok(abs(f_now - fkl_renorm_hand) > 0.1,
+   f"FKL != 重归一化式({f_now:.4f} vs {fkl_renorm_hand:.4f}) —— 判别式成立")
+
+sup_ids = torch.cat([id_t[:POOL], torch.topk(stu[0].log_softmax(-1)[row], POOL).indices,
+                     id_t[POOL:K]]).unique()
+off = torch.ones(V, dtype=torch.bool); off[sup_ids] = False
+tight = stu.clone(); tight[0, row, off] -= 4.0        # 支撑外压低 -> 支撑内真实 p 上升
+f0 = float(T.compute_union_fkl_topk(stu.clone(), t_lps, t_ids, CFG, None, data=data)["distillation_losses"][0, row])
+f1 = float(T.compute_union_fkl_topk(tight, t_lps, t_ids, CFG, None, data=data)["distillation_losses"][0, row])
+r0 = float(T.compute_union_rkl_topk(stu.clone(), t_lps, t_ids, CFG, None, data=data)["distillation_losses"][0, row])
+r1 = float(T.compute_union_rkl_topk(tight, t_lps, t_ids, CFG, None, data=data)["distillation_losses"][0, row])
+b0 = float(T.compute_union_fkl_topk(stu.clone(), t_lps, t_ids, CFG, None, data=data)["un_budget"][0, row])
+b1 = float(T.compute_union_fkl_topk(tight, t_lps, t_ids, CFG, None, data=data)["un_budget"][0, row])
+ok(b0 == b1, f"扰动没有改变并集成员(宽度 {b0:.0f} == {b1:.0f}),所以下面两条可归因")
+ok(f1 < f0 - 0.05, f"支撑内质量上升使原始式 FKL 下降({f0:.4f} -> {f1:.4f}) —— 锚在起作用")
+ok(abs(r1 - r0) < 0.05, f"重归一化的 RKL 对同一扰动几乎不动({r0:.4f} -> {r1:.4f})")
