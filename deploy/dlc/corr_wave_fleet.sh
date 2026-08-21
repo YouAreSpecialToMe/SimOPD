@@ -242,6 +242,17 @@ if [ "$SEED" = 0 ]; then
     echo "== arm_lint: scoped gate clean for slot ${SLOT} (full report: $LINT_LOG)"
 fi
 
+# --------------------------------------------------- eval worker 竞态防护 --
+# 2026-08-21:h7 跑满后它的 GPU 对交给了 eval worker;之后这个槽 relaunch 换图,
+# 清卡和 worker 重新抓卡之间只差几十秒 —— c5_union_fkl 三次 OOM 在被 aime avg@32
+# 占住的卡上(彩排还 PASS 了:Phase R 打包在别的 GPU 对上跑,遮住了冲突)。
+# bringup 窗口(此处 -> lanes launched)挂 PAUSE.slot<k>;worker 每轮扫描先看它,
+# 有就不领新单(正在跑的单不受影响 —— 清卡会杀掉它们,claim 走陈旧过期)。
+# worker 侧对 >60 分钟的陈旧 PAUSE 免疫,所以槽脚本死在窗口里也不会永久饿死 eval。
+_EVALQ_EXP=$D/evalq_exp
+touch "$_EVALQ_EXP/PAUSE.slot${SLOT}" 2>/dev/null || true
+_eval_unpause() { rm -f "$_EVALQ_EXP/PAUSE.slot${SLOT}" 2>/dev/null || true; }
+
 # ------------------------------------------------------------ Phase R 彩排门 --
 # The carrier proof (rehearsal_vanilla_corr.OK) + each slot arm's own marker, or the batch
 # marker rehearsal_corr_wave.OK. Missing markers are NOT waited on: this pod has 8 idle
@@ -538,6 +549,11 @@ for spec in $LANES; do
 done
 echo "lanes launched, staggered ${_LSTAG}s apart (logs $LOGD/lane_<arm>_s${SEED}.log)"
 echo "   to add a lane later WITHOUT touching DLC: touch $LOGD/fleet_relaunch_slot${SLOT}_s${SEED}"
+# Lanes hold their GPU memory from init on; the eval workers' own gpu_has_room check keeps
+# them off busy cards, so the pause is only needed for the bringup window that just closed.
+# (Residual known gap: a lane ATTEMPT that dies frees its pair for the seconds before the
+# retry -- a worker sweep can steal it. Rare; the retry then fails loudly, not silently.)
+_eval_unpause
 # A plain `wait` here is the last lock-out left: with lanes running, the reload marker is
 # deliberately ignored (it must never kill training), so a slot that launched only 3 of its 4
 # lanes -- one arm's rehearsal having failed on something since fixed -- could not pick the
