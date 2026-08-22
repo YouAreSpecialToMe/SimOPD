@@ -26,6 +26,7 @@ import argparse
 import glob
 import os
 import re
+import shutil
 import sys
 import time
 from collections import defaultdict
@@ -52,7 +53,7 @@ def prio(run):
     return 3
 
 
-def scan():
+def scan(reap=False):
     done = defaultdict(set)          # (run, step) -> {bench}
     for p in glob.glob(f"{EVALS}/*.parquet"):
         m = re.match(r"(.+?)__([a-z0-9]+)__step(\d+)__seed", os.path.basename(p))
@@ -67,7 +68,24 @@ def scan():
         step = int(d.rsplit("_", 1)[1])
         have.append((run, step))
 
-    claimed = {c for c in os.listdir(f"{Q}/claims")} if os.path.isdir(f"{Q}/claims") else set()
+    # claim 目录 = 正在跑的格。但 worker 死在半路会留下孤儿 claim(心跳一停,
+    # mtime 就冻住),把格从队列里永久藏掉 —— 2026-08-22 终检实锤:worker 失败
+    # 路径用 rmdir 删带 owner 文件的目录删不动,722 个僵尸 claim 把 651 行队列
+    # "合法地"清成 0。契约本来就是"2 小时没心跳算死"(worker 每 5 分钟 touch,
+    # 见 eval_worker_exp.sh),这里兑现它:新鲜的尊重,陈掉的当场收尸(--write
+    # 时才动手),格自动回队列;收尸也解开 mkdir 抢单被死目录永久挡住的死锁。
+    claimed = set()
+    if os.path.isdir(f"{Q}/claims"):
+        for c in os.listdir(f"{Q}/claims"):
+            cp = f"{Q}/claims/{c}"
+            try:
+                age = time.time() - os.path.getmtime(cp)
+            except OSError:
+                continue                      # 正被别人删,当不存在
+            if age < 7200:
+                claimed.add(c)
+            elif reap:
+                shutil.rmtree(cp, ignore_errors=True)
     todo = []
     for run, step in have:
         if len(done[(run, step)]) >= len(BENCH):
@@ -133,7 +151,7 @@ def main():
     a = ap.parse_args()
 
     while True:
-        have, done, todo = scan()
+        have, done, todo = scan(reap=a.write)
         cur = 0
         if os.path.exists(f"{Q}/pending.txt"):
             cur = sum(1 for _ in open(f"{Q}/pending.txt"))
