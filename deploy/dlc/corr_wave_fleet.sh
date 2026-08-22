@@ -153,7 +153,14 @@ TAIL
 fi
 
 # ------------------------------------------------------------------ payload --
-if [ "$_slot_from_rank" = 0 ] && [ "${_rank}" != "0" ]; then
+# 单槽作业的重复保护:一张 workers=N 的单里若把 SLOT 写死,rank>0 的 worker 全是同一槽
+# 的副本,让它们空转。CORR_SLOT_OWNED=1 是永续载体(deploy/dlc/forever.sh)的豁免:
+# 载体给每个 pod 各分一个槽(SLOT_BASE+rank)再把 SLOT 显式导出,rank 1/2/3 拿的是
+# 12/13/14 而不是副本 —— 这条守卫会把它们全按死。2026-08-23 实锤:迁移接棒后
+# slot12/13/14 空转 19.5 小时,9 条 lane 一步没跑。重复保护并不因此失守:槽锁
+# (slot<k>_s<seed>.lock,带心跳与 DUPLICATE POD 判定)才是真正的互斥,载体自己的
+# 心跳认领是第二道。
+if [ "$_slot_from_rank" = 0 ] && [ "${_rank}" != "0" ] && [ "${CORR_SLOT_OWNED:-0}" != "1" ]; then
     while true; do _abort_check; echo "rank ${_rank}: single-slot job (SLOT=$SLOT given), idling ($(date))"; sleep 600; done
 fi
 cd "$ROOT"
