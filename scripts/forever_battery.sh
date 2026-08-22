@@ -325,4 +325,34 @@ for i in $(seq 20); do [ -f "$SD/rc" ] && break; sleep 0.5; done
 ok $([ -f "$SD/rc" ] && [ "$(cat "$SD/rc")" = 5 ] && echo 1 || echo 0) "shell 退出码回传 rc 文件(得 $(cat "$SD/rc" 2>/dev/null))"
 wait $PS 2>/dev/null || true
 
+# --- 20. forever_boot 外壳:载体 bash 被打死(payload 误伤/OOM 波及),pod 未死就地重拉
+rm -rf "$F"; mkdir -p "$F/run/slot3"
+BOOTSRC=$(cd "$(dirname "$0")/.." && pwd)/deploy/dlc/forever_boot.sh
+cp "$SRC" "$ROOT/deploy/dlc/forever.sh"      # boot 从 $ROOT 里读载体
+printf '#!/usr/bin/env bash\necho BOOTED-PAYLOAD\nfor i in $(seq 300); do sleep 1; done\n' > "$F/payload_slot3.sh"
+: > "$T/out"
+BOOT_RETRY_S=2 bash "$BOOTSRC" > "$T/out" 2>&1 & BB=$!
+for i in $(seq 30); do grep -q "BOOTED-PAYLOAD" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "第 1 次拉起载体" "$T/out" && grep -q "BOOTED-PAYLOAD" "$T/out" && echo 1 || echo 0) "boot 壳第 1 次拉起载体并跑起 payload"
+pkill -f "$ROOT/deploy/dlc/forever.sh" 2>/dev/null   # 模拟载体进程被误杀(不动 boot 壳)
+for i in $(seq 30); do grep -q "第 2 次拉起载体" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "载体退出 rc=" "$T/out" && echo 1 || echo 0) "载体死亡被 boot 壳看见"
+ok $(grep -q "第 2 次拉起载体" "$T/out" && echo 1 || echo 0) "BOOT_RETRY_S=2 秒后就地重拉"
+for i in $(seq 30); do [ "$(grep -c "BOOTED-PAYLOAD" "$T/out" || true)" -ge 2 ] && break; sleep 0.5; done
+n=$(grep -c "BOOTED-PAYLOAD" "$T/out" || true)
+ok $([ "$n" -ge 2 ] && echo 1 || echo 0) "重拉后的载体接着跑 payload(共起 $n 次)"
+kill -TERM $BB 2>/dev/null; pkill -P $BB 2>/dev/null
+pkill -f "$ROOT/deploy/dlc/forever.sh" 2>/dev/null; pkill -f "payload.running.sh" 2>/dev/null
+sleep 0.3; kill -KILL $BB 2>/dev/null; wait $BB 2>/dev/null || true
+
+# --- 21. task.sh alive 巡检:心跳断了点名 + 退出码,健康时一行 OK
+rm -rf "$F"; mkdir -p "$F"
+echo tok > "$F/hb_slot5"; sleep 2
+r=$(HB_STALE_S=1 bash "$TASK" alive); rc=$?
+ok $([ "$rc" = 1 ] && echo 1 || echo 0) "1 个断心跳 -> 退出码 1(得 $rc)"
+ok $(echo "$r" | grep -q "slot5 心跳断了" && echo 1 || echo 0) "点名断的是 slot5"
+echo tok > "$F/hb_slot5"
+r=$(HB_STALE_S=90 bash "$TASK" alive); rc=$?
+ok $([ "$rc" = 0 ] && echo "$r" | grep -q "^OK" && echo 1 || echo 0) "心跳新鲜 -> OK 退出码 0"
+
 echo "forever battery ${PASS}/${PASS} pass"

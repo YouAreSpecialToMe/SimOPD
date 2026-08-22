@@ -186,8 +186,10 @@ if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ] &&
     任务名称   simopd-forever-s${SEED}-slot<k>
     节点数量   1            单节点GPU 8   CPU 64   内存 512Gi
     镜像/资源组/挂载:照抄 simopd-corr-wave1 的成功表单(挂载须含 /mgfs)
-    执行命令:
-      SLOT=<k> SEED=${SEED} bash $ROOT/deploy/dlc/forever.sh
+    执行命令(经 forever_boot 包壳:载体进程被误杀时 pod 内自动重拉):
+      SLOT=<k> SEED=${SEED} bash $ROOT/deploy/dlc/forever_boot.sh
+    表单里若有「自动重启/容错策略」请打开 —— pod 整个没了只有平台能重拉;
+    断了也不丢:状态全在共享盘,重投同一条命令即无缝接管(认领等旧心跳变陈,<=90s)
   (不推荐但可行:一单 7 节点 + SLOT=auto 按 rank 推槽 —— 任一节点故障整单重启,
    7 个槽一起回退到最近检查点)
 

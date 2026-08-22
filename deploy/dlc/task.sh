@@ -12,6 +12,7 @@
 #   task.sh sh    <槽> -f <脚本>   同上,但送一个脚本文件
 #   task.sh watch <槽> <文件>      跟随文件(/mgfs 上的直接 tail -f;pod 本地的走通道)
 #   task.sh tty   <槽>             真交互 shell(文件 PTY 桥):vim/top/python -i/cd 都行,Ctrl-] 断开
+#   task.sh alive                  巡检:只报心跳断了的槽(退出码=问题数,可放 cron)
 #   槽可以写 all(sh 除外)
 #
 # 单条调试命令 pod 侧默认 300s 超时;长命令用 CMD_T 放宽,如:
@@ -78,6 +79,21 @@ case "${1:-status}" in
         [ -s "$lg" ] && echo "         └ $(tail -c 4096 "$lg" | tail -1 | cut -c1-150)"
     done
     ;;
+  alive)
+    # 只报问题:凡有过心跳的槽,心跳陈了就点名;全健康一行 OK。退出码 = 问题数。
+    # 载体死了不丢任何东西(状态全在共享盘):按 forever.sh 卡片重投同一条命令即无缝接管。
+    bad=0; now=$(date +%s)
+    for k in $SLOTS_ALL; do
+        hb=$F/hb_slot$k; [ -f "$hb" ] || continue
+        a=$(( now - $(_mtime "$hb") ))
+        if [ "$a" -gt "${HB_STALE_S:-90}" ]; then
+            echo "!! slot$k 心跳断了 ${a}s —— 载体没了?重投 DLC 即可接管(不再管这槽就 rm $F/hb_slot$k)"
+            bad=$((bad + 1))
+        fi
+    done
+    [ "$bad" = 0 ] && echo "OK 所有已知载体心跳正常"
+    exit "$bad"
+    ;;
   set)   for k in $(_slots "${2:?槽}"); do _install "$k" "${3:?脚本}"; done ;;
   swap)  for k in $(_slots "${2:?槽}"); do _install "$k" "${3:?脚本}" && touch "$F/swap_slot$k" && echo "  -> swap_slot$k 已触发(当前 payload 会被终止;训练中的 lane 回退到最近检查点)"; done ;;
   stop)  for k in $(_slots "${2:?槽}"); do touch "$F/stop_slot$k"; echo "slot$k 停(空转待命),恢复用: $0 go $k"; done ;;
@@ -141,5 +157,5 @@ case "${1:-status}" in
     [ -f "$S/shb" ] || { echo "!! server 没起来(pod 上 python3 不可用?看 task.sh sh $k 'command -v python3')"; exit 1; }
     exec python3 "$(cd "$(dirname "$0")" && pwd)/ptybridge.py" attach "$S"
     ;;
-  *) sed -n '2,23p' "$0"; exit 2 ;;
+  *) sed -n '2,24p' "$0"; exit 2 ;;
 esac
