@@ -65,10 +65,20 @@ HB_EVERY_S=${HB_EVERY_S:-30}  # 心跳间隔;HB_STALE_S 秒没跳视为死。可
 HB_STALE_S=${HB_STALE_S:-90}
 LOG_MAX_MB=${LOG_MAX_MB:-50}
 
-_rank=${RANK:-${MLP_ROLE_INDEX:-${MLP_WORKER_RACK_RANK_INDEX:-0}}}
+# 槽号来源优先级:pod 名(PAI 的 …-master-0/…-worker-k,最权威的身份)> RANK > MLP 系。
+# 实战教训(2026-08-22):4 节点作业里 worker 没有 MLP_*/DLC_JOB_ID,RANK 也不可全信;
+# 唯一处处都在且彼此不同的是 pod 名。映射:master-0 -> rank 0,worker-k -> rank k+1。
+_pn="${POD_NAME:-${KUBERNETES_POD_NAME:-}}"
+case "$_pn" in
+    *-master-0)      _rank=0 ;;
+    *-worker-[0-9]*) _rank=$(( ${_pn##*-worker-} + 1 )) ;;
+    *)               _rank=${RANK:-${MLP_ROLE_INDEX:-${MLP_WORKER_RACK_RANK_INDEX:-0}}} ;;
+esac
 SLOT_BASE=${SLOT_BASE:-0}
 SLOT=${SLOT:-auto}
 [ "$SLOT" = auto ] && SLOT=$(( SLOT_BASE + _rank ))
+# pod 身份信号:任一在场即视为真 pod。跳板机/本机全都没有(2026-08-22 实核)。
+_podsig="${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}${RANK:-}${MASTER_ADDR:-}${KUBERNETES_POD_REPLICA_TYPE:-}${KUBERNETES_POD_NAME:-}${POD_NAME:-}"
 export SLOT SEED ROOT D
 LOGD=$D/corr_wave                       # payload 沿用舰队的日志根
 export LOGD
@@ -163,7 +173,7 @@ _scythe() {
         _say "FOREVER_SCYTHE=0,跳过镰刀"
         return 0
     fi
-    if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; then
+    if [ -z "$_podsig" ]; then
         _say "非 pod 环境,跳过镰刀(共享机器上不能按名字杀进程)"
         return 0
     fi
@@ -178,8 +188,10 @@ _scythe() {
 # 电池用的只读入口:只打印候选 pid,不杀不跑
 if [ -n "${FOREVER_LIST_SCYTHE:-}" ]; then _scythe_candidates; exit 0; fi
 
-# 提交端(没有 DLC rank env)只打控制台卡片,不跑
-if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ] && [ -z "${FOREVER_FORCE:-}" ]; then
+# 提交端(人手在跳板机/本机跑)只打控制台卡片,不跑。老门只认 MLP_*/DLC_JOB_ID 三件套,
+# 把 4 节点作业的 6 个 worker(只有 RANK/MASTER_ADDR/POD_NAME)全误判成提交端 ——
+# 打完卡片 exit 0,48 卡没上线的根因就是这行。
+if [ -z "$_podsig" ] && [ -z "${FOREVER_FORCE:-}" ]; then
     cat <<CARD
 ========= 永续载体:DLC 控制台卡片(提交一次,之后不用再碰 DLC)=========
   推荐:提交 7 个单节点作业(故障互相隔离;k=0..6):

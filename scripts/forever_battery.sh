@@ -355,4 +355,22 @@ echo tok > "$F/hb_slot5"
 r=$(HB_STALE_S=90 bash "$TASK" alive); rc=$?
 ok $([ "$rc" = 0 ] && echo "$r" | grep -q "^OK" && echo 1 || echo 0) "心跳新鲜 -> OK 退出码 0"
 
+# --- 22. pod 识别门 v2(48 卡失联根因回归):worker 仅凭 POD_NAME 过门且领对槽;
+#         真提交端(无任何身份信号)仍打卡片退出
+rm -rf "$F"; mkdir -p "$F"
+printf '#!/usr/bin/env bash\necho WK-RAN slot=$SLOT\nsleep 4\n' > "$F/payload_slot22.sh"
+: > "$T/out"
+env -u FOREVER_FORCE -u RANK POD_NAME=dlcfake-worker-1 SLOT=auto SLOT_BASE=20 bash "$SRC" > "$T/out" 2>&1 & BG=$!
+for i in $(seq 20); do grep -q "WK-RAN" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "WK-RAN slot=22" "$T/out" && echo 1 || echo 0) "worker-1 仅凭 POD_NAME 过门,领 slot22(master-0=BASE,worker-k=BASE+k+1)"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+: > "$T/out"
+env -u FOREVER_FORCE -u RANK POD_NAME=dlcfake-master-0 SLOT=auto SLOT_BASE=20 bash "$SRC" > "$T/out" 2>&1 & BG=$!
+for i in $(seq 20); do grep -q "slot20:" "$T/out" && break; sleep 0.5; done
+ok $(grep -q "slot20:" "$T/out" && echo 1 || echo 0) "master-0 领 slot20(=BASE)"
+kill -TERM $BG 2>/dev/null; pkill -P $BG 2>/dev/null; sleep 0.3; kill -KILL $BG 2>/dev/null; wait $BG 2>/dev/null || true
+r=$(env -u FOREVER_FORCE -u RANK -u POD_NAME -u KUBERNETES_POD_NAME -u MASTER_ADDR -u DLC_JOB_ID \
+      -u MLP_ROLE_INDEX -u MLP_WORKER_RACK_RANK_INDEX -u KUBERNETES_POD_REPLICA_TYPE bash "$SRC"); rc=$?
+ok $([ "$rc" = 0 ] && echo "$r" | grep -q "控制台卡片" && echo 1 || echo 0) "无任何身份信号 -> 打卡片退出(提交端体验不变,rc=$rc)"
+
 echo "forever battery ${PASS}/${PASS} pass"
