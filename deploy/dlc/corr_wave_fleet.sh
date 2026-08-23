@@ -275,10 +275,16 @@ _pod_scythe() {
         [ "$pid" = "$me" ] && continue
         c=$(tr "\0" " " < "/proc/$pid/cmdline" 2>/dev/null) || continue
         case "$c" in
-            *VLLM::*|*EngineCore*|*vllm*|*ray::*|*raylet*|*verl.trainer.main_ppo*|*eval_offline.py*|*eval_suite.py*)
+            *VLLM::*|*EngineCore*|*vllm*|*ray::*|*raylet*|*verl.trainer.main_ppo*|*eval_offline.py*|*eval_suite.py*|*eval_worker_exp.sh*)
                 kill -9 "$pid" 2>/dev/null && n=$((n+1)) ;;
         esac
     done
+    # eval_worker_exp.sh 也在名单里(2026-08-23 加):此前只杀引擎不杀外壳 —— 外壳是个
+    # 循环,engine 被杀它下一轮立刻再认领一单、把卡重新占满。当天 g4/g6/a3 三条新 lane
+    # 在三个 pod 上同样地三次 create_device_mesh OOM 就是这么来的:上一轮 lane 跑满后
+    # _eval_handoff 把那对卡交给了 eval worker,重发时镰刀清了显存(Phase L 打印的
+    # "used MiB: 1 1 1 ..." 是真的),_eval_unpause 一解锁 worker 又抢了回去。
+    # 只在 bringup 跑,且只在训练 pod 上(评测 pod 跑的是 eval_farm.sh,不走这个脚本)。
     echo "== bringup scythe: SIGKILLed $n GPU-resident leftover(s) by /proc cmdline scan"
     sleep 5
 }
