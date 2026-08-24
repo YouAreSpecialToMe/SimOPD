@@ -56,8 +56,20 @@ for f in os.listdir(EVAL):
 
 print("artifacts to read: %d" % len(newest), flush=True)
 
-arm_of = lambda r: re.sub(r"_s\d+_16k$", "", r)
-seed_of = lambda r: int(re.search(r"_s(\d+)_16k$", r).group(1))
+# run 名不止 <arm>_s<seed>_16k 一种写法(--roster ALL 之后全暴露出来了):老 campaign 有
+# c4_rep_s0、vanilla_s2 这种没有 _16k 的,还有 c5_union_fkl_s0_16k.renorm-defect-20260822、
+# h6_gen_sched_s0_16k.legacy_stop 这种带契约后缀的。后缀必须留在 arm 里 —— 它标的是不同
+# 测量契约/不同缺陷版本,合进同一条曲线就是把两个东西平均了。
+_RUNPAT = re.compile(r"^(?P<arm>.+?)_s(?P<seed>\d+)(?:_16k)?(?P<tag>\..*)?$")
+
+def _split_run(r):
+    m = _RUNPAT.match(r)
+    if not m:
+        return r, -1
+    return m.group("arm") + (m.group("tag") or ""), int(m.group("seed"))
+
+arm_of = lambda r: _split_run(r)[0]
+seed_of = lambda r: _split_run(r)[1]
 
 rows, per_problem_acc = [], {}
 for i, ((run, step, bench), (ts, path)) in enumerate(sorted(newest.items()), 1):
