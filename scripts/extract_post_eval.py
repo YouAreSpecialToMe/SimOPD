@@ -16,6 +16,7 @@ finish_reason,489 个完成格全覆盖。这些列能回答 in-loop 面板回�
   - pass@k = 逐题取 max,再对题目取均值
   - composite = aime(24+25 合并池) / amc23 / minerva / math500 四组分等权
 """
+import argparse
 import os
 import re
 import sys
@@ -31,7 +32,16 @@ COMP = [("aime", ["aime24", "aime25"]), ("amc23", ["amc23"]),
         ("minerva", ["minerva"]), ("math500", ["math500"])]
 COLS = ["problem_id", "sample_idx", "resp_len", "truncated", "finish_reason", "correct", "stop_token_ids"]
 
-roster = set(l.strip() for l in open(os.path.join(Q, "roster.txt")) if l.strip())
+# 名单与输出目录可覆盖(2026-08-24):老名单 $ROOT/evalq/roster.txt 是 16k campaign 的,
+# 129 条里只有 3 条属于 corr/n0 波 —— 不覆盖的话新一轮 4800+ 份产物几乎全被过滤掉。
+# --roster ALL = 不过滤(文件名正则本身已经把范围限死在我们的产物上)。
+_ap = argparse.ArgumentParser(description="把 post-eval 逐样本 parquet 压成两张分析表")
+_ap.add_argument("--roster", default=os.path.join(Q, "roster.txt"),
+                 help="名单文件路径;传 ALL 表示不按名单过滤")
+_ap.add_argument("--out-dir", default=ROOT, help="两张 csv 写到哪(默认 simopd_data/)")
+_a = _ap.parse_args()
+roster = None if _a.roster.upper() == "ALL" else set(
+    l.strip() for l in open(_a.roster) if l.strip())
 pat = re.compile(
     r"^(?P<run>.+?)__(?P<bench>aime24|aime25|amc23|minerva|math500)"
     r"__step(?P<step>\d+)__seed\d+__(?P<ts>\d{8}T\d{6}Z)\.parquet$")
@@ -39,7 +49,7 @@ pat = re.compile(
 newest = {}
 for f in os.listdir(EVAL):
     m = pat.match(f)
-    if m and m.group("run") in roster:
+    if m and (roster is None or m.group("run") in roster):
         k = (m.group("run"), int(m.group("step")), m.group("bench"))
         if k not in newest or m.group("ts") > newest[k][0]:
             newest[k] = (m.group("ts"), os.path.join(EVAL, f))
@@ -100,7 +110,7 @@ cells = pd.DataFrame(rows)
 if cells.empty:
     sys.exit("no artifacts parsed")
 cells = cells.sort_values(["arm", "seed", "step", "bench"])
-cells.to_csv(os.path.join(ROOT, "post_eval_cells.csv"), index=False)
+cells.to_csv(os.path.join(_a.out_dir, "post_eval_cells.csv"), index=False)
 print("wrote post_eval_cells.csv  rows=%d" % len(cells))
 
 # ---- 逐 (arm, seed, step):只在 5 个 benchmark 齐全时算 composite ----
@@ -133,7 +143,7 @@ for (run, step), g in cells.groupby(["run", "step"]):
         "stop_set": g.stop_set.iloc[0],
     })
 bystep = pd.DataFrame(out).sort_values(["arm", "seed", "step"])
-bystep.to_csv(os.path.join(ROOT, "post_eval_bystep.csv"), index=False)
+bystep.to_csv(os.path.join(_a.out_dir, "post_eval_bystep.csv"), index=False)
 print("wrote post_eval_bystep.csv  rows=%d (complete cells)" % len(bystep))
 print("arms=%d  steps=%s" % (bystep.arm.nunique(), sorted(bystep.step.unique())))
 print("has_text 覆盖: %d/%d 格" % (int(bystep.has_text.sum()), len(bystep)))
