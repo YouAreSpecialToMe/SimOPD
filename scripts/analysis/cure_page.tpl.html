@@ -1,0 +1,496 @@
+<meta charset="utf-8">
+<title>终止塌缩判读台</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500&display=swap');
+
+:root{
+  color-scheme: light;
+  --bg:#F4F6F5; --surface:#FBFCFB; --surface-2:#EDF1F0; --line:#DCE3E1; --line-2:#C7D1CE;
+  --ink:#10201D; --ink-2:#4A5654; --ink-3:#78837F;
+  --legacy:#eb6834; --corr:#2a78d6;
+  --ok:#0ca30c; --warn:#fab219; --bad:#d03b3b; --na:#8A9694;
+  --grid:rgba(16,32,29,.08);
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'IBM Plex Sans','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --cjk:'Noto Sans SC','IBM Plex Sans',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  --maxw:1180px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#0F1413; --surface:#161C1B; --surface-2:#1D2524; --line:#2A3432; --line-2:#3A4644;
+    --ink:#EAF2F0; --ink-2:#A9B5B2; --ink-3:#7C8A87;
+    --legacy:#d95926; --corr:#3987e5;
+    --ok:#0ca30c; --warn:#fab219; --bad:#d03b3b; --na:#6E7A78;
+    --grid:rgba(234,242,240,.10);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0F1413; --surface:#161C1B; --surface-2:#1D2524; --line:#2A3432; --line-2:#3A4644;
+  --ink:#EAF2F0; --ink-2:#A9B5B2; --ink-3:#7C8A87;
+  --legacy:#d95926; --corr:#3987e5;
+  --ok:#0ca30c; --warn:#fab219; --bad:#d03b3b; --na:#6E7A78;
+  --grid:rgba(234,242,240,.10);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--cjk);
+     font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:40px 22px 72px;display:flex;flex-direction:column;gap:34px}
+h1,h2,h3{font-family:var(--sans);text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4.2vw,42px);font-weight:600;letter-spacing:-.02em;line-height:1.14}
+h2{font-size:19px;font-weight:600;letter-spacing:-.01em}
+h3{font-size:14px;font-weight:500;color:var(--ink-2)}
+p{margin:0}
+a{color:var(--corr)}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+         color:var(--ink-3)}
+.lede{max-width:66ch;color:var(--ink-2);font-size:16px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---- header ---- */
+header{display:flex;flex-direction:column;gap:14px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:1px;background:var(--line);
+       border:1px solid var(--line);margin-top:8px}
+.tile{background:var(--surface);padding:14px 16px;display:flex;flex-direction:column;gap:3px}
+.tile .k{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.tile .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:25px;line-height:1.15;color:var(--ink)}
+.tile .s{font-size:12.5px;color:var(--ink-2)}
+
+/* ---- panels ---- */
+section{display:flex;flex-direction:column;gap:14px}
+.sechead{display:flex;flex-direction:column;gap:5px}
+.panelgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}
+.panel{background:var(--surface);border:1px solid var(--line);padding:16px 16px 10px;
+       display:flex;flex-direction:column;gap:8px;position:relative}
+.panel .cap{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.panel .cap .t{font-family:var(--sans);font-size:14px;font-weight:500}
+.panel .cap .u{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+
+/* ---- legend / filters ---- */
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line-2);background:var(--surface)}
+.seg button{font-family:var(--mono);font-size:12px;letter-spacing:.03em;padding:6px 11px;border:0;
+            background:transparent;color:var(--ink-2);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--surface-2);color:var(--ink);font-weight:500}
+.seg button:focus-visible,.chip:focus-visible{outline:2px solid var(--corr);outline-offset:1px}
+.chip{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;padding:5px 11px 5px 8px;
+      border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);cursor:pointer}
+.chip[aria-pressed="false"]{opacity:.42}
+.chip .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.chip .n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-3)}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)}
+.dot.bad{background:var(--bad)} .dot.na{background:var(--na)}
+
+/* ---- tooltip ---- */
+.tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .09s;z-index:5;
+     background:var(--surface);border:1px solid var(--line-2);padding:7px 9px;font-size:12px;
+     box-shadow:0 6px 18px rgba(0,0,0,.10);min-width:120px}
+.tip .r{display:flex;justify-content:space-between;gap:14px}
+.tip .r b{font-weight:500}
+.tip .h{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-bottom:3px}
+
+/* ---- tables ---- */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:right;padding:7px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+         color:var(--ink-3);font-weight:400;background:var(--surface-2);position:sticky;top:0}
+tbody tr:last-child td{border-bottom:0}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+tbody tr:hover{background:var(--surface-2)}
+.st{display:inline-flex;align-items:center;gap:6px}
+details{border:1px solid var(--line);background:var(--surface)}
+summary{cursor:pointer;padding:9px 14px;font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+details[open] summary{border-bottom:1px solid var(--line)}
+.note{font-size:13px;color:var(--ink-2);max-width:74ch}
+.note code,code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px}
+footer{border-top:1px solid var(--line);padding-top:18px;display:flex;flex-direction:column;gap:8px;
+       font-size:12.5px;color:var(--ink-3)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">SimOPD · corr 波 · 2026-08-24 归档</span>
+  <h1>终止塌缩:药没治好的,改内核治好了</h1>
+  <p class="lede">同一学生、同一教师、同一数据与协议,只换蒸馏内核
+    <code>k1_rec</code> → <code>k1_termfix</code>(修掉学生 <code>&lt;|endoftext|&gt;</code>
+    与教师 <code>&lt;|im_end|&gt;</code> 的终止符身份错位)。两条曲线在 75 步前重合,
+    之后 legacy 塌到底、corr 一路走高。更要紧的是第二件事:坏载体上量到的「药效」,在修正载体上归零。下面每个数字都由
+    <code>collapse_status.py</code> 从归档表重算。</p>
+  <div class="tiles" id="tiles"></div>
+</header>
+
+<section>
+  <div class="sechead">
+    <h2>1 · 治愈对照</h2>
+    <p class="note">legacy <code>vanilla</code> 三个种子(粗线=均值,浅带=种子极差)对
+      <code>vanilla_corr</code> 单种子。两者离线评测契约相同(<code>stop_set=off</code>),
+      否则这张对照不成立。</p>
+  </div>
+  <div class="panelgrid">
+    <div class="panel">
+      <div class="cap"><span class="t">composite 得分</span><span class="u">五基准等权宏平均</span></div>
+      <div class="chart" id="c-comp"></div>
+    </div>
+    <div class="panel">
+      <div class="cap"><span class="t">截断率</span><span class="u">离线 32k 帽 · 越高越"不会停"</span></div>
+      <div class="chart" id="c-trunc"></div>
+    </div>
+  </div>
+  <details>
+    <summary>数据表(治愈对照)</summary>
+    <div class="tablewrap"><table id="t-hero"></table></div>
+  </details>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>2 · 全波训练动态</h2>
+    <p class="note">波里 41 条 run 的在环曲线,按晚期窗口(最后 25 步均值)分类着色。
+      悬停任意一条聚光显示;点状态胶囊可筛选。<strong>预算封顶</strong>那两条撞的是自己的
+      小生成帽(长度 511 / 1293),不是塌缩——只看截断率的分类器会误判。</p>
+  </div>
+  <div class="controls">
+    <div class="seg" id="metricseg" role="group" aria-label="指标"></div>
+    <div id="chips" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+  </div>
+  <div class="panel">
+    <div class="cap"><span class="t" id="fieldtitle">截断率</span><span class="u" id="fieldunit"></span></div>
+    <div class="chart" id="c-field"></div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>3 · 药效归零</h2>
+    <p class="note">同一条臂,在坏载体上量出的增益 vs 在修正载体上量出的增益(各自对照自己的
+      vanilla)。坏载体上 c2/c4 在 250 步能领先 +0.107;换成不塌的载体,同样的臂只剩 ±0.01
+      的噪声。<strong>它们量的是抗塌缩,不是蒸馏更好。</strong></p>
+  </div>
+  <div class="panelgrid">
+    <div class="panel">
+      <div class="cap"><span class="t">相对各自 vanilla 的增益</span><span class="u">composite 差</span></div>
+      <div class="chart" id="c-med"></div>
+    </div>
+    <div class="panel">
+      <div class="cap"><span class="t">同批臂在同一步上的极差</span><span class="u">vanilla + b2 + c2 + c4</span></div>
+      <div class="tablewrap" style="border:0"><table id="t-spread"></table></div>
+      <p class="note" style="padding:2px 2px 8px">坏载体上极差从 100 步的 0.020 暴涨到 125 步的
+        0.086 —— 涨的不是药更强,是 vanilla 掉下去了。修正后极差全程 ≤0.012。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>4 · 修正之后,大多数臂在动态上也分不出来</h2>
+    <p class="note" id="attr-note"></p>
+  </div>
+  <div class="tablewrap"><table id="t-attr"></table></div>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>5 · 状态表</h2>
+    <p class="note">晚期窗口读数。<code>eos_p</code> = 学生在停止位上给停止 token 的概率质量,
+      塌缩臂普遍 &lt;0.25,健康臂多在 0.8 上下;<code>n/a</code> 表示该臂没开这块仪表。</p>
+  </div>
+  <div class="tablewrap"><table id="t-status"></table></div>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>6 · 负结果:早期阈值不能预警</h2>
+    <p class="note">"看某个指标越过某条线就提前判死"这个想法不成立:健康的
+      <code>vanilla_corr</code> 在 35–48 步把三个阈值全触发过一遍,却健康跑到 250;
+      <code>f1_soft_log_corr</code> 和 <code>n2_corr</code> 第 5 步就触发
+      <code>eos_p&lt;0.3</code>,同样没塌。判别力只存在于晚期窗口——这是数据侧对
+      "判据用斜率、不到 250 不下判决"的支持。</p>
+  </div>
+  <div class="tablewrap"><table id="t-ew"></table></div>
+</section>
+
+<footer>
+  <div>数据:<code>docs/data/inloop_wave_dynamics.csv</code>(41 run × 逐 step 25 列)、
+    <code>post_eval_bystep.csv</code>(57 臂完整格)、<code>collapse_status.csv</code>。
+    重算:<code>python scripts/analysis/collapse_status.py --write</code>;
+    重建本页:<code>python scripts/analysis/make_cure_page.py</code>。</div>
+  <div>限制:corr 侧 n=1 种子(legacy 侧 3/3 一致);三条判决臂的 ckpt@250 已落盘但
+    <strong>250 步评测尚未跑</strong>,故 composite 曲线到 225 为止;
+    多条 lane 在 08-23 14:19 作业掉线时停在中途,曲线右端即停机点,不代表收敛。</div>
+</footer>
+</div>
+
+<script>
+const D = /*__DATA__*/;
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+const el = (n, a = {}) => { const e = document.createElementNS(SVGNS, n);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const STL = {ok:["健康","--ok"],warn:["危险","--warn"],bad:["塌缩","--bad"],na:["预算封顶","--na"]};
+
+/* ---------- 统计小方块 ---------- */
+(function tiles(){
+  const h = D.hero, last = k => h[k][h[k].length-1];
+  const lg = h.legacy.find(r=>r.step===250) || last("legacy");
+  const cr = last("corr");
+  const t = [
+    ["composite @225", cr.comp.toFixed(3), `legacy ${h.legacy.find(r=>r.step===225).comp.toFixed(3)} · 相差 +${(cr.comp-h.legacy.find(r=>r.step===225).comp).toFixed(3)}`],
+    ["截断率 晚期", cr.trunc.toFixed(2), `legacy ${lg.trunc.toFixed(2)} · 几乎条条撞帽`],
+    ["回答长度 晚期", Math.round(cr.len_mean).toLocaleString(), `legacy ${Math.round(lg.len_mean).toLocaleString()} tokens`],
+    ["波内 41 条", `${D.counts.ok}/41`, `健康 · 危险 ${D.counts.warn||0} · 塌缩 ${D.counts.bad||0} · 预算封顶 ${D.counts.na||0}`],
+  ];
+  $("#tiles").innerHTML = t.map(([k,v,s])=>
+    `<div class="tile"><span class="k">${k}</span><span class="v">${v}</span><span class="s">${s}</span></div>`).join("");
+})();
+
+/* ---------- 通用折线图 ---------- */
+function lineChart(node, cfg){
+  const wrap = node, tip = document.createElement("div");
+  tip.className = "tip"; wrap.appendChild(tip);
+  const H = cfg.h || 260, M = {t:14, r:cfg.mr||58, b:26, l:cfg.ml||44};
+  let W = 640, hot = null;
+
+  function draw(){
+    W = Math.max(300, wrap.clientWidth || 640);
+    wrap.querySelectorAll("svg").forEach(s=>s.remove());
+    const svg = el("svg", {viewBox:`0 0 ${W} ${H}`, role:"img", "aria-label":cfg.aria||cfg.title||"chart"});
+    const iw = W-M.l-M.r, ih = H-M.t-M.b;
+    const xd = cfg.xd, yd = cfg.yd;
+    const X = v => M.l + (v-xd[0])/(xd[1]-xd[0])*iw;
+    const Y = v => M.t + ih - (v-yd[0])/(yd[1]-yd[0])*ih;
+
+    (cfg.yticks||4+1) && null;
+    const yt = cfg.ytickvals || Array.from({length:5},(_,i)=>yd[0]+(yd[1]-yd[0])*i/4);
+    yt.forEach(v=>{
+      svg.appendChild(el("line",{x1:M.l,x2:M.l+iw,y1:Y(v),y2:Y(v),stroke:cssv("--grid"),"stroke-width":1}));
+      const tx = el("text",{x:M.l-8,y:Y(v)+4,"text-anchor":"end",fill:cssv("--ink-3"),
+        "font-size":10.5,"font-family":cssv("--mono")}); tx.textContent = cfg.yfmt(v); svg.appendChild(tx);
+    });
+    (cfg.xtickvals||[0,50,100,150,200,250]).forEach(v=>{
+      if(v<xd[0]||v>xd[1]) return;
+      const tx = el("text",{x:X(v),y:H-8,"text-anchor":"middle",fill:cssv("--ink-3"),
+        "font-size":10.5,"font-family":cssv("--mono")}); tx.textContent = v; svg.appendChild(tx);
+    });
+    svg.appendChild(el("line",{x1:M.l,x2:M.l+iw,y1:M.t+ih,y2:M.t+ih,stroke:cssv("--line-2"),"stroke-width":1}));
+
+    (cfg.bands||[]).forEach(b=>{
+      if(b.pts.length<2) return;
+      const up = b.pts.map(p=>`${X(p[0])},${Y(p[2])}`).join(" ");
+      const dn = b.pts.slice().reverse().map(p=>`${X(p[0])},${Y(p[1])}`).join(" ");
+      svg.appendChild(el("polygon",{points:up+" "+dn,fill:cssv(b.color),opacity:.14}));
+    });
+
+    const paths = [];
+    cfg.series.forEach(s=>{
+      if(s.hidden || s.pts.length<2) return;
+      const d = s.pts.map((p,i)=>(i?"L":"M")+X(p[0]).toFixed(1)+" "+Y(p[1]).toFixed(1)).join(" ");
+      const p = el("path",{d,fill:"none",stroke:cssv(s.color),"stroke-width":s.w||2,
+        "stroke-linejoin":"round","stroke-linecap":"round",opacity:s.op==null?1:s.op});
+      p.dataset.id = s.id; svg.appendChild(p); paths.push([s,p]);
+      if(s.label){
+        const lp = s.pts[s.pts.length-1];
+        const t = el("text",{x:X(lp[0])+7,y:Y(lp[1])+4,fill:cssv(s.color),"font-size":11.5,
+          "font-weight":500,"font-family":cssv("--sans")});
+        t.textContent = s.label; svg.appendChild(t);
+      }
+    });
+
+    const cross = el("line",{y1:M.t,y2:M.t+ih,stroke:cssv("--line-2"),"stroke-width":1,opacity:0});
+    svg.appendChild(cross);
+    const dots = el("g"); svg.appendChild(dots);
+
+    svg.addEventListener("pointermove", ev=>{
+      const r = svg.getBoundingClientRect();
+      const px = (ev.clientX-r.left)/r.width*W, py = (ev.clientY-r.top)/r.height*H;
+      const step = xd[0]+(px-M.l)/iw*(xd[1]-xd[0]);
+      let best=null, bd=1e9; dots.textContent="";
+      const rows=[];
+      cfg.series.forEach(s=>{
+        if(s.hidden||!s.pts.length) return;
+        let k=0,kd=1e9; s.pts.forEach((p,i)=>{const d=Math.abs(p[0]-step); if(d<kd){kd=d;k=i;}});
+        if(kd> (cfg.snap||12)) return;
+        const p=s.pts[k], dy=Math.abs(Y(p[1])-py);
+        rows.push([s,p,dy]);
+        if(dy<bd){bd=dy;best=[s,p];}
+      });
+      if(!best){ tip.style.opacity=0; cross.setAttribute("opacity",0); paths.forEach(([s,el2])=>el2.setAttribute("opacity",s.op==null?1:s.op)); if(cfg.onhover)cfg.onhover(null); return; }
+      cross.setAttribute("x1",X(best[1][0])); cross.setAttribute("x2",X(best[1][0]));
+      cross.setAttribute("opacity",.8);
+      const shown = cfg.multi ? rows : [ [best[0],best[1]] ];
+      shown.forEach(([s,p])=>{
+        const c = el("circle",{cx:X(p[0]),cy:Y(p[1]),r:4,fill:cssv(s.color),
+          stroke:cssv("--surface"),"stroke-width":2}); dots.appendChild(c);
+      });
+      if(cfg.spotlight){
+        paths.forEach(([s,el2])=> el2.setAttribute("opacity", s.id===best[0].id?1:.12));
+        paths.forEach(([s,el2])=> el2.setAttribute("stroke-width", s.id===best[0].id?2.4:(s.w||1)));
+      }
+      tip.innerHTML = `<div class="h">step ${best[1][0]}</div>` + shown
+        .sort((a,b)=>b[1][1]-a[1][1])
+        .map(([s,p])=>`<div class="r"><span>${s.label||s.name}</span><b class="num">${cfg.tfmt(p[1])}</b></div>`).join("");
+      tip.style.opacity=1;
+      const tw = tip.offsetWidth, th = tip.offsetHeight, rw = wrap.clientWidth;
+      let lx = X(best[1][0])/W*rw + 12; if(lx+tw>rw) lx = X(best[1][0])/W*rw - tw - 12;
+      tip.style.left = Math.max(0,lx)+"px";
+      tip.style.top = Math.max(0, py/H*wrap.clientHeight - th - 10)+"px";
+      if(cfg.onhover) cfg.onhover(best[0]);
+    });
+    svg.addEventListener("pointerleave", ()=>{
+      tip.style.opacity=0; cross.setAttribute("opacity",0); dots.textContent="";
+      paths.forEach(([s,el2])=>{el2.setAttribute("opacity",s.op==null?1:s.op);
+        el2.setAttribute("stroke-width",s.w||2);});
+      if(cfg.onhover) cfg.onhover(null);
+    });
+    wrap.appendChild(svg);
+  }
+  draw();
+  new ResizeObserver(()=>draw()).observe(wrap);
+  return {redraw:draw, cfg};
+}
+
+/* ---------- 1 · 治愈对照 ---------- */
+const H = D.hero;
+function heroCfg(key, yd, yfmt, tfmt){
+  return {
+    xd:[0,250], yd, yfmt, tfmt, multi:true, mr:70,
+    bands:[{color:"--legacy",pts:H.legacy.map(r=>[r.step,r[key+"_lo"],r[key+"_hi"]])}],
+    series:[
+      {id:"legacy",label:"legacy",color:"--legacy",w:2,pts:H.legacy.map(r=>[r.step,r[key]])},
+      {id:"corr",label:"corr",color:"--corr",w:2,pts:H.corr.map(r=>[r.step,r[key]])}
+    ]
+  };
+}
+lineChart($("#c-comp"), heroCfg("comp",[0.20,0.38],v=>v.toFixed(2),v=>v.toFixed(3)));
+lineChart($("#c-trunc"), heroCfg("trunc",[0,1],v=>v.toFixed(1),v=>v.toFixed(2)));
+
+$("#t-hero").innerHTML = `<thead><tr><th>step</th><th>legacy composite</th><th>corr composite</th>
+  <th>legacy 截断</th><th>corr 截断</th></tr></thead><tbody>` +
+  [...new Set([...H.legacy.map(r=>r.step),...H.corr.map(r=>r.step)])].sort((a,b)=>a-b).map(s=>{
+    const l=H.legacy.find(r=>r.step===s), c=H.corr.find(r=>r.step===s);
+    const f=(x,d)=>x==null?"—":x.toFixed(d);
+    return `<tr><td class="n">${s}</td><td class="n">${f(l&&l.comp,3)}</td><td class="n">${f(c&&c.comp,3)}</td>
+      <td class="n">${f(l&&l.trunc,2)}</td><td class="n">${f(c&&c.trunc,2)}</td></tr>`;
+  }).join("") + "</tbody>";
+
+/* ---------- 2 · 全波动态 ---------- */
+const METRICS = {
+  clip:{t:"截断率",u:"训练 rollout 撞 16k 帽的比例",yd:[0,1],yfmt:v=>v.toFixed(1),tfmt:v=>v.toFixed(3)},
+  len:{t:"回答长度",u:"训练 rollout 均长 · tokens",yd:[0,16384],yfmt:v=>(v/1000).toFixed(0)+"k",tfmt:v=>Math.round(v).toLocaleString()},
+  eos:{t:"eos_p_at_stop",u:"学生在停止位给停止 token 的质量",yd:[0,1],yfmt:v=>v.toFixed(1),tfmt:v=>v.toFixed(3)},
+  ent:{t:"策略熵",u:"actor/entropy",yd:[0,2.6],yfmt:v=>v.toFixed(1),tfmt:v=>v.toFixed(3)}
+};
+let metric="clip", off=new Set(), field=null;
+$("#metricseg").innerHTML = Object.entries(METRICS).map(([k,m])=>
+  `<button data-m="${k}" aria-pressed="${k===metric}">${m.t}</button>`).join("");
+$("#chips").innerHTML = Object.entries(STL).map(([k,[label]])=>
+  `<button class="chip" data-s="${k}" aria-pressed="true"><span class="dot ${k}"></span>${label}
+   <span class="n">${D.counts[k]||0}</span></button>`).join("");
+
+function fieldCfg(){
+  const m = METRICS[metric];
+  return {
+    xd:[0,250], yd:m.yd, yfmt:m.yfmt, tfmt:m.tfmt, h:330, spotlight:true, snap:6, mr:20,
+    series: D.runs.map(r=>({
+      id:r.run, name:r.arm, label:null, color:"--"+r.status, w:1, op:.55,
+      hidden: off.has(r.status), pts:r.m[metric]
+    }))
+  };
+}
+function renderField(){
+  $("#fieldtitle").textContent = METRICS[metric].t;
+  $("#fieldunit").textContent = METRICS[metric].u;
+  $("#c-field").innerHTML = "";
+  field = lineChart($("#c-field"), fieldCfg());
+}
+renderField();
+$("#metricseg").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  metric = b.dataset.m;
+  [...$("#metricseg").children].forEach(x=>x.setAttribute("aria-pressed", x===b));
+  renderField();
+});
+$("#chips").addEventListener("click", e=>{
+  const b = e.target.closest(".chip"); if(!b) return;
+  const s = b.dataset.s;
+  if(off.has(s)){ off.delete(s); b.setAttribute("aria-pressed","true"); }
+  else { off.add(s); b.setAttribute("aria-pressed","false"); }
+  renderField();
+});
+
+/* ---------- 3 · 药效归零 ---------- */
+(function(){
+  const use = D.med.filter(m=>m.pts.length>=3).slice(0,3);
+  if(!use.length) return;
+  const ser = [];
+  use.forEach(m=>{
+    ser.push({id:m.base+"|坏载体", name:m.base+" · 坏载体", color:"--legacy", w:2,
+              pts:m.pts.map(p=>[p.step,p.d_legacy])});
+    ser.push({id:m.base+"|修正后", name:m.base+" · 修正后", color:"--corr", w:2, op:.92,
+              pts:m.pts.map(p=>[p.step,p.d_corr])});
+  });
+  lineChart($("#c-med"), {xd:[0,250], yd:[-0.06,0.12], multi:true, mr:24, snap:14,
+    ytickvals:[-0.06,-0.03,0,0.03,0.06,0.09,0.12],
+    yfmt:v=>(v>0?"+":"")+v.toFixed(2), tfmt:v=>(v>0?"+":"")+v.toFixed(3), series:ser});
+  const lg = document.createElement("div");
+  lg.className = "controls"; lg.style.marginTop = "2px";
+  lg.innerHTML = '<span class="chip" style="cursor:default"><span class="dot" style="background:var(--legacy)"></span>坏载体上量到的增益</span>'
+    + '<span class="chip" style="cursor:default"><span class="dot" style="background:var(--corr)"></span>修正载体上量到的增益</span>'
+    + '<span class="num" style="font-size:11.5px;color:var(--ink-3);align-self:center">臂:'
+    + use.map(m=>m.base).join(" · ") + '</span>';
+  $("#c-med").parentNode.appendChild(lg);
+})();
+
+$("#t-spread").innerHTML = '<thead><tr><th>step</th><th>坏载体极差</th><th>修正后极差</th></tr></thead><tbody>'
+  + D.spread.map(r=>'<tr><td class="n">'+r.step+'</td>'
+      + '<td class="n" style="color:var(--legacy)">'+r.s_l.toFixed(3)+'</td>'
+      + '<td class="n" style="color:var(--corr)">'+r.s_c.toFixed(3)+'</td></tr>').join("") + '</tbody>';
+
+/* ---------- 4 · 吸引子 ---------- */
+(function(){
+  const a = D.attractor;
+  const WHY = {"h1_first_segment_corr":"只给首段信用 → 回答显著更短",
+    "a3_offpolicy_n0":"纯离策数据分布", "c3_intersection_corr":"教师∩学生支撑 → 熵保持最高",
+    "a1_gkd_mix0.5_n0":"混合策略数据", "a4_dagger_anneal_n0":"DAgger 退火",
+    "n2_corr":"终止校准损失 → 反而更长", "d3_teachability_corr":"可教性加权 → 最长"};
+  $("#attr-note").innerHTML = '健康臂的晚期均长挤成一团:<strong>' + a.inband + '/' + a.total
+    + '</strong> 条落在 8.5k–9.7k tokens 的窄带里(截断率四分位 0.055–0.113)。把「停不下来」'
+    + '这条通路堵上之后,f 族裁剪、g 族加权、b 族散度、c4 族这些机制在交付行为上<strong>互相看不出'
+    + '区别</strong>。下面 ' + a.exceptions.length + ' 条是真把动态推开了的例外 —— 它们改的是数据'
+    + '分布(A 轴)、信用跨度(h1)、支撑几何(c3)或教学信号(d3/n2)。';
+  $("#t-attr").innerHTML = '<thead><tr><th>例外臂</th><th>晚期均长</th><th>截断率</th><th>熵</th><th>它改了什么</th></tr></thead><tbody>'
+    + a.exceptions.map(r=>'<tr><td>'+r.arm+'</td><td class="n">'+r.len_late.toLocaleString()+'</td>'
+        + '<td class="n">'+r.clip.toFixed(2)+'</td><td class="n">'+r.ent.toFixed(2)+'</td>'
+        + '<td style="text-align:left;color:var(--ink-2)">'+(WHY[r.arm]||"")+'</td></tr>').join("") + '</tbody>';
+})();
+
+/* ---------- 5 · 状态表 ---------- */
+const ORDER = {bad:0,warn:1,na:2,ok:3};
+$("#t-status").innerHTML = `<thead><tr><th>臂</th><th>状态</th><th>到步</th><th>截断率</th>
+  <th>长度</th><th>eos_p</th><th>熵</th></tr></thead><tbody>` +
+  D.runs.slice().sort((a,b)=> ORDER[a.status]-ORDER[b.status] || b.clip_late-a.clip_late)
+  .map(r=>`<tr><td>${r.arm}</td>
+    <td><span class="st"><span class="dot ${r.status}"></span>${STL[r.status][0]}</span></td>
+    <td class="n">${r.max_step}</td><td class="n">${r.clip_late.toFixed(2)}</td>
+    <td class="n">${r.len_late.toLocaleString()}</td>
+    <td class="n">${r.eos_late==null?"n/a":r.eos_late.toFixed(2)}</td>
+    <td class="n">${r.ent_late.toFixed(2)}</td></tr>`).join("") + "</tbody>";
+
+/* ---------- 4 · 早期阈值 ---------- */
+$("#t-ew").innerHTML = `<thead><tr><th>臂</th><th>最终结局</th><th>eos_p&lt;0.3</th>
+  <th>熵&lt;0.2</th><th>截断&gt;0.6</th><th>跑到</th></tr></thead><tbody>` +
+  D.ew.map(r=>`<tr><td>${r.run}</td>
+    <td><span class="st"><span class="dot ${r.fate==="健康"?"ok":"bad"}"></span>${r.fate}</span></td>
+    <td class="n">${r.eos==null?"未触发":"step "+r.eos}</td>
+    <td class="n">${r.ent==null?"未触发":"step "+r.ent}</td>
+    <td class="n">${r.clip==null?"未触发":"step "+r.clip}</td>
+    <td class="n">${r.maxstep}</td></tr>`).join("") + "</tbody>";
+</script>
