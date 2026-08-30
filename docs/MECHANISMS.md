@@ -254,6 +254,63 @@ Not yet answered here: no N0 cell exists on the w pair, so this replicates the
 DISEASE across pairs, not the cure. The cheapest test of the cure's generality is
 a `vanilla_corr`-equivalent on the w pair (8 GPUs, 81 s/step banked — ~6 h to 250).
 
+### M-I cure: the terminator fix holds to 250 on the mainline pair (2026-08-24)
+
+The generality section above closed on "this replicates the DISEASE across pairs,
+not the cure." The mainline cure now has its 250-step curve. Single-variable
+comparison, same student/teacher/data/protocol, only the kernel differs:
+`vanilla` = `k1_rec`, `vanilla_corr` = `k1_termfix`. Both cells were evaluated
+under the SAME measurement contract (`stop_set=off`, checked in
+post_eval_cells.csv) — mixing contracts here would have made the whole comparison
+meaningless.
+
+| step | 25 | 50 | 75 | 100 | 125 | 150 | 175 | 200 | 225 | 250 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| legacy composite (mean of s0/s1/s2) | .280 | .290 | **.328** | .313 | .254 | .248 | — | — | .247 | .247 |
+| legacy truncation | .12 | .52 | .42 | .41 | .93 | 1.00 | — | — | .98 | .97 |
+| **corr** composite (s0) | .285 | .290 | .332 | .326 | **.329** | .332 | .347 | **.348** | .343 | pending |
+| **corr** truncation | .12 | .53 | .38 | .23 | .19 | .14 | .11 | .10 | .15 | pending |
+
+The two curves are **indistinguishable through step 75** and split exactly where
+the collapse starts. Legacy runs to the 32k eval cap (length 30.3k–32.5k from
+step 125 on, truncation .92–1.00 across all three seeds); corrected turns around
+at 75–100 and settles at ~9k with truncation .10–.15. So the late-training score
+drop is delivery, not capability — and removing the terminator mismatch removes
+it. n=1 seed on the corrected side (the legacy side is 3/3 consistent); the
+250-step evaluation is queued, not run.
+
+**The medicine is not what cures it.** `n2_termcal` is raw N2 (`k1_termcal`, no
+`SIMOPD_TERM_EVENT`): it collapses on schedule — eos_p_at_stop .24 → **.012 @100**,
+truncation .85, length 15.2k and still climbing when the job died at step 112.
+`n2_corr` (same kernel + the fix) does not collapse, but it is worse than the plain
+corrected carrier on the very instrument N2 targets: late truncation .23 vs .11,
+eos_p_at_stop .23 vs .50. On present evidence the fix is sufficient and N2 adds
+nothing; n2_corr has no complete offline cell yet, so this is instrument-level only.
+
+**The fix is not universal.** Two arms carry `SIMOPD_TERM_EVENT=1` and collapse
+anyway: `e2_set_coverage_a0_corr` (`set_coverage_anchor`; truncation .86, entropy
+**.03**, length 15.1k @229) and `h2_last_segment_corr` (`k1_lastseg`; .79, 14.1k
+@142 — the same arm whose N0 version delayed 54 steps and then blew up). Five more
+sit in the danger band (g1 .53, h4 .46, b2 .36, c4_pi_tail .34, c5_union_rkl .30).
+Of 41 runs in the wave: 31 healthy, 5 danger, 3 collapsed, 2 budget-capped
+(h7_gen512 / h9_prune_adapt hit their OWN small caps at length 511/1293 — that is
+design, not collapse, and any classifier that reads truncation alone will call
+them collapsed).
+
+**Negative result: there is no early-warning threshold.** The obvious idea —
+watch eos_p_at_stop, entropy or truncation cross a line and call the collapse
+early — does not survive contact with the healthy arms. `vanilla_corr` trips all
+three (eos_p<.3 @39, entropy<.2 @35, truncation>.6 @44) during the ordinary
+length ramp and then runs healthy to 250; `f1_soft_log_corr` and `n2_corr` trip
+eos_p<.3 at step **5** and never collapse. Discrimination exists only in the late
+window. This is the data-side argument for the pre-registered stance: judge by
+slope in the late window, not by position or by an early threshold, and do not
+call a cell before 250.
+
+Reproduce: `python scripts/analysis/collapse_status.py --write` (reads
+docs/data/inloop_wave_dynamics.csv + post_eval_bystep.csv, writes
+docs/data/collapse_status.csv; no cluster, no wandb).
+
 ## M-II · Entropy / sharpening dynamics
 
 **Banked evidence**:
