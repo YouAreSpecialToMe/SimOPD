@@ -43,6 +43,12 @@ KEYS = {
     "overlap_ratio":      "actor/distillation/overlap_ratio",
     "overlap_student_mass": "actor/distillation/overlap_student_mass",
     "overlap_teacher_mass": "actor/distillation/overlap_teacher_mass",
+    # c5 并集格的预注册读数(2026-08-24 补进归档列):学生/教师在两个终止符上的质量。
+    # union_fkl 的判据就是「un_p_imend 上升而 un_p_eot 下降」= 学生把教师的终止符
+    # 当成 token 学会了。第一版没收这三列,导致集群断线后本地读不出这条判据。
+    "un_p_eot":           "actor/distillation/un_p_eot",
+    "un_p_imend":         "actor/distillation/un_p_imend",
+    "un_q_imend":         "actor/distillation/un_q_imend",
     "reward_mean":        "critic/rewards/mean",
     "time_per_step_s":    "perf/time_per_step",
     "tokens":             "perf/total_num_tokens",
