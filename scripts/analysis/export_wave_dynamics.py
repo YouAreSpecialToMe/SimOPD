@@ -53,8 +53,10 @@ STEP = "training/global_step"
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", required=True, help="输出 CSV")
-    ap.add_argument("--pattern", default=r"(_corr_s0_16k$|_n0_s0_16k$|^c5_union|^c4_|^n2_termcal|^vanilla_corr)",
-                    help="run 名正则")
+    # 别用臂名正则圈这一波 —— 命名习惯不统一,圈不全。第一版写的是 _corr_s0_16k$ 之类,
+    # 结果 c2_quantile_budget_corr_s0(没有 _16k 后缀)连同 9 条同窗口的 A/H 轴臂一起漏掉,
+    # 判读台的状态表因此少了 10 条。--since 才是这一波的定义,与 export_wave_metrics.py 同规则。
+    ap.add_argument("--pattern", default=r".", help="run 名正则(默认全收,靠 --since 圈波次)")
     ap.add_argument("--since", default="2026-08-19", help="只要这天之后创建的 run")
     ap.add_argument("--samples", type=int, default=4000, help="每个 run 取多少行 history")
     a = ap.parse_args()

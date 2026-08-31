@@ -289,13 +289,38 @@ nothing; n2_corr has no complete offline cell yet, so this is instrument-level o
 
 **The fix is not universal.** Two arms carry `SIMOPD_TERM_EVENT=1` and collapse
 anyway: `e2_set_coverage_a0_corr` (`set_coverage_anchor`; truncation .86, entropy
-**.03**, length 15.1k @229) and `h2_last_segment_corr` (`k1_lastseg`; .79, 14.1k
-@142 — the same arm whose N0 version delayed 54 steps and then blew up). Five more
-sit in the danger band (g1 .53, h4 .46, b2 .36, c4_pi_tail .34, c5_union_rkl .30).
-Of 41 runs in the wave: 31 healthy, 5 danger, 3 collapsed, 2 budget-capped
-(h7_gen512 / h9_prune_adapt hit their OWN small caps at length 511/1293 — that is
-design, not collapse, and any classifier that reads truncation alone will call
-them collapsed).
+**.03**, length 15.1k @229) and `h2_last_segment_corr` (`k1_lastseg`; .84, 14.7k
+@142 — the same arm whose N0 version delayed 54 steps and then blew up). Six more
+sit in the danger band (g1 .53, h4 .46, b2 .36, c4_pi_tail_budget_corr .34,
+c5_union_rkl .30, and legacy a1_gkd_mix0.5 .53).
+
+Of **51 runs** in the export window: 34 healthy, 6 danger, 6 collapsed, 5
+budget-capped. The three collapsed runs on the corrected side are the two above
+plus raw `n2_termcal`; **the other three collapsed runs are all legacy-carrier**
+(`h6_gen_sched` 1.00, `h10_task_subset` .98, `a4_dagger_anneal` .71). Budget-capped
+means h7_gen512 / h8_gen2048 / h9_prune_adapt (and the _n0 twins of the first and
+third) sitting at their OWN small caps — length 511/1350/2039, design rather than
+collapse, and any classifier reading truncation alone calls them collapsed.
+
+**Four more within-arm pairs say the same thing as vanilla.** The window contains
+both the legacy and the corrected-carrier version of six A/H-axis arms — the same
+arm, the same protocol, only the carrier differs:
+
+| arm | legacy carrier | corrected (`_n0`) |
+|---|---|---|
+| a4_dagger_anneal | **collapsed** 13.3k / .71 | healthy 9.9k / .22 |
+| h6_gen_sched | **collapsed** 14.6k / 1.00 | healthy 9.0k / .15 |
+| h10_task_subset | **collapsed** 16.2k / .98 | healthy 9.4k / .12 |
+| a1_gkd_mix0.5 | **danger** 11.4k / .53 | healthy 8.3k / .12 |
+| a3_offpolicy | healthy 6.9k / .08 | healthy 6.8k / .08 |
+| a5_aggrevate | healthy 10.1k / .24 | healthy 9.7k / .21 |
+
+Four flip from collapsed/danger to healthy; the two that never collapsed (pure
+off-policy, aggrevate) are unchanged — the carrier moves exactly the arms that had
+the disease and leaves the others alone. Note the corrected side here is the N0
+carrier, not `k1_termfix`; N0's own selectivity rule (it rescues only arms that
+read Δℓ into the statistic) is a separate question from whether the collapse
+happens at all.
 
 **Negative result: there is no early-warning threshold.** The obvious idea —
 watch eos_p_at_stop, entropy or truncation cross a line and call the collapse

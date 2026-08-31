@@ -110,7 +110,13 @@ def main():
     a = ap.parse_args()
 
     cells = pd.read_csv(a.cells)
-    cells = cells[cells.run.str.contains("16k", na=False)]
+    # 口径与 make_dynamics_page.load_cells 一致(2026-08-24 一起修的):旧写法用 run 名
+    # 含 "16k" 当主线判据,把 wave20 之后不带 _16k 后缀的新臂(c4_carrier / c4_rep /
+    # c4_hq / c4_state、c4_pi_tail_budget_corr、c2_quantile_budget_corr)整片挡在表外 ——
+    # 其中两条是修正侧唯一评到 250 步的。改成显式排除真正不可比的:
+    #   *_w      8B-Base <- 32B 的 w 对(cap 8192,不同学生/教师)
+    #   diag_*   一次性诊断跑
+    cells = cells[~cells.run.str.endswith("_w") & ~cells.run.str.startswith("diag_")]
     comp = composites(cells)
     arms = sorted({k[0] for k in comp})
     n_done = len(comp)
