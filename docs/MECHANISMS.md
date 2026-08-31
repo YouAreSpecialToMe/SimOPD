@@ -302,9 +302,15 @@ means h7_gen512 / h8_gen2048 / h9_prune_adapt (and the _n0 twins of the first an
 third) sitting at their OWN small caps — length 511/1350/2039, design rather than
 collapse, and any classifier reading truncation alone calls them collapsed.
 
-**Four more within-arm pairs say the same thing as vanilla.** The window contains
-both the legacy and the corrected-carrier version of six A/H-axis arms — the same
-arm, the same protocol, only the carrier differs:
+**Four more within-arm pairs point the same way — but they are NOT single-knob.**
+The window contains both the legacy and the `_n0` version of six A/H-axis arms.
+Read the envs before reading the table: `_n0` here means `k1_termfix` + student-side
+`EOS_IDS=151643,151645` + **`STOP_IDS=151645`, i.e. the v2 stop contract where
+im_end also ENDS a rollout**. So each pair differs in two knobs at once — the
+carrier AND the contract — and part of the length/truncation gap below is
+mechanical: a rollout that may end on im_end ends sooner. These pairs corroborate
+the direction; only the vanilla vs vanilla_corr comparison above (both
+`STOP_IDS=off`, kernel the only difference) isolates the carrier.
 
 | arm | legacy carrier | corrected (`_n0`) |
 |---|---|---|
@@ -316,11 +322,13 @@ arm, the same protocol, only the carrier differs:
 | a5_aggrevate | healthy 10.1k / .24 | healthy 9.7k / .21 |
 
 Four flip from collapsed/danger to healthy; the two that never collapsed (pure
-off-policy, aggrevate) are unchanged — the carrier moves exactly the arms that had
-the disease and leaves the others alone. Note the corrected side here is the N0
-carrier, not `k1_termfix`; N0's own selectivity rule (it rescues only arms that
-read Δℓ into the statistic) is a separate question from whether the collapse
-happens at all.
+off-policy, aggrevate) are unchanged — whatever the `_n0` change does, it moves the
+arms that had the disease and leaves the others alone. What it does NOT license is
+an offline comparison: those four `_n0` arms are evaluated under `stop_set=151645`
+while vanilla/vanilla_corr/c4 are under `stop_set=off` (post_eval_cells.csv), so
+their composites are a different protocol and must never be differenced against the
+`off` arms — the same rule the cells table enforces within a cell, applied across
+arms.
 
 **Negative result: there is no early-warning threshold.** The obvious idea —
 watch eos_p_at_stop, entropy or truncation cross a line and call the collapse
