@@ -128,7 +128,13 @@ def load_cells(path):
     if not os.path.exists(path):
         return {}
     c = pd.read_csv(path)
-    c = c[c.run.str.contains("16k", na=False)].copy()
+    # 旧口径是「run 名含 16k」。wave20 之后新登记的臂(c4_carrier / c4_rep / c4_hq /
+    # c4_state、c2/c4 的 _corr 版)不带 _16k 后缀,于是它们的 197 个格被整片丢出评测面板 ——
+    # 偏偏那是评得最全、唯一评到 250 步的几条(c4_carrier 50 格、c4_rep 49 格)。改成显式
+    # 排除真正不可比的两类,而不是靠名字里有没有 16k 来碰运气:
+    #   *_w      8B-Base <- 32B 的 w 对(不同学生/教师、cap 8192,与主线不同协议)
+    #   diag_*   一次性诊断跑,不是 campaign 的格
+    c = c[~c.run.str.endswith("_w") & ~c.run.str.startswith("diag_")].copy()
     c["grp"] = c.bench.replace({"aime24": "aime", "aime25": "aime"})
     keys = ("comp", "cap", "salv", "trunc", "stop",
             "aime24", "aime25", "amc23", "math500", "minerva")
