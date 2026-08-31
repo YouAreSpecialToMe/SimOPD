@@ -183,7 +183,14 @@ def main():
     ap.add_argument("--csv", nargs="+", default=[
         os.path.join(ROOT, "docs/data/training_metrics_16k_allkeys.csv.gz"),
         os.path.join(ROOT, "docs/data/training_metrics_exp_allkeys.csv.gz"),
-        os.path.join(ROOT, "docs/data/training_metrics_corr_allkeys.csv.gz")])
+        os.path.join(ROOT, "docs/data/training_metrics_corr_allkeys.csv.gz"),
+        # 尾巴补丁(2026-08-24):作业 08-23 14:19 全掉线、跳板机随后也连不上,wandb 全键
+        # 重导做不了,而 corr dump 停在 08-22(vanilla_corr 只到 205 步,c5_union_fkl 到 4 步,
+        # d1_tip/f2_clip2.3/f4_posclip/n2_termcal 整条缺席)。这份尾巴只含老 dump 里没有的
+        # 步,由 docs/data/inloop_wave_dynamics.csv 反向映射回 wandb 原键而来 —— 25 个核心
+        # 指标齐全,臂专属仪表列没有(那些面板到 08-22 为止)。集群回来后跑一次
+        # scripts/export_wave_metrics.py --since 2026-08-19 就能把两份合并成一份。
+        os.path.join(ROOT, "docs/data/training_metrics_corr_tail_20260823.csv.gz")])
     ap.add_argument("--out", default=os.path.join(ROOT, "docs/arm-dynamics.html"))
     ap.add_argument("--every", type=int, default=1)
     ap.add_argument("--suite-md", default=os.path.join(ROOT, "docs/campaign_16k_report.md"),
