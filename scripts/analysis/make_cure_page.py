@@ -109,8 +109,33 @@ def main():
                      exceptions=[dict(arm=r["arm"], len_late=r["len_late"], clip=r["clip_late"],
                                       ent=r["ent_late"]) for r in exc])
 
+    # --- 覆盖账:这一波每条 run 评了多少、评到哪 —— 「已跑出来」与「还没跑」一目了然 ---
+    cells = pd.read_csv(os.path.join(ROOT, "docs/data/post_eval_cells.csv"))
+    cov = []
+    for r in runs:
+        # 按 arm 关联,不按 run:本波是单种子,而 run 名的后缀习惯不统一
+        # (c4_carrier_s0 / vanilla_corr_s0_16k / c2_quantile_budget_corr_s0),
+        # 用 run 关联会把后缀猜错的那几条判成「未评」—— 正是本页要避免的那类漏算。
+        g = cells[cells.arm == r["arm"]]
+        nb = bys[bys.arm == r["arm"]]
+        steps = sorted(int(x) for x in g.step.unique()) if len(g) else []
+        cov.append(dict(arm=r["arm"], run=r["run"], status=r["status"], train_step=r["max_step"],
+                        cells=int(len(g)), complete=int(len(nb)),
+                        eval_max=(max(steps) if steps else None), steps=steps))
+    cov.sort(key=lambda x: (-x["cells"], x["arm"]))
+
+    # --- 已产出但不入主对照:w 对(8B-Base<-32B,cap 8192)与 diag_* 一次性诊断 ---
+    others = []
+    for run, g in cells[cells.run.str.endswith("_w") | cells.run.str.startswith("diag_")].groupby("run"):
+        for step, gg in g.groupby("step"):
+            others.append(dict(run=run, step=int(step),
+                               benches=[dict(b=x.bench, acc=round(float(x.avg_at_k), 3),
+                                             tr=round(float(x.trunc_rate), 2)) for x in gg.itertuples()]))
+    others.sort(key=lambda x: (x["run"], x["step"]))
+
     counts = st.status.value_counts().to_dict()
     payload = dict(hero=hero, runs=runs, ew=ew_rows, med=med, spread=spread, attractor=attractor,
+                   coverage=cov, others=others,
                    counts={STATUS_KEY[k]: int(v) for k, v in counts.items()})
 
     tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cure_page.tpl.html")).read()

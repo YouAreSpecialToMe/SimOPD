@@ -207,7 +207,26 @@ footer{border-top:1px solid var(--line);padding-top:18px;display:flex;flex-direc
 
 <section>
   <div class="sechead">
-    <h2>6 · 负结果:早期阈值不能预警</h2>
+    <h2>6 · 覆盖账:哪些已经评了,哪些还没</h2>
+    <p class="note" id="cov-note"></p>
+  </div>
+  <div class="tablewrap"><table id="t-cov"></table></div>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>7 · 已产出、但不进主对照的结果</h2>
+    <p class="note">这些格是真跑出来的,只是<strong>协议不同,混进上面的图会污染对照</strong>,所以单列:
+      <code>*_w</code> 是 <strong>Qwen3-8B-Base ← Qwen3-32B</strong> 的跨对复现(cap 8192,
+      另一对师生),而且它的对照臂 <code>vanilla_s0_w</code> 评测当时失败、没有格,所以这两条
+      没有自己的基线可比;<code>diag_*</code> 是一次性诊断跑,只有单个 benchmark。</p>
+  </div>
+  <div class="tablewrap"><table id="t-others"></table></div>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>8 · 负结果:早期阈值不能预警</h2>
     <p class="note">"看某个指标越过某条线就提前判死"这个想法不成立:健康的
       <code>vanilla_corr</code> 在 35–48 步把三个阈值全触发过一遍,却健康跑到 250;
       <code>f1_soft_log_corr</code> 和 <code>n2_corr</code> 第 5 步就触发
@@ -246,7 +265,8 @@ const STL = {ok:["健康","--ok"],warn:["危险","--warn"],bad:["塌缩","--bad"
     ["composite @225", cr.comp.toFixed(3), `legacy ${h.legacy.find(r=>r.step===225).comp.toFixed(3)} · 相差 +${(cr.comp-h.legacy.find(r=>r.step===225).comp).toFixed(3)}`],
     ["截断率 晚期", cr.trunc.toFixed(2), `legacy ${lg.trunc.toFixed(2)} · 几乎条条撞帽`],
     ["回答长度 晚期", Math.round(cr.len_mean).toLocaleString(), `legacy ${Math.round(lg.len_mean).toLocaleString()} tokens`],
-    ["波内 41 条", `${D.counts.ok}/41`, `健康 · 危险 ${D.counts.warn||0} · 塌缩 ${D.counts.bad||0} · 预算封顶 ${D.counts.na||0}`],
+    [`波内 ${D.runs.length} 条`, `${D.counts.ok}/${D.runs.length}`,
+     `健康 · 危险 ${D.counts.warn||0} / 塌缩 ${D.counts.bad||0} / 预算封顶 ${D.counts.na||0}`],
   ];
   $("#tiles").innerHTML = t.map(([k,v,s])=>
     `<div class="tile"><span class="k">${k}</span><span class="v">${v}</span><span class="s">${s}</span></div>`).join("");
@@ -484,7 +504,33 @@ $("#t-status").innerHTML = `<thead><tr><th>臂</th><th>状态</th><th>到步</th
     <td class="n">${r.eos_late==null?"n/a":r.eos_late.toFixed(2)}</td>
     <td class="n">${r.ent_late.toFixed(2)}</td></tr>`).join("") + "</tbody>";
 
-/* ---------- 4 · 早期阈值 ---------- */
+/* ---------- 6 · 覆盖账 ---------- */
+(function(){
+  const cov = D.coverage, withEval = cov.filter(r=>r.cells>0);
+  const cs = withEval.reduce((a,r)=>a+r.cells,0);
+  $("#cov-note").innerHTML = `本波 <strong>${cov.length}</strong> 条 run 里,<strong>${withEval.length}</strong>
+    条有评测(共 ${cs} 个格、${withEval.reduce((a,r)=>a+r.complete,0)} 个五基准完整格),
+    <strong>${cov.length-withEval.length}</strong> 条一个 ckpt 都没评 —— 后者不是没推上来,是评测队列
+    还压着(农场 08-23 14:19 随作业掉线)。「训练到」与「评测到」两列的差,就是待评的深度。`;
+  $("#t-cov").innerHTML = '<thead><tr><th>臂</th><th>状态</th><th>训练到</th><th>评测到</th>'
+    + '<th>格数</th><th>完整格</th><th>已评步</th></tr></thead><tbody>'
+    + cov.map(r=>'<tr><td>'+r.arm+'</td>'
+        + '<td><span class="st"><span class="dot '+r.status+'"></span>'+STL[r.status][0]+'</span></td>'
+        + '<td class="n">'+r.train_step+'</td>'
+        + '<td class="n">'+(r.eval_max==null?'<span style="opacity:.45">未评</span>':r.eval_max)+'</td>'
+        + '<td class="n">'+(r.cells||'')+'</td><td class="n">'+(r.complete||'')+'</td>'
+        + '<td class="n" style="text-align:left;font-size:11.5px;color:var(--ink-3)">'
+        + (r.steps.length?r.steps.join(" "):"—")+'</td></tr>').join("") + '</tbody>';
+})();
+
+/* ---------- 7 · 旁支结果 ---------- */
+$("#t-others").innerHTML = '<thead><tr><th>run</th><th>step</th><th>逐 benchmark:avg@k / 截断率</th></tr></thead><tbody>'
+  + D.others.map(r=>'<tr><td>'+r.run+'</td><td class="n">'+r.step+'</td>'
+      + '<td style="text-align:left" class="n">'
+      + r.benches.map(b=>b.b+" "+b.acc.toFixed(3)+" / "+b.tr.toFixed(2)).join("　·　")
+      + '</td></tr>').join("") + '</tbody>';
+
+/* ---------- 8 · 早期阈值 ---------- */
 $("#t-ew").innerHTML = `<thead><tr><th>臂</th><th>最终结局</th><th>eos_p&lt;0.3</th>
   <th>熵&lt;0.2</th><th>截断&gt;0.6</th><th>跑到</th></tr></thead><tbody>` +
   D.ew.map(r=>`<tr><td>${r.run}</td>
