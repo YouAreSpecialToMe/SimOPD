@@ -51,7 +51,7 @@
 | 吸引子 / 早期阈值负结果 / 长度分层 | 51 run 的逐步动态(git 里有,wandb 云端还有一份) | ✅ 双备份 |
 | 整个 legacy 波(29 臂 × 3 种子) | `post_eval_cells.csv` 4700 格 | ✅ 完整 |
 
-### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,17 条 + 2 条零成本)
+### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,20 条 + 2 条零成本)
 
 单种子、评测 k=8、每 25 步。全文与合并依据见 `docs/ARM-REVIEW-20260901.md` §5。
 
@@ -69,14 +69,17 @@
 | G | g6_seqmean_corr | 200 | 124 | G 代表(合并 g2/g4/g5) |
 | H | h1 · h2 · h3 | 200 | 392 | 最短 · 照塌 · null 代表 |
 | N | **`n2_gather`(新登记)** | 250 | 167 | N2 自己的效果,TE off |
-| | **17 条** | | **≈2200** | **32 卡 2.9 天 / 64 卡 1.4 天** |
+| A(v2 子表) | **`vanilla_corr_v2`(新登记)** | 250 | 157 | A 轴自己的基线:同为 `STOP_IDS=151645` |
+| A(v2 子表) | a1_gkd_mix0.5_n0 · a3_offpolicy_n0 | 200 | 202 | 混合(GKD)与纯离策两个端点;a4→a1、a5→a3 合并 |
+| | **20 条** | | **≈2560** | **32 卡 3.3 天 / 64 卡 1.7 天** |
 
-**不跑的**:A 轴(`_n0` v2 契约结果已入库,单列子表)· c2(归档 5 点已给 null)· b5/d1/d3/
+**不跑的**:a4/a5(并入 a1/a3)· c2(归档 5 点已给 null)· b5/d1/d3/
 g1/g2/g4/g5/h4/f1/f2_clip2.3/f4/f5/c4_hq/c4_state/n2_termcal/n2_corr(动态判决或被代表合并)·
 b3/b4/c1/e1/e3/h5–h10/j1/vanilla_n8/a2(入库数据或 exempt)。
 
-**两条新登记**(需用户在 `configs/arms.yaml` 登记):`vanilla_te` = `k1_rec` + gather +
-`TERM_EVENT=1`;`n2_gather` = `k1_termcal` + gather、TE off。**登记纪律**:top-k 族里原生读
+**三条新登记**(需用户在 `configs/arms.yaml` 登记):`vanilla_te` = `k1_rec` + gather +
+`TERM_EVENT=1`;`n2_gather` = `k1_termcal` + gather、TE off;`vanilla_corr_v2` = `vanilla_corr` 的
+`STOP_IDS=151645` / 学生侧 `EOS_IDS=151643,151645` 版——A 轴子表的基线。**登记纪律**:top-k 族里原生读
 终止符列的内核(c4/c5)走 gather-only,TE 只给采样式 k1 族。
 
 ### 2.2b 评测减重:**每 25 步照测,k 从 32 降到 8**
