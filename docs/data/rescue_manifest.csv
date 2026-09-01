@@ -1,0 +1,41 @@
+tier,run,step,why,path,GB
+R1,vanilla_corr_s0_16k,250,判决表最后一个点,ckpt/simopd/vanilla_corr_s0_16k/global_step_250/actor/huggingface,3.4
+R1,n2_corr_s0_16k,250,判决表最后一个点,ckpt/simopd/n2_corr_s0_16k/global_step_250/actor/huggingface,3.4
+R1,b1_skew_kl_corr_s0_16k,250,判决表最后一个点,ckpt/simopd/b1_skew_kl_corr_s0_16k/global_step_250/actor/huggingface,3.4
+R2,a3_offpolicy_s0_16k,200,修正波 @200 排名表,ckpt/simopd/a3_offpolicy_s0_16k/global_step_200/actor/huggingface,3.4
+R2,b1_skew_kl_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/b1_skew_kl_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,b2_forward_kl_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/b2_forward_kl_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,b5_k2_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/b5_k2_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,c3_intersection_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/c3_intersection_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,d1_tip_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/d1_tip_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,d2_selectkd_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/d2_selectkd_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,d3_teachability_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/d3_teachability_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,e2_set_coverage_a0_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/e2_set_coverage_a0_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,f1_soft_log_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/f1_soft_log_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,f2_hard_clip_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/f2_hard_clip_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,g2_fire_likelihood_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/g2_fire_likelihood_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,g4_failure_only_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/g4_failure_only_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,g5_rgopd_gate_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/g5_rgopd_gate_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,g6_seqmean_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/g6_seqmean_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h1_first_segment_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h1_first_segment_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h3_random_segment_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h3_random_segment_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h6_gen_sched_n0_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h6_gen_sched_n0_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h6_gen_sched_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h6_gen_sched_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h7_gen512_n0_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h7_gen512_n0_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h7_gen512_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h7_gen512_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h8_gen2048_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h8_gen2048_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h9_prune_adapt_n0_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h9_prune_adapt_n0_s0_16k/global_step_200/actor/huggingface,3.4
+R2,h9_prune_adapt_s0_16k,200,修正波 @200 排名表,ckpt/simopd/h9_prune_adapt_s0_16k/global_step_200/actor/huggingface,3.4
+R2,n2_corr_s0_16k,200,修正波 @200 排名表,ckpt/simopd/n2_corr_s0_16k/global_step_200/actor/huggingface,3.4
+R3,c3_intersection_corr_s0_16k,100,省 token 假说,ckpt/simopd/c3_intersection_corr_s0_16k/global_step_100/actor/huggingface,3.4
+R3,c3_intersection_corr_s0_16k,175,省 token 假说,ckpt/simopd/c3_intersection_corr_s0_16k/global_step_175/actor/huggingface,3.4
+R3,c3_intersection_corr_s0_16k,250,省 token 假说,ckpt/simopd/c3_intersection_corr_s0_16k/global_step_250/actor/huggingface,3.4
+R3,d2_selectkd_corr_s0_16k,100,省 token 假说,ckpt/simopd/d2_selectkd_corr_s0_16k/global_step_100/actor/huggingface,3.4
+R3,d2_selectkd_corr_s0_16k,175,省 token 假说,ckpt/simopd/d2_selectkd_corr_s0_16k/global_step_175/actor/huggingface,3.4
+R3,d2_selectkd_corr_s0_16k,250,省 token 假说,ckpt/simopd/d2_selectkd_corr_s0_16k/global_step_250/actor/huggingface,3.4
+R3,h1_first_segment_corr_s0_16k,100,省 token 假说,ckpt/simopd/h1_first_segment_corr_s0_16k/global_step_100/actor/huggingface,3.4
+R3,h1_first_segment_corr_s0_16k,175,省 token 假说,ckpt/simopd/h1_first_segment_corr_s0_16k/global_step_175/actor/huggingface,3.4
+R3,h1_first_segment_corr_s0_16k,250,省 token 假说,ckpt/simopd/h1_first_segment_corr_s0_16k/global_step_250/actor/huggingface,3.4
+R3,g2_fire_likelihood_corr_s0_16k,100,省 token 假说,ckpt/simopd/g2_fire_likelihood_corr_s0_16k/global_step_100/actor/huggingface,3.4
+R3,g2_fire_likelihood_corr_s0_16k,175,省 token 假说,ckpt/simopd/g2_fire_likelihood_corr_s0_16k/global_step_175/actor/huggingface,3.4
+R3,g2_fire_likelihood_corr_s0_16k,250,省 token 假说,ckpt/simopd/g2_fire_likelihood_corr_s0_16k/global_step_250/actor/huggingface,3.4
