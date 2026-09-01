@@ -32,7 +32,26 @@
 
 ---
 
-## 2 现在要跑什么
+## 2 先分清:重跑 / 续跑 / 新跑
+
+**没有任何东西需要从 0 重跑。** 盘上每条臂都有 ckpt,舰队引擎起来就自己从最近的续,
+最多丢 25 步。三类要分开看:
+
+| 类 | 条数 | 说明 |
+|---|---|---|
+| **只欠评测**(训练已满 250) | 18 | 一张训练卡都不用。含三条判决臂,**也含"省 token"四条候选(c3 / d2 / h1 / g2)全部已满 250** |
+| **续跑**(从 ckpt,不是重跑) | 33 | 其中 16 条是掉线时正在跑的 lane;另 17 条停在更早的波次 |
+| **新跑**(从 0) | 2 | `vanilla_corr` 的 s1 / s2 种子 —— 唯一真正要从头起的东西 |
+
+**续跑里有 5 条建议直接放弃**:`a1_gkd_mix0.5` / `a4_dagger_anneal` / `a5_aggrevate` /
+`h6_gen_sched` / `h10_task_subset` 的**老载体版**。它们跑满只是再证明一次"坏载体会塌"
+(a4/h6/h10 已经塌透了),而结论早已由 vanilla 的单旋钮对照定死。省下的卡直接给种子。
+
+**不用管的**:`c5_union_fkl_s0_16k.renorm-defect-20260822` 是缺陷版存档(干净版在跑,
+别合并);modelscope 事故烧掉的那批评测没产出 parquet,`eval_refill_exp.py` 会按
+"盘上 ckpt 减去盘上 parquet"自动重排,不需要人工补。
+
+## 3 现在要跑什么
 
 ### P0 · 判决收口(3 个格,约 27 GPU·小时)
 
@@ -45,7 +64,7 @@ printf '%s\n' "vanilla_corr_s0_16k 250" "n2_corr_s0_16k 250" "b1_skew_kl_corr_s0
   | cat - $D/evalq_exp/pending.txt > /tmp/p && mv /tmp/p $D/evalq_exp/pending.txt
 ```
 
-### P1 · 省 token 假说(约 450 GPU·小时)
+### P1 · 省 token 假说(约 450 GPU·小时,**纯评测,不占训练卡**)
 
 同契约、同窗口下,这几条**比 vanilla_corr 短**,但修正版一个格都没评:
 
@@ -97,7 +116,7 @@ python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 
 ---
 
-## 3 换集群:带什么 / 重建什么
+## 4 换集群:带什么 / 重建什么
 
 **必须带走**(`$D = .../simopd_data`):
 
@@ -122,7 +141,7 @@ python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 
 ---
 
-## 4 环境与凭据(只列名字,值不写进任何文件)
+## 5 环境与凭据(只列名字,值不写进任何文件)
 
 `WANDB_API_KEY`(在 `$ROOT/simopd_env.sh`,source 它,别 echo)、`HF_HOME` / `HF_ENDPOINT` /
 `HF_HUB_OFFLINE`、`VLLM_USE_MODELSCOPE` 与 `VERL_USE_MODELSCOPE`(**新集群务必显式设成
@@ -131,7 +150,7 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
 
 ---
 
-## 5 上电顺序
+## 6 上电顺序
 
 1. 挂盘、建 venv、`git clone` 到 `$ROOT`,`source simopd_env.sh` 自检 wandb 可达。
 2. 起载体(DLC 形态见 `bash deploy/dlc/forever.sh` 打印的控制台卡片;**表单里的自动重启一定要开**)。
@@ -144,7 +163,7 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
 
 ---
 
-## 6 会咬人的坑
+## 7 会咬人的坑
 
 - **过滤器按命名习惯写死**:这一轮连中三次(`run` 名含 `16k`、臂名正则要 `_corr_s0_16k$`、
   按 `run` 而不是 `arm` 关联)。症状都是"数据在、脚本不报错、页面安静地少几条"。
