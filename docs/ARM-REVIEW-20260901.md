@@ -170,3 +170,58 @@
 3. **动态可以先于评测下 null 判决。** 16 条删出重训的臂,判据是晚期长度/截断与 vanilla_corr
    ±3% 且无一条曲线分岔;评测只用来收口有信号的臂。这是 k=8 之后必须的纪律,不然评测
    预算永远追不上。
+
+---
+
+## 5 既然全部重跑:合并后的最终名册(2026-09-01 下午定稿版)
+
+"全部重跑"意味着这份名册就是论文的臂表,不再是"补完中断的 run"。原则:**每条 run 必须
+回答一个别的 run 答不了的问题**;修正后 ≡ vanilla_corr 的臂只留一条代表,判决靠它的 eval
+收口,其余归入"动态判决"。
+
+### 5.1 合并(同类只留一条代表)
+
+| 合并前 | 合并为 | 依据 |
+|---|---|---|
+| f1 / f2_hard / f2_clip2.3 / f4 / f5 / **f3** | **f3_power_corr** | 六条晚期 9.0–9.1k、截断 ≤.07、±1% 内;f3 是 legacy 效应最大处(+.090),null 在这里最有分量 |
+| g2 / g4 / g5 / **g6** | **g6_seqmean_corr** | 三条 null 代表里 g6 是名册的 KEY 问题;g1 单列为副作用(动态判决) |
+| c2 / c4_pi_tail_budget_corr / c4_hq / c4_state / **c4_carrier** | **c4_carrier**(已评满 250) | 预算族全部 ≡ vanilla_corr;c2 的 null 已由归档 5 点(Δ −.001)给出;控制器闸门无增益;`_corr` 版被 TE 弄坏 |
+| d1 / d3 / **d2** | **d2_selectkd_corr** | d1 ≡ vanilla_corr;d3 +23% 长度已由动态判为副作用;d2 兼省 token 候选 |
+| b5 / **b1** | **b1_skew_kl_corr** | k2 与 k1 估计器动态无差别 |
+| h4 / **h3** | **h3_random_segment_corr** | h4 已由动态判为副作用(.46);h3 是 legacy +.081 处的 null |
+| a4 / a5 / a1 / a3(`_n0`,v2 契约) | **不重跑,用已入库结果** | a1_n0 评到 200、a3_n0 到 225,A 轴不均匀性定律已成立;v2 契约子表单列,不与 off 臂相减 |
+| n2_termcal / n2_corr | **n2_gather(新)** | raw 已塌;`_corr` 把 N2 与 TE 混在一起 |
+
+### 5.2 删(不跑、不加,判决由入库数据/动态给出)
+
+`b3_eopd_gate`(死)· `b4_jsd`(.338 vs .348,JSD 的 +.092 是抗塌缩,exempt)· `c1_*`(短答退化)·
+`e1_pl_rank` / `e3_zvalue`(exempt,< .348)· `h5/h7/h8/h9` 预算臂(自带小帽,v2)· `h6/h10`(v2)·
+`j1_kdrl` · `vanilla_n8` · `a2_coldstart` · `g1_verified_only`(副作用,动态判决)·
+`h4_random_scatter`(同)· `d3_teachability`(同)· `diag_*`。
+
+### 5.3 最终名册:16 条 + 2 条零成本
+
+| 轴 | 臂 | 步 | GPU·h | 它回答什么 |
+|---|---|---|---|---|
+| 对照 | `vanilla`(legacy 载体) | 250 | 179 | **同栈配对**:塌缩在新集群复现,治愈才不被归因于换机器 |
+| 对照 | `vanilla_corr` | 250 | 157 | 判决基线 |
+| 对照 | **`vanilla_te`(新)** | 250 | 157 | TE 的 Path 1 是否 ≡ termfix——决定 `_corr` 臂能否与基线同表 |
+| B | b1_skew_kl_corr | 200 | 124 | 有界 RKL:null 代表 |
+| B | b2_forward_kl_corr | 200 | 111 | 前向 KL:分数≈但交付坏(唯一此类) |
+| C | c3_intersection_corr | 200 | 81 | 更短 + 熵 2.30,分数未评 |
+| C | c5_union_rkl | 250 | 124 | 预注册"更早爆" |
+| C | c5_union_fkl | 250 | 114 | 预注册 `un_p_imend` 上升 |
+| C | *c4_carrier / c4_rep* | — | **0** | 已评满 250(.353),同分省 9.4% token |
+| D | d2_selectkd_corr | 200 | 88 | D 轴代表,−6.3% 长度 |
+| E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
+| F | f3_power_corr | 200 | 118 | F 轴代表 |
+| G | g6_seqmean_corr | 200 | 124 | G 轴代表 |
+| H | h1_first_segment_corr | 200 | 78 | −49% 长度,分数未评 |
+| H | h2_last_segment_corr | 200 | 191 | 照塌 |
+| H | h3_random_segment_corr | 200 | 123 | H 轴 null 代表 |
+| N | **`n2_gather`(新)** | 250 | 167 | N2 自己的效果 |
+| | **16 条** | | **≈2080** | **32 卡 2.7 天 / 64 卡 1.4 天** |
+
+与 §3.4 的差别:去掉 c2(归档已给 null)、A 轴两条(v2 子表用入库结果),加回 legacy
+`vanilla` 同栈复现。**29 臂的审计压缩到 16 条 run,每轴至少一条评过的代表,每条有副作用
+或塌缩的臂都有动态判决可引。**
