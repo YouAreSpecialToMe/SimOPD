@@ -51,7 +51,7 @@
 | 吸引子 / 早期阈值负结果 / 长度分层 | 51 run 的逐步动态(git 里有,wandb 云端还有一份) | ✅ 双备份 |
 | 整个 legacy 波(29 臂 × 3 种子) | `post_eval_cells.csv` 4700 格 | ✅ 完整 |
 
-### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,16 条 + 2 条零成本)
+### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,17 条 + 2 条零成本)
 
 单种子、评测 k=8、每 25 步。全文与合并依据见 `docs/ARM-REVIEW-20260901.md` §5。
 
@@ -65,14 +65,14 @@
 | C | *c4_carrier / c4_rep* | — | **0** | 已评满 250 |
 | D | d2_selectkd_corr | 200 | 88 | D 代表 |
 | E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
-| F | f3_power_corr | 200 | 118 | F 代表(合并 f1/f2/f4/f5) |
+| F | f2_hard_clip_corr · f3_power_corr | 200 | 236 | 文献标准做法(硬截 ±10)· legacy 效应最大处(+.090)的 null;合并 f1/f2_clip2.3/f4/f5 |
 | G | g6_seqmean_corr | 200 | 124 | G 代表(合并 g2/g4/g5) |
 | H | h1 · h2 · h3 | 200 | 392 | 最短 · 照塌 · null 代表 |
 | N | **`n2_gather`(新登记)** | 250 | 167 | N2 自己的效果,TE off |
-| | **16 条** | | **≈2080** | **32 卡 2.7 天 / 64 卡 1.4 天** |
+| | **17 条** | | **≈2200** | **32 卡 2.9 天 / 64 卡 1.4 天** |
 
 **不跑的**:A 轴(`_n0` v2 契约结果已入库,单列子表)· c2(归档 5 点已给 null)· b5/d1/d3/
-g1/g2/g4/g5/h4/f1/f2/f4/f5/c4_hq/c4_state/n2_termcal/n2_corr(动态判决或被代表合并)·
+g1/g2/g4/g5/h4/f1/f2_clip2.3/f4/f5/c4_hq/c4_state/n2_termcal/n2_corr(动态判决或被代表合并)·
 b3/b4/c1/e1/e3/h5–h10/j1/vanilla_n8/a2(入库数据或 exempt)。
 
 **两条新登记**(需用户在 `configs/arms.yaml` 登记):`vanilla_te` = `k1_rec` + gather +

@@ -183,7 +183,7 @@
 
 | 合并前 | 合并为 | 依据 |
 |---|---|---|
-| f1 / f2_hard / f2_clip2.3 / f4 / f5 / **f3** | **f3_power_corr** | 六条晚期 9.0–9.1k、截断 ≤.07、±1% 内;f3 是 legacy 效应最大处(+.090),null 在这里最有分量 |
+| f1 / f2_clip2.3 / f4 / f5 → 并入 **f2_hard** + **f3** | **f2_hard_clip_corr + f3_power_corr** | 六条晚期 9.0–9.1k、截断 ≤.07、±1% 内。F 轴当初是为探 clip 的影响而铺的;留两条:f2_hard 是文献的标准做法(硬截 ±10),f3 是 legacy 效应最大处(+.090)——null 要在这两处都成立才算把「信号调节无用」钉死 |
 | g2 / g4 / g5 / **g6** | **g6_seqmean_corr** | 三条 null 代表里 g6 是名册的 KEY 问题;g1 单列为副作用(动态判决) |
 | c2 / c4_pi_tail_budget_corr / c4_hq / c4_state / **c4_carrier** | **c4_carrier**(已评满 250) | 预算族全部 ≡ vanilla_corr;c2 的 null 已由归档 5 点(Δ −.001)给出;控制器闸门无增益;`_corr` 版被 TE 弄坏 |
 | d1 / d3 / **d2** | **d2_selectkd_corr** | d1 ≡ vanilla_corr;d3 +23% 长度已由动态判为副作用;d2 兼省 token 候选 |
@@ -214,14 +214,15 @@
 | C | *c4_carrier / c4_rep* | — | **0** | 已评满 250(.353),同分省 9.4% token |
 | D | d2_selectkd_corr | 200 | 88 | D 轴代表,−6.3% 长度 |
 | E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
-| F | f3_power_corr | 200 | 118 | F 轴代表 |
+| F | f2_hard_clip_corr | 200 | 118 | 标准硬截:文献做法的 null |
+| F | f3_power_corr | 200 | 118 | legacy 效应最大处的 null |
 | G | g6_seqmean_corr | 200 | 124 | G 轴代表 |
 | H | h1_first_segment_corr | 200 | 78 | −49% 长度,分数未评 |
 | H | h2_last_segment_corr | 200 | 191 | 照塌 |
 | H | h3_random_segment_corr | 200 | 123 | H 轴 null 代表 |
 | N | **`n2_gather`(新)** | 250 | 167 | N2 自己的效果 |
-| | **16 条** | | **≈2080** | **32 卡 2.7 天 / 64 卡 1.4 天** |
+| | **17 条** | | **≈2200** | **32 卡 2.9 天 / 64 卡 1.4 天** |
 
 与 §3.4 的差别:去掉 c2(归档已给 null)、A 轴两条(v2 子表用入库结果),加回 legacy
-`vanilla` 同栈复现。**29 臂的审计压缩到 16 条 run,每轴至少一条评过的代表,每条有副作用
+`vanilla` 同栈复现。**29 臂的审计压缩到 17 条 run,每轴至少一条评过的代表,每条有副作用
 或塌缩的臂都有动态判决可引。**
