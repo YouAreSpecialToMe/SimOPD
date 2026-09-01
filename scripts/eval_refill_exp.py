@@ -148,6 +148,9 @@ def main():
     ap.add_argument("--write", action="store_true", help="真写 pending.txt(原子替换)")
     ap.add_argument("--watch", type=int, default=0, help="常驻,每 N 秒补一次")
     ap.add_argument("--limit", type=int, default=0, help="只排前 N 项(0=全部)")
+    ap.add_argument("--grid", choices=["full", "light"], default="full",
+                    help="full=每个 ckpt 五基准全跑(旧行为);light=锚点 100/200/250 全档、"
+                         "25/50/150 只跑 amc23+minerva+math500、其余步不排(省约四成)")
     a = ap.parse_args()
 
     while True:
@@ -182,7 +185,27 @@ def main():
                   "代价是同槽健康 lane 回退到最近 ckpt(<=25 步)")
 
         if a.write:
-            lines = [f"{run} {step}\n" for _, run, step, _ in (todo[:a.limit] if a.limit else todo)]
+            # 轻档网格(2026-08-24 加,--grid light):算力吃紧时把 AIME 只留在锚点。
+            # 成本结构:AIME24+25 是 30 题 × 32 采样 × 两套、且回答最长,约占一格的六成;
+            # AMC23(40×32)+ Minerva(272×3)+ MATH500(500×3)加起来才四成。
+            # 所以锚点步(100/200/250)跑全五基准 —— composite 只在五基准齐全时才算,
+            # 锚点因此仍可与已入库的 4700 格直接比较;中间步(25/50/150)只跑那三项,
+            # 给出曲线形状与截断率,不产出 composite(也就不会污染主表)。
+            # 其余步(75/125/175/225)不排 —— 一条曲线 6 个点足够读斜率。
+            # 队列行格式本就是 "run step [benches] [maxtok]",worker 的 complete() 也按
+            # 那一行给的 benchmark 判完成,所以这是配置,不是新机制。
+            ANCHOR, CHEAP = {100, 200, 250}, {25, 50, 150}
+            LIGHT = "amc23,minerva,math500"
+            sel = todo[:a.limit] if a.limit else todo
+            if a.grid == "light":
+                lines = []
+                for _, run, step, _ in sel:
+                    if step in ANCHOR:
+                        lines.append(f"{run} {step}\n")
+                    elif step in CHEAP:
+                        lines.append(f"{run} {step} {LIGHT}\n")
+            else:
+                lines = [f"{run} {step}\n" for _, run, step, _ in sel]
             tmp = f"{Q}/.pending.new"
             with open(tmp, "w") as f:
                 f.writelines(lines)

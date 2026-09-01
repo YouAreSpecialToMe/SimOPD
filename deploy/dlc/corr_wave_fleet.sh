@@ -586,6 +586,26 @@ for spec in $LANES; do
 done
 echo "lanes launched, staggered ${_LSTAG}s apart (logs $LOGD/lane_<arm>_s${SEED}.log)"
 echo "   to add a lane later WITHOUT touching DLC: touch $LOGD/fleet_relaunch_slot${SLOT}_s${SEED}"
+
+# ---- ckpt 自动上云(2026-08-24 加,opt-in:不设 CKPT_SYNC_REPO 就是空操作)----
+# 这次丢数据的根因是训练器只往共享盘写一份:仓库里没有任何上传路径(verl 的 FSDP
+# checkpoint manager 的 hdfs_path 明写 Unused),集群一换,308 个还没评测的 ckpt 连同
+# 1636 个评测格一起没了。所以同步器跟 lane 一起起,不依赖谁记得手动开。
+# 每 pod 一个,pgrep 去重;只传 actor/huggingface(3.4GB,够评测),
+# CKPT_SYNC_FULL 里点名的 run 连 optimizer 一起传(28.4GB,保住 resume 选项)。
+if [ -n "${CKPT_SYNC_REPO:-}" ]; then
+    if pgrep -f "ckpt_sync.py --repo ${CKPT_SYNC_REPO}" >/dev/null 2>&1; then
+        echo "== ckpt 同步器已在本 pod 上跑,不重复起"
+    elif [ -z "${HF_TOKEN:-}${HUGGING_FACE_HUB_TOKEN:-}" ]; then
+        echo "!! CKPT_SYNC_REPO 设了但环境里没有 HF_TOKEN —— 同步器没起,ckpt 又只有一份了"
+    else
+        ( cd "$ROOT" && HF_HUB_OFFLINE= nohup python scripts/ckpt_sync.py \
+            --repo "$CKPT_SYNC_REPO" --watch "${CKPT_SYNC_EVERY:-600}" \
+            --with-optimizer "${CKPT_SYNC_FULL:-}" \
+            >> "$LOGD/ckpt_sync_slot${SLOT}.log" 2>&1 & )
+        echo "== ckpt 同步器已起 -> $CKPT_SYNC_REPO(日志 $LOGD/ckpt_sync_slot${SLOT}.log)"
+    fi
+fi
 # Lanes hold their GPU memory from init on; the eval workers' own gpu_has_room check keeps
 # them off busy cards, so the pause is only needed for the bringup window that just closed.
 # (Residual known gap: a lane ATTEMPT that dies frees its pair for the seconds before the

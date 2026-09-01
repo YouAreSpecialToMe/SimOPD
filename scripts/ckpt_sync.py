@@ -25,8 +25,8 @@ import time
 CK = os.environ.get("CKPT_ROOT", "/mgfs/shared/Group_GY/changhao/simopd_data/ckpt") + "/simopd"
 
 
-def find_ckpts(root, with_opt=()):
-    """-> [(run, step, 本地目录, 是否整份)] ,按 (run, step) 排好序。"""
+def find_ckpts(root, with_opt=(), settle=120):
+    """-> [(run, step, 本地目录, 是否整份)],按 (run, step) 排序;只收静置满 settle 秒的。"""
     out = []
     if not os.path.isdir(root):
         return out
@@ -44,9 +44,15 @@ def find_ckpts(root, with_opt=()):
             full = run in with_opt
             src = os.path.join(rd, d) if full else os.path.join(rd, d, "actor", "huggingface")
             # 只认写完的:HF 目录要有 config.json;整份要有 FSDP 分片
+            if not os.path.isdir(src):
+                continue
             done = (os.path.exists(os.path.join(src, "config.json")) if not full
                     else any(f.startswith("model_world_size_") for f in os.listdir(src)))
-            if os.path.isdir(src) and done:
+            # 写完再传:verl 落盘要几分钟,半截目录传上去比不传更糟(远端有了、内容缺)。
+            # 取目录树里最新的 mtime,静置 SETTLE 秒才认它写完了。
+            newest = max((os.path.getmtime(os.path.join(dp, f))
+                          for dp, _, fs in os.walk(src) for f in fs), default=0)
+            if done and (time.time() - newest) >= settle:
                 out.append((run, step, src, full))
     return sorted(out, key=lambda t: (t[0], t[1]))
 
@@ -57,6 +63,7 @@ def main():
     ap.add_argument("--root", default=CK, help="ckpt 根目录(默认 $CKPT_ROOT/simopd)")
     ap.add_argument("--watch", type=int, default=0, help="常驻,每 N 秒扫一次(0=扫一次就退)")
     ap.add_argument("--with-optimizer", default="", help="逗号分隔的 run 名:这些臂连 FSDP 分片+optimizer 一起传(保留 resume 能力)")
+    ap.add_argument("--settle", type=int, default=120, help="目录静置多少秒才认它写完(默认 120)")
     ap.add_argument("--dry", action="store_true", help="只打印将要传什么")
     a = ap.parse_args()
     with_opt = {x for x in a.with_optimizer.split(",") if x}
@@ -79,7 +86,7 @@ def main():
                 done = json.load(open(p))
             except Exception:
                 done = {}
-        todo = [c for c in find_ckpts(a.root, with_opt) if f"{c[0]}@{c[1]}" not in done]
+        todo = [c for c in find_ckpts(a.root, with_opt, a.settle) if f"{c[0]}@{c[1]}" not in done]
         print(f"[{time.strftime('%m-%d %H:%M:%S')}] 待传 {len(todo)} 个(已同步 {len(done)})", flush=True)
         for run, step, src, full in todo:
             key = f"{run}@{step}"
@@ -90,7 +97,22 @@ def main():
             try:
                 api.upload_folder(folder_path=src, path_in_repo=dst, repo_id=a.repo,
                                   commit_message=f"sync {key}")
-                done[key] = dict(path=dst, full=full, ts=time.strftime("%FT%TZ", time.gmtime()))
+                # 校验后才记账:传完不等于传对。比对文件名与字节数,不一致就不写
+                # SYNCED.json —— 下一轮会重传,而不是留下一个"以为传好了"的坑。
+                local = {f: os.path.getsize(os.path.join(dp, f))
+                         for dp, _, fs in os.walk(src) for f in fs
+                         if (dp := dp) and (f := f)}
+                remote = {}
+                for it in api.list_repo_tree(a.repo, path_in_repo=dst.rstrip("/"),
+                                             recursive=True, expand=True):
+                    if getattr(it, "size", None) is not None:
+                        remote[os.path.basename(it.path)] = it.size
+                bad = [f for f, sz in local.items() if remote.get(f) != sz]
+                if bad:
+                    print(f"  VERIFY-FAIL {key}: {len(bad)} 个文件大小对不上(如 {bad[:2]}),不记账,下轮重传", flush=True)
+                    continue
+                done[key] = dict(path=dst, full=full, n=len(local),
+                                 ts=time.strftime("%FT%TZ", time.gmtime()))
                 tmp = "/tmp/SYNCED.json"
                 json.dump(done, open(tmp, "w"), indent=1)
                 api.upload_file(path_or_fileobj=tmp, path_in_repo="SYNCED.json", repo_id=a.repo,
