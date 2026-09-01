@@ -133,6 +133,34 @@ python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 
 **必须重搭**:venv(`simopd/`,pandas+pyarrow+vLLM+verl)、共享盘挂载、以及"能跑长作业"的载体。
 
+### 4.1 ckpt 走 HuggingFace(2026-08-24 决定的迁移路径)
+
+**先记住一件事**:`actor/huggingface/`(约 **3.4 GB**)只够**评测**;**续训要整个
+`global_step_N/` 目录**——FSDP 分片 + optimizer + extra,约 **28.4 GB**(HF 权重只占其中
+14%)。只传 HF 权重就不是"续跑",而是拿权重重开一条新 run:优化器状态和
+StatefulDataLoader 的数据顺序都换了,一条 250 步曲线的中段被这样接上,协议就断了。
+`resume_mode=auto` 认的是目录里最新的 `global_step_*`,而拒绝 resume 的是**旋钮指纹**
+(从 env 读),**不是路径**——所以换集群、换挂载点都不影响,只要臂的 env 一模一样。
+
+**分层传,别全传**(33 TB → 约 2.1 TB):
+
+| 层 | 传什么 | 体量 | 换来什么 |
+|---|---|---|---|
+| 1 | 本波每个 ckpt 的 `actor/huggingface/` | 395 × 3.4 GB ≈ **1.3 TB** | 整个评测欠账(1636 格)在任何有卡的地方都能跑 |
+| 2 | 要续训那些臂的**最新那个** `global_step_N/` 全量 | ~28 × 28.4 GB ≈ **0.8 TB** | 真续跑,不破协议 |
+| 3 | `evals/*.parquet` → 一个 **dataset** repo | 14 GB | 原文列(`response`)只在这里,分析表能重建、它不能 |
+| — | **不传**:非最新步的 25 GB 分片/优化器 | 省下 ~30 TB | 我们从不从旧步精确续 |
+
+**上传注意**:仓库设 **private**(未发表的研究产物);模型卡注明基座
+`Qwen3-1.7B-Base` ← 教师 `Qwen3-4B-Instruct-2507` 与其许可;上传前
+**unset `HF_HUB_OFFLINE`**(`simopd_env.sh` 里是开的),大目录用
+`hf upload-large-folder`;`HF_HUB_DISABLE_XET=1` 是为在线拉取设的,**大批量上传建议放开
+Xet**(块级去重,重复的 tokenizer/config 不必重传)。目录结构**原样保留**
+(`<arm>_s0_16k/global_step_N/...`),下游脚本按这个 glob 找 ckpt。
+
+**落地后必须验**:传之前在源盘生成清单(`find … -type f -printf '%s %p\n'` + 关键文件
+sha256),拉下来逐条比对;抽一条臂真跑一次 25 步续训,确认指纹没被拒。**验完再删源盘。**
+
 **载体的可移植性**:`deploy/dlc/forever.sh` 只依赖三件事——共享文件系统、一个能长跑的作业、
 容器里有 `python3`。它**不依赖 DLC 特有的东西**,pod 识别门认的是
 `MLP_ROLE_INDEX / RANK / MASTER_ADDR / POD_NAME` 里任意一个存在(见 `_podsig`)。
