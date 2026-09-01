@@ -170,33 +170,31 @@ python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 
 **必须重搭**:venv(`simopd/`,pandas+pyarrow+vLLM+verl)、共享盘挂载、以及"能跑长作业"的载体。
 
-### 4.1 ckpt 走 HuggingFace(2026-08-24 决定的迁移路径)
+### 4.1 ckpt 走 HuggingFace(2026-08-24 定稿:**只传权重**)
 
-**先记住一件事**:`actor/huggingface/`(约 **3.4 GB**)只够**评测**;**续训要整个
-`global_step_N/` 目录**——FSDP 分片 + optimizer + extra,约 **28.4 GB**(HF 权重只占其中
-14%)。只传 HF 权重就不是"续跑",而是拿权重重开一条新 run:优化器状态和
-StatefulDataLoader 的数据顺序都换了,一条 250 步曲线的中段被这样接上,协议就断了。
-`resume_mode=auto` 认的是目录里最新的 `global_step_*`,而拒绝 resume 的是**旋钮指纹**
-(从 env 读),**不是路径**——所以换集群、换挂载点都不影响,只要臂的 env 一模一样。
+前提已经变了:换机器后**不能 resume**(优化器状态与数据顺序留在旧盘),而 §2.5 的方案是
+"降锚点 + 只从 0 重跑 4 条",**所以全量 `global_step_N/` 不用传**。传两样就够:
 
-**分层传,别全传**(33 TB → 约 2.1 TB):
+| 传什么 | 体量 | 换来什么 |
+|---|---|---|
+| 每个 ckpt 的 `actor/huggingface/`(约 3.4 GB) | 395 × 3.4 GB ≈ **1.3 TB** | **全部 1636 格评测欠账**在任何有卡的地方都能跑 —— 这是剩余工作量的绝大头 |
+| `evals/*.parquet` → 一个 **dataset** repo | **14 GB** | 回答原文列(`response`)只在这里;分析表能重建,它不能 |
+| ~~非最新步的 FSDP 分片 + optimizer~~ | ~~约 31 TB~~ | ~~从旧步精确续~~ —— 已放弃 resume,不传 |
 
-| 层 | 传什么 | 体量 | 换来什么 |
-|---|---|---|---|
-| 1 | 本波每个 ckpt 的 `actor/huggingface/` | 395 × 3.4 GB ≈ **1.3 TB** | 整个评测欠账(1636 格)在任何有卡的地方都能跑 |
-| 2 | 要续训那些臂的**最新那个** `global_step_N/` 全量 | ~28 × 28.4 GB ≈ **0.8 TB** | 真续跑,不破协议 |
-| 3 | `evals/*.parquet` → 一个 **dataset** repo | 14 GB | 原文列(`response`)只在这里,分析表能重建、它不能 |
-| — | **不传**:非最新步的 25 GB 分片/优化器 | 省下 ~30 TB | 我们从不从旧步精确续 |
+**合计约 1.3 TB**(原 33 TB 的 4%)。上传顺序:先 @200 主表要用的 31 条臂,再补其余。
 
-**上传注意**:仓库设 **private**(未发表的研究产物);模型卡注明基座
-`Qwen3-1.7B-Base` ← 教师 `Qwen3-4B-Instruct-2507` 与其许可;上传前
-**unset `HF_HUB_OFFLINE`**(`simopd_env.sh` 里是开的),大目录用
-`hf upload-large-folder`;`HF_HUB_DISABLE_XET=1` 是为在线拉取设的,**大批量上传建议放开
-Xet**(块级去重,重复的 tokenizer/config 不必重传)。目录结构**原样保留**
-(`<arm>_s0_16k/global_step_N/...`),下游脚本按这个 glob 找 ckpt。
+**传的时候**:仓库设 **private**(未发表产物);模型卡注明基座 `Qwen3-1.7B-Base` ←
+教师 `Qwen3-4B-Instruct-2507` 及其许可;上传前 **unset `HF_HUB_OFFLINE`**
+(`simopd_env.sh` 里是开的,不 unset 会静默失败);大目录用 `hf upload-large-folder`;
+`HF_HUB_DISABLE_XET=1` 是为在线拉取设的,**批量上传建议放开 Xet**(块级去重,重复的
+tokenizer/config 不必重传);**目录结构原样保留** `<arm>_s0_16k/global_step_N/actor/huggingface/`
+—— 下游脚本全按这个 glob 找 ckpt,拍平了要改一堆代码。
 
-**落地后必须验**:传之前在源盘生成清单(`find … -type f -printf '%s %p\n'` + 关键文件
-sha256),拉下来逐条比对;抽一条臂真跑一次 25 步续训,确认指纹没被拒。**验完再删源盘。**
+**删源盘前必须做**:传前在源盘生成清单(文件大小 + 关键文件 sha256),拉下来逐条比对;
+再抽一个 ckpt 真跑一次 5 基准评测,确认权重能载入、数字对得上。
+**注意这一步不可逆**:全量 ckpt 一删,"以后想真 resume"这个选项就永远没有了 ——
+如果对某条臂还存有"将来要接着跑"的念头,那条臂的最新 `global_step_N/` 全量(28.4 GB)
+要单独留一份。
 
 **载体的可移植性**:`deploy/dlc/forever.sh` 只依赖三件事——共享文件系统、一个能长跑的作业、
 容器里有 `python3`。它**不依赖 DLC 特有的东西**,pod 识别门认的是
