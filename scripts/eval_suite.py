@@ -36,9 +36,21 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # (component, benchmarks pooled into it, samples per problem)
+#
+# k 可用 SIMOPD_SUITE_K 覆盖(只作用于本来 k=32 的两组;minerva/math500 的 k=3 不动)。
+# 2026-08-24 减重口径:一格约 68M token,k=32 的 aime24/aime25/amc23 占 **77%**,
+# 而 composite 用的是 avg@k —— 逐题正确率的均值,**k 变了估计量不变,只是方差变大**。
+# 用已入库数据校准过代价:legacy vanilla 三种子的 composite 种子间 sd 中位 0.0042;
+# 这两组给 composite 贡献的采样 SE 在 k=32 时 0.0037、k=16 时 0.0053、k=8 时 0.0075。
+# 所以 k=16 省约 38% token,总噪声从 ~0.0056 升到 ~0.0068(+20%),仍远小于我们要读的
+# 效应(治愈 +0.10;"药效归零"的残差 ±0.01)。k=8 会把 ±0.01 那档读糊,不建议。
+# 注意两件事:① pass@k 与 k 有关,k=16 的 pass 不能与已入库的 pass@32 相比,只有
+# avg/composite 可比;② newest() 按每题采样数过滤产物,k=16 与 k=32 的 parquet 不会互相
+# 冒充(era 门 2026-08-07 F1 的教训),所以混跑不会静默串味。
+_K32 = int(os.environ.get("SIMOPD_SUITE_K", "32"))
 SUITE = [
-    ("aime", ("aime24", "aime25"), 32),
-    ("amc23", ("amc23",), 32),
+    ("aime", ("aime24", "aime25"), _K32),
+    ("amc23", ("amc23",), _K32),
     ("minerva", ("minerva",), 3),
     ("math500", ("math500",), 3),
 ]
