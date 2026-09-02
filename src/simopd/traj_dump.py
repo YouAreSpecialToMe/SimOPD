@@ -17,7 +17,8 @@
 
   step_<n>.parquet     采样子集(seq_key % SIMOPD_TRAJ_MOD == 0,至多 N 条)的整序列:prompt/response id、
                        逐 token 学生 logprob(old_log_probs)与熵、教师采样列 logprob、教师 top1、各终止符列
-  ids_<n>.parquet      整批每序列的无损 id(prompt/response),供行为分析
+  ids_<n>.parquet      整批每序列的无损 id(prompt/response),供行为分析;**每步**一份
+                       (SIMOPD_TRAJ_IDS_EVERY,默认 1),不等 dump 步
   summary_<n>.parquet  整批每序列一行:长度/分数/结尾/截断/重复率/Σlogprob/熵/Δℓ 均值与末位/
                        末位教师 top1/末位各终止符概率/正文里终止符出现次数
   light.jsonl          每一步每序列一行的轻摘要(不碰教师块,毫秒级):长度/结尾/分数/重复率/熵
@@ -25,13 +26,16 @@
   div/                 worker 侧 simopd.div_panel 的按序列 FKL/RKL/JSD(同 seq_key 对接)
 每条记录带 seq_key(simopd.seqkey:响应 id 的 64 位滚动哈希),两侧、多文件之间靠它对接。
 
-采样与开销:整批全存是 256 seq x 16k tok x 250 步 ~ 1e9 token/run,不可能。默认每 25 步
-(与 save_freq 同拍)存前 32 条整序列 + 整批摘要,一个 run 十几到几十 MB;light 每步几十 KB。
+采样与开销:逐 token 的量(step_)整批全存是 256 seq x 16k tok x 250 步 ~ 1e9 token/run,
+不可能,默认每 25 步(与 save_freq 同拍)存 32 条整序列 + 整批摘要;light 每步几十 KB。
+无损 id(ids_)本身便宜,2026-09-02 起**每步**整批都存(每步约 5-10 MB,200 步的 run 约 1-2 GB),
+行为分析不再受 25 步快照的限制。
 
 环境变量:
   SIMOPD_TRAJ_DIR      输出目录。未设 = 完全不装(零开销)。run_opd_baseline.sh 默认给 $ckpt_dir/traj。
   SIMOPD_TRAJ_NOSUB    =1 不再套 <experiment> 子目录(启动器已把目录定到 run 自己的 ckpt 目录下)。
   SIMOPD_TRAJ_EVERY    整批摘要 + 抽样整条的间隔(默认 25)。
+  SIMOPD_TRAJ_IDS_EVERY 整批无损 id(ids_<n>.parquet)的间隔(默认 1 = 每步;0 = 只随 dump 步)。
   SIMOPD_TRAJ_N        整序列至多存多少条(默认 32;<=0 不设上限)。
   SIMOPD_TRAJ_MOD      采样子集规则 seq_key % MOD == 0(默认 8;与 div_panel 共用,两侧同一子集)。
   SIMOPD_TRAJ_LIGHT    =1(默认)每步追加 light.jsonl;=0 关。
@@ -59,6 +63,7 @@ def _cfg():
     return dict(
         root=e["SIMOPD_TRAJ_DIR"].strip(),
         every=int(e.get("SIMOPD_TRAJ_EVERY", "25") or 25),
+        ids_every=int(e.get("SIMOPD_TRAJ_IDS_EVERY", "1") or 1),
         n=int(e.get("SIMOPD_TRAJ_N", "32") or 32),
         light=(e.get("SIMOPD_TRAJ_LIGHT", "1").strip() != "0"),
         text=(e.get("SIMOPD_TRAJ_TEXT", "0").strip() == "1"),
@@ -240,6 +245,28 @@ def _light_row(ex, b, step, stop_all):
     return row
 
 
+def _prompt_ids(ex, b):
+    p = ex["prompts"][b]
+    if ex["attn"] is not None:
+        p = p[ex["attn"][b, :ex["P"]]]
+    return p
+
+
+def _ids_row(ex, b, step, p_ids=None):
+    """整批无损 id 的一行:每步都写(SIMOPD_TRAJ_IDS_EVERY),dump 步与 step_/summary_ 同批。"""
+    if p_ids is None:
+        p_ids = _prompt_ids(ex, b)
+    L = int(ex["lens"][b])
+    return dict(step=step, seq=b, seq_key=ex["keys"][b], uid=ex["uid"][b], resp_len=L,
+                prompt_ids=p_ids.tolist(), response_ids=ex["responses"][b, :L].tolist())
+
+
+def _atomic_parquet(path, df):
+    tmp = path + ".tmp"
+    df.to_parquet(tmp)
+    os.replace(tmp, path)          # 原子:读者永远看不到半截文件
+
+
 def _full_rows(ex, step, n_want, stop_all, mod=8):
     """采样子集的整序列(含逐 token 列)+ 整批摘要 + 整批 ids。
     子集 = seq_key % mod == 0(worker 侧 div_panel 用同一规则,两边逐 token 记录对得上),至多 n_want 条。"""
@@ -254,11 +281,8 @@ def _full_rows(ex, step, n_want, stop_all, mod=8):
     for b in range(B):
         L = int(ex["lens"][b])
         base = _light_row(ex, b, step, stop_all)
-        p_ids = ex["prompts"][b]
-        if ex["attn"] is not None:
-            p_ids = p_ids[ex["attn"][b, :P]]
-        ids.append(dict(step=step, seq=b, seq_key=ex["keys"][b], uid=ex["uid"][b], resp_len=L,
-                        prompt_ids=p_ids.tolist(), response_ids=ex["responses"][b, :L].tolist()))
+        p_ids = _prompt_ids(ex, b)
+        ids.append(_ids_row(ex, b, step, p_ids))
         tch = _teacher_seq(ex, b, L, stop_all) if (ex["tids"] is not None and L) else None
         s = dict(base)
         if tch is not None:
@@ -304,7 +328,7 @@ def _write_meta(d, cfg, ex, roll, es, et, stop_all):
         term_event=os.environ.get("SIMOPD_TERM_EVENT", ""), gather_eos=os.environ.get("SIMOPD_GATHER_EOS", ""),
         loss_mode=os.environ.get("DISTILLATION_LOSS_MODE", ""), topk=os.environ.get("DISTILLATION_TOPK", ""),
         B=ex["B"], T=ex["T"], P=ex["P"], K=(int(ex["tids"].shape[-1]) if ex["tids"] is not None else None),
-        every=cfg["every"], n_full=cfg["n"], light=cfg["light"],
+        every=cfg["every"], ids_every=cfg["ids_every"], n_full=cfg["n"], light=cfg["light"],
         columns=dict(
             stu_lp="学生(old_log_probs,rollout 后当前策略)对采样 token 的 logprob,逐 token",
             tch_lp="教师对采样 token 的 logprob(教师块里按 id 找到的列;NaN = 不在 top-K 也未被 gather)",
@@ -329,7 +353,8 @@ def _write_meta(d, cfg, ex, roll, es, et, stop_all):
 def _write(batch, step):
     cfg = _cfg()
     is_full = cfg["every"] > 0 and step % cfg["every"] == 0
-    if not is_full and not cfg["light"]:
+    is_ids = cfg["ids_every"] > 0 and step % cfg["ids_every"] == 0
+    if not is_full and not is_ids and not cfg["light"]:
         return
     d = _dir(cfg)
     os.makedirs(d, exist_ok=True)
@@ -344,10 +369,7 @@ def _write(batch, step):
         rows, summ, ids = _full_rows(ex, step, cfg["n"], stop_all, cfg["mod"])
         for name, data in ((f"step_{step}.parquet", rows), (f"summary_{step}.parquet", summ),
                            (f"ids_{step}.parquet", ids)):
-            path = os.path.join(d, name)
-            tmp = path + ".tmp"
-            pd.DataFrame(data).to_parquet(tmp)
-            os.replace(tmp, path)          # 原子:读者永远看不到半截文件
+            _atomic_parquet(os.path.join(d, name), pd.DataFrame(data))
         light_rows = summ                  # 摘要已含轻摘要的全部字段,light 不重复算
         _state["wrote"] += 1
         if _state["wrote"] <= 2 or step % (cfg["every"] * 10) == 0:
@@ -356,6 +378,11 @@ def _write(batch, step):
                   f"截断 {sum(1 for r in summ if r['truncated'])},整序列 {len(rows)} 条,"
                   f"末 id {[r['last_id'] for r in rows[:4]]})", file=sys.stderr, flush=True)
     else:
+        if is_ids:                         # 非 dump 步:只写整批无损 id(不碰教师块,便宜)
+            import pandas as pd
+
+            _atomic_parquet(os.path.join(d, f"ids_{step}.parquet"),
+                            pd.DataFrame([_ids_row(ex, b, step) for b in range(ex["B"])]))
         light_rows = [_light_row(ex, b, step, stop_all) for b in range(ex["B"])]
 
     if cfg["light"]:
@@ -434,5 +461,6 @@ def install():
 
     cfg = _cfg()
     print(f"[simopd] traj_dump armed: {_dir(cfg)} (每 {cfg['every']} 步整批摘要 + {cfg['n']} 条整序列,"
+          f"整批 id 每 {cfg['ids_every'] or '<dump>'} 步,"
           f"light={'on' if cfg['light'] else 'off'},verl 文本={'on' if cfg['text'] else 'off'})",
           file=sys.stderr, flush=True)

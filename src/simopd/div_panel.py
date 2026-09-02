@@ -5,7 +5,8 @@
 driver 上只有采样列。所以这里包住 verl 的 compute_topk_loss(logit-processor 阶段,逐 token
 产出 div_* 键,随其它核输出一起被引擎导出成 nested tensor),再包住注册表里的最终调用
 (那里有 response_mask / responses / 由 traj_dump 注入的 simopd_step),按序列聚合后追加到
-$SIMOPD_TRAJ_DIR/div/rank<r>.jsonl;dump 步上、被采样到的序列还写逐 token 的 parquet。
+$SIMOPD_TRAJ_DIR/div/rank<r>.jsonl;dump 步上还写逐 token 的 parquet(2026-09-02 起默认整批,
+SIMOPD_DIV_MOD=1;>1 时按 seq_key % MOD == 0 抽样)。
 
 支撑与尾桶(所有臂同一定义,与臂自己的 SUPPORT_MODE / TERM_EVENT 折叠无关):
   S = 教师块里的 id 集合(top-K ∪ 精确 gather 的终止符列 ∪ 保留的采样列,按 id 去重),
@@ -17,13 +18,14 @@ $SIMOPD_TRAJ_DIR/div/rank<r>.jsonl;dump 步上、被采样到的序列还写逐 
 内存:不再物化 [N, V] 的 log_softmax(那是 KEEP_SAMPLED 族的 18.6GiB 杀手);逐 token 分块
 logsumexp(SIMOPD_DIV_CHUNK,默认 512 行)+ 在教师 id 上 gather。开销约等于多做一次 logsumexp。
 
-环境变量:SIMOPD_TRAJ_DIR 有值且 SIMOPD_DIV_PANEL!=0 时启用;SIMOPD_TRAJ_EVERY / SIMOPD_TRAJ_MOD
-与 traj_dump 共用(dump 步、采样子集 key % MOD == 0)。
+环境变量:SIMOPD_TRAJ_DIR 有值且 SIMOPD_DIV_PANEL!=0 时启用;SIMOPD_TRAJ_EVERY 与 traj_dump 共用
+(dump 步);逐 token 落盘的序列子集由 SIMOPD_DIV_MOD 单独控制(默认 1 = 整批;traj_dump 的 step_
+子集 SIMOPD_TRAJ_MOD 是它的子集,按 seq_key 仍对得上)。
 
 产物:
   div/rank<r>.jsonl                  每 micro-batch 追加,每序列一行:step seq_key uid n_tok
                                      {fkl,rkl,jsd,tv,qS,pS,agree}_mean, {..}_last, {fkl,rkl,jsd}_tail256
-  div/tok_step<n>_rank<r>_<i>.parquet  dump 步、key % MOD == 0 的序列:逐 token 的七列
+  div/tok_step<n>_rank<r>_<i>.parquet  dump 步、整批(或 key % SIMOPD_DIV_MOD == 0)的序列:逐 token 的七列
 失败语义:面板任何一步失败只在 stderr 喊一次,训练照常。"""
 import json
 import os
@@ -46,7 +48,7 @@ def _cfg():
     e = os.environ
     return dict(root=e.get("SIMOPD_TRAJ_DIR", "").strip(),
                 every=int(e.get("SIMOPD_TRAJ_EVERY", "25") or 25),
-                mod=int(e.get("SIMOPD_TRAJ_MOD", "8") or 8),
+                mod=int(e.get("SIMOPD_DIV_MOD", "1") or 1),
                 chunk=int(e.get("SIMOPD_DIV_CHUNK", "512") or 512))
 
 

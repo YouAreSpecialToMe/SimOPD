@@ -21,9 +21,9 @@ traj/meta.json                       契约、E_S/E_T、K、P、T、列说明(�
 traj/light.jsonl                     每步每序列一行的轻摘要
 traj/summary_<n>.parquet             每 25 步:整批每序列一行的标量摘要(含教师量)
 traj/step_<n>.parquet                每 25 步:采样子集(seq_key % 8 == 0,至多 32 条)的整序列(ids + 逐 token 列)
-traj/ids_<n>.parquet                 每 25 步:整批每序列的无损 prompt/response id
+traj/ids_<n>.parquet                 **每步**:整批每序列的无损 prompt/response id(SIMOPD_TRAJ_IDS_EVERY,默认 1)
 traj/div/rank<r>.jsonl               worker 侧:每步每序列的学生—教师分歧(FKL/RKL/JSD/TV/qS/pS/agree)
-traj/div/tok_step<n>_rank<r>_<i>.parquet  每 25 步:采样子集(同一规则)的逐 token 分歧
+traj/div/tok_step<n>_rank<r>_<i>.parquet  每 25 步:**整批**的逐 token 分歧(SIMOPD_DIV_MOD,默认 1;>1 按 seq_key 抽样)
 traj/_verl_text/                     仅 SIMOPD_TRAJ_TEXT=1(verl 自己的剥特殊符文本,每步整批,~1 GB/run,默认不写、不传)
 val_gen/<step>.jsonl                 在环 math500 生成(verl 文本 dump,每 test_freq 一次)
 ```
@@ -33,9 +33,9 @@ val_gen/<step>.jsonl                 在环 math500 生成(verl 文本 dump,每 
 | 要保存的 | 在哪 | 粒度 |
 |---|---|---|
 | **rollout 本身**:长度、熵、自然停止/截断、结尾 id、重复率 | `traj/light.jsonl`(`resp_len ent_mean ent_last ent_tail256 last_is_stop truncated rep4 …`);`metrics/`(batch 级 `response_length/* actor/entropy`) | 每步每序列 |
-| **学生模仿教师**:学生轨迹上的 forward KL / reverse KL / JSD(教师块 + 尾桶),采样 token 的 Δℓ | `traj/div/rank*.jsonl`(`fkl rkl jsd tv qS pS agree` 的 mean/last/tail256);`traj/summary_<n>.parquet`(`dl_mean dl_last dl_max tch_lp_*`);逐 token 见 `div/tok_*` 与 `step_<n>` | 每步每序列;逐 token 每 25 步子集 |
+| **学生模仿教师**:学生轨迹上的 forward KL / reverse KL / JSD(教师块 + 尾桶),采样 token 的 Δℓ | `traj/div/rank*.jsonl`(`fkl rkl jsd tv qS pS agree` 的 mean/last/tail256);`traj/summary_<n>.parquet`(`dl_mean dl_last dl_max tch_lp_*`);逐 token 见 `div/tok_*` 与 `step_<n>` | 每步每序列;逐 token 分歧每 25 步**整批**,逐 token 学生量(`step_`)每 25 步子集 |
 | **学生能力**:训练题正确率、在环 math500、坏模式频率 | `light.jsonl` 的 `score`(训练 prompt 的判分)、`metrics/` 的 `val/*`、`val_gen/`;坏模式 = `rep4 truncated n_stop_body ent_tail256` | 每步每序列 / 每 25 步 |
-| **轨迹本身**(行为分析) | `traj/ids_<n>.parquet`(整批无损 id)+ `step_<n>.parquet`(子集逐 token 量)+ 离线评测 parquet 的 `token_ids/response/finish_reason` | 每 25 步 |
+| **轨迹本身**(行为分析) | `traj/ids_<n>.parquet`(整批无损 id)+ `step_<n>.parquet`(子集逐 token 量)+ 离线评测 parquet 的 `token_ids/response/finish_reason` | `ids_` **每步**;`step_` 与评测每 25 步 |
 
 三处记录靠 **`seq_key`**(`simopd.seqkey`:响应 id 的 64 位滚动哈希,driver/worker 各自算)对接:
 `light/summary/ids/step_` ↔ `div/rank*.jsonl` ↔ `div/tok_*`。
@@ -55,6 +55,8 @@ val_gen/<step>.jsonl                 在环 math500 生成(verl 文本 dump,每 
   这是真 KL 的下界(尾桶归并只会减小散度);K=66 时教师块通常覆盖 >99% 质量。
 - 每序列:`*_mean`(response 段均值)、`*_last`(末 token,自然停止时即终止事件)、`fkl/rkl/jsd_tail256`。
 - 内存:分块 logsumexp(`SIMOPD_DIV_CHUNK`,默认 512 行),不物化 [N, V]。`SIMOPD_DIV_PANEL=0` 关。
+- 逐 token 落盘的序列子集:`SIMOPD_DIV_MOD`(默认 1 = 整批;>1 时 `seq_key % MOD == 0`),与 driver 侧 `step_` 的
+  `SIMOPD_TRAJ_MOD` 独立;后者选出的序列总在前者之内,按 `seq_key` 对接不变。
 - 步号由 driver 经 `meta_info["simopd_step"]` 注入(traj_dump 包住 `_update_actor`);没有它时行里 `step=null`,
   仍可用 `seq_key` 对回 driver 侧的 `light.jsonl` 取步号。SP>1 时只有 sp-rank 0 写,避免重复。
 
@@ -100,15 +102,17 @@ TRAIN_* PPO_* ROLLOUT_* … WANDB_RUN_GROUP WANDB_TAGS` 等前缀;**名字含 KE
 | `SIMOPD_TRAJ_DIR` | `$ckpt_dir/traj` | 启动器给;手动设了就用你的 |
 | `SIMOPD_TRAJ_EVERY` | 25 | 整批摘要 + 整序列的间隔(与 save_freq 同拍) |
 | `SIMOPD_TRAJ_N` | 32 | 整序列至多几条(≤0 不设上限) |
-| `SIMOPD_TRAJ_MOD` | 8 | 采样子集规则 `seq_key % MOD == 0`,driver 与 worker 同一子集 |
+| `SIMOPD_TRAJ_IDS_EVERY` | 1 | 整批无损 id(`ids_<n>`)的间隔;0 = 只随 dump 步 |
+| `SIMOPD_TRAJ_MOD` | 8 | driver 侧 `step_` 采样子集规则 `seq_key % MOD == 0` |
 | `SIMOPD_DIV_PANEL` | 1 | 0 = 关掉 worker 侧分歧面板 |
+| `SIMOPD_DIV_MOD` | 1 | worker 侧逐 token 分歧落盘的序列子集;1 = 整批 |
 | `SIMOPD_DIV_CHUNK` | 512 | 面板 logsumexp 的分块行数 |
 | `SIMOPD_TRAJ_LIGHT` | 1 | 每步 light.jsonl(不碰教师块,毫秒级) |
 | `SIMOPD_TRAJ_TEXT` | 0 | 1 = 放行 verl 自己的文本 dump |
 | `LOGGER` | 未设 → `["console","wandb","file"]` | 显式给了就照用(不再加 file) |
 
-体量:light 每步 ~50 KB;div 每步 ~60 KB;summary 每 25 步 ~50 KB;ids_ 每 25 步 ~10 MB;step_ 每 25 步
-~12 MB(32 条 × 16k × 7 列);div/tok 每 25 步 ~8 MB;一个 200 步的 run 约 250 MB;metrics 几 MB。全部随 `ckpt_sync.py` 上 HF(`<run>@aux`),
+体量:light 每步 ~50 KB;div 每步 ~60 KB;summary 每 25 步 ~50 KB;ids_ **每步** ~5–10 MB(200 步 ~1–2 GB);step_ 每 25 步
+~12 MB(32 条 × 16k × 7 列);div/tok 每 25 步**整批** ~60 MB(200 步 ~0.5 GB);一个 200 步的 run 约 2–3 GB;metrics 几 MB。全部随 `ckpt_sync.py` 上 HF(`<run>@aux`),
 `traj/_verl_text/` 除外。dump 在 driver 上、每 25 步花 1–3 s(教师块 [B, P+T, K] 的 numpy 扫描)。
 
 这些都**不进 resume 指纹**:它们改的是"记什么",不是 loss 算什么(与 `SIMOPD_SHADOW` 同类);
@@ -122,6 +126,8 @@ d = "<ckpt_dir>/traj"
 light = pd.read_json(f"{d}/light.jsonl", lines=True)                       # 每步每序列
 summ  = pd.concat(pd.read_parquet(p) for p in sorted(glob.glob(f"{d}/summary_*.parquet")))
 full  = pd.read_parquet(f"{d}/step_200.parquet")                            # 逐 token
+ids   = pd.read_parquet(f"{d}/ids_137.parquet")                             # 任意一步的整批无损 id
+# tok.decode(ids.response_ids[0], skip_special_tokens=False) 还原带终止符的原文
 meta  = json.load(open(f"{d}/meta.json"))
 # 停止率 / 截断率 / 死循环率随步走
 light.groupby("step")[["last_is_stop", "truncated"]].mean(), light.assign(loop=light.rep4 > .5).groupby("step").loop.mean()

@@ -17,6 +17,7 @@ tmpdir = tempfile.mkdtemp()
 os.environ["SIMOPD_TRAJ_DIR"] = os.path.join(tmpdir, "traj")
 os.environ["SIMOPD_TRAJ_EVERY"] = "5"
 os.environ["SIMOPD_TRAJ_N"] = "2"
+os.environ["SIMOPD_TRAJ_MOD"] = "1"      # 子集规则 seq_key % MOD == 0:合成序列的 key 都不被 8 整除,N 的断言要它为 1
 os.environ["EXPERIMENT_NAME"] = "battery_arm"
 os.environ["SIMOPD_STOP_IDS"] = "off"
 
@@ -71,6 +72,9 @@ ok(os.path.exists(p5), "step 5 (5 的倍数) 落盘了")
 traj_dump._write(make_batch(), 7)
 ok(not os.path.exists(os.path.join(os.path.dirname(p5), "step_7.parquet")),
    "step 7 不是 EVERY 的倍数 -> 不落盘")
+p7 = os.path.join(os.path.dirname(p5), "ids_7.parquet")
+ok(os.path.exists(p7), "step 7 不是 EVERY 的倍数,但整批无损 id 每步都落(SIMOPD_TRAJ_IDS_EVERY 默认 1)")
+ok(len(pd.read_parquet(p7)) == 3, "ids_7 是整批 3 条,不受 SIMOPD_TRAJ_N=2 限制")
 df = pd.read_parquet(p5)
 ok(len(df) == 2, f"SIMOPD_TRAJ_N=2 只存 2 条(实得 {len(df)})")
 

@@ -361,7 +361,7 @@ val_before_train=${VAL_BEFORE_TRAIN:-False}
 #   run_manifest.json           resolved arm env, git shas, contract, fingerprint, eval k
 # None of it enters the resume fingerprint (it changes what is RECORDED, never what the
 # loss computes) -- ARCHIVE_ARGS is kept out of ARM_ARGS for exactly that reason, and
-# SIMOPD_ARCHIVE / SIMOPD_TRAJ_* are excluded from the simopd= line.
+# SIMOPD_ARCHIVE / SIMOPD_TRAJ_* / SIMOPD_DIV_* are excluded from the simopd= line.
 # verl only CALLS _log_rollout_data (the seam traj_dump wraps) when rollout_data_dir is
 # set; the specials-stripped text it would write there is gated inside the wrapper
 # (SIMOPD_TRAJ_TEXT, default off). Setting SIMOPD_TRAJ_DIR alone would arm a wrapper
@@ -392,7 +392,7 @@ fingerprint=$(printf '%s\n' \
     "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
     "ngpus=${NGPUS_PER_NODE}" "tws=${TEACHER_WORLD_SIZE}" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
-    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG|ENTROPY_CHUNK|ARCHIVE|TRAJ_[A-Z_]+)=' | LC_ALL=C sort | tr '\n' ' ')" \
+    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG|ENTROPY_CHUNK|ARCHIVE|TRAJ_[A-Z_]+|DIV_[A-Z_]+)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
     "prompt=$max_prompt_length" "resp=$max_response_length" \
     "data=$train_files" "pad=$use_remove_padding" \

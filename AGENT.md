@@ -165,12 +165,13 @@ FSDP 分片一起传(28.4 GB/个),保住"以后想真 resume"的选项。幂等�
 | `traj/light.jsonl` | 每序列:长度 / 熵(均值·末位·末 256)/ 末 id / 是否自然停止 / 截断 / 正文含终止符次数 / 重复 4-gram 率 / Σ学生 logprob / 训练题判分 | 每步 |
 | `traj/div/rank<r>.jsonl` | **worker 侧**每序列:学生轨迹上的 forward KL / reverse KL / JSD / TV(教师块 + 尾桶,所有臂同一定义)+ 覆盖 qS/pS + top1 一致率,各取 mean/last/tail256 | 每步 |
 | `traj/summary_<n>.parquet` | 整批每序列:上面 + 教师采样列 Σ / Δℓ 均值·末位·最大 / 末位教师 top1 / 末位各终止符概率 | 每 25 步 |
-| `traj/ids_<n>.parquet` | 整批每序列的无损 prompt/response id(行为分析) | 每 25 步 |
-| `traj/step_<n>.parquet` + `div/tok_*` | 采样子集(seq_key % 8 == 0,≤32 条):逐 token 学生 logprob/熵、教师采样列、top1、各终止符列、FKL/RKL/JSD | 每 25 步 |
+| `traj/ids_<n>.parquet` | 整批每序列的无损 prompt/response id(行为分析;解码即带终止符的原文) | **每步** |
+| `traj/step_<n>.parquet` | 采样子集(seq_key % 8 == 0,≤32 条):逐 token 学生 logprob/熵、教师采样列、top1、各终止符列 | 每 25 步 |
+| `traj/div/tok_*` | **整批**逐 token FKL/RKL/JSD/TV/qS/pS/agree(`SIMOPD_DIV_MOD`,默认 1) | 每 25 步 |
 | `val_gen/<step>.jsonl` | 在环 math500 生成(verl 文本 dump) | 每 25 步 |
 | `run_manifest.json` + `manifest/launch_*.json` | 解析后的臂 env、hydra 覆盖、契约、指纹、git sha、评测 k、机器 | 每次启动 |
 
-三处记录靠 `seq_key`(响应 id 的 63 位哈希,driver/worker 各自算)对接。体量一个 run ~250 MB。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
+三处记录靠 `seq_key`(响应 id 的 63 位哈希,driver/worker 各自算)对接。体量一个 run ~2–3 GB(`ids_` 每步 + 整批逐 token 分歧;见 §7 对 aux 同步的影响)。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
 事件级修正的量可由各终止符列离线 logsumexp 重构。**都不进 resume 指纹**(改的是"记什么",不是 loss)。
 verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 GB/run)默认不写(`SIMOPD_TRAJ_TEXT=1` 放行)。
 
@@ -181,7 +182,7 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 | ① rollout 本身:长度、熵、自然停止/截断、结尾 id | `traj/light.jsonl`(`resp_len ent_mean ent_last ent_tail256 last_is_stop truncated`);batch 级在 `metrics/` |
 | ② 学生模仿教师:学生轨迹上的 forward KL / reverse KL / JSD,采样 token 的 Δℓ | `traj/div/rank*.jsonl`(`fkl rkl jsd tv qS pS agree` × mean/last/tail256);`summary_<n>` 的 `dl_*`;逐 token 在 `div/tok_*` 与 `step_<n>` |
 | ③ 学生能力:训练题判分、在环 math500、坏模式频率 | `light.jsonl` 的 `score`;`metrics/` 的 `val/*` 与 `val_gen/`;坏模式 = `rep4 truncated n_stop_body ent_tail256` |
-| 轨迹本身(行为分析) | `traj/ids_<n>.parquet`(整批无损 id)+ `step_<n>.parquet`(子集逐 token 量)+ 离线评测 parquet 的 `token_ids/response/finish_reason` |
+| 轨迹本身(行为分析) | `traj/ids_<n>.parquet`(整批无损 id,**每步**)+ `step_<n>.parquet`(子集逐 token 量,每 25 步)+ 离线评测 parquet 的 `token_ids/response/finish_reason` |
 
 ② 只能在 actor worker 上算(只有它同时握着学生完整分布与教师 top-K 块):`simopd/div_panel.py`
 包住 verl 的 `compute_topk_loss`(逐 token)与注册表查表(按序列聚合落盘),**所有 top-k 臂同一定义**
@@ -189,13 +190,13 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 `SUPPORT_MODE` / `TERM_EVENT` 折叠无关;分块 logsumexp,不物化 [N, V]。步号由 driver 经
 `meta_info["simopd_step"]` 注入;熵由 driver 在 `_compute_old_log_prob` 处暂存。
 
-旋钮(默认值都对;只列名字):`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_DIR / EVERY / N / MOD / LIGHT / TEXT`、
+旋钮(默认值都对;只列名字):`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_DIR / EVERY / IDS_EVERY / N / MOD / LIGHT / TEXT`、`SIMOPD_DIV_MOD`、
 `SIMOPD_DIV_PANEL / DIV_CHUNK`、`LOGGER`(显式给了就不再加 `file`)。
 
 **首个 run 的验收**(本地只用合成 batch 与 stub 过的 verl 接缝测过,真 batch 没跑过):
 1. stderr 里有 `traj_dump armed` 和 `div_panel armed` 两行 —— 但**横幅不是证据,文件才是**。
-2. 第 1 步后:`traj/light.jsonl` 每步 +256 行、`traj/div/rank*.jsonl` 有行且 `step` 非空;
-   第 25 步后:`summary_25 / step_25 / ids_25.parquet` 与 `div/tok_step25_*.parquet` 出现,
+2. 第 1 步后:`traj/light.jsonl` 每步 +256 行、`traj/ids_1.parquet` 出现且 256 行、`traj/div/rank*.jsonl` 有行且 `step` 非空;
+   第 25 步后:`summary_25 / step_25.parquet` 与 `div/tok_step25_*.parquet` 出现(后者各 rank 文件合起来 256 行,整批),
    `metrics/launch_*.jsonl` 在长,`val_gen/` 有 25.jsonl。
 3. 数值:`div` 里 `qS_mean` 接近 1(教师块覆盖),`summary` 里 `tch_lp_nan` 接近 0(采样列找对了),
    `light` 与 `div` 按 `seq_key` merge 后行数不掉。
@@ -329,3 +330,7 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
 - **归档层的失败语义是"喊一次、训练继续"**:`traj_dump` / `div_panel` / `run_manifest` 任何一环坏了
   只在 stderr 出一行,不会停训练。所以验收看文件、不看横幅(§2.4 清单);发现 stderr 有
   `写盘失败` / `面板失败` 就当这个 run 没有归档。
+- **`ids_` 每步落盘后,run 目录不再是"几十 MB 的小文件"**:一个 200 步的 run 的 `traj/` 长到 GB 级,而 `ckpt_sync`
+  的 aux 同步是"目录里有新文件就整目录交给 `upload_folder`",HF 端按内容哈希跳过没变的,但**每轮都要把整个目录
+  重新哈希一遍**,多 pod 各自扫同一块盘时读放大成倍。先看 `ckpt_sync_slot*.log` 里一轮 aux 的耗时;接近扫描间隔
+  就把 `CKPT_SYNC_EVERY` 调大,或把 aux 同步改成只提交上次之后新增的文件(`SYNCED.json` 里已记 `newest`)。
