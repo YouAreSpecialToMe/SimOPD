@@ -296,3 +296,13 @@ base + 一个旋钮**。代码本就如此——k1 族在 `TERM_EVENT=1` 下先�
 top-k 族的 base 是同一 N0 载体的精确终止符 payload,终止符入内核的方式由内核决定:原生读块的
 (c4/c5)原样用,其余折叠进支撑。c4 的反常不是"路线之争",是**给已读块的内核又折叠了一次**——
 违反 base 规则的那一格。规则已写进 `configs/arms.yaml` 本轮登记的头注。
+
+### 6.5 top-k 族统一走 TERM_EVENT=1(2026-09-02,用户定)
+
+不给 top-k 族开"gather-only 也算修"的口子:表里每一行都在同一个旗标下。c4 的表行改回
+`c4_pi_tail_budget_corr`(+119 GPU·h),`c4_carrier` / `c4_rep` 降为它旁边的消融——"修而不折叠"——
+两者只差 TERM_EVENT,是"折叠让 pi_tail 长 25%"这条的单变量证据。
+**代码强制的例外**只有两处,表里声明:c5 union 内核在 `TERM_EVENT=1` 下直接 raise
+(`topk_losses.py:1527`,该格存在的目的就是测无事件语义的支撑几何);c4 的 HQ/REP 闸门读 q_et,
+而 q_et 只在 `EG.enabled() and not TERM_EVENT` 时可得(HQ guard 响亮拒绝)。
+名册 **35 条 + 2 条零成本 ≈ 3950 GPU·h**(32 卡 5.1 天 / 64 卡 2.6 天)。

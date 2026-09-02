@@ -51,7 +51,7 @@
 | 吸引子 / 早期阈值负结果 / 长度分层 | 51 run 的逐步动态(git 里有,wandb 云端还有一份) | ✅ 双备份 |
 | 整个 legacy 波(29 臂 × 3 种子) | `post_eval_cells.csv` 4700 格 | ✅ 完整 |
 
-### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,34 条 + 2 条零成本)
+### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,35 条 + 2 条零成本)
 
 单种子、评测 k=8、每 25 步。全文与合并依据见 `docs/ARM-REVIEW-20260901.md` §5。
 
@@ -61,9 +61,9 @@
 | 对照 | **`vanilla_te`(新登记)** | 250 | 157 | TE Path 1 是否 ≡ termfix |
 | B | b1_skew_kl_corr · b2_forward_kl_corr | 200 | 235 | null 代表 · 分数≈交付坏 |
 | C | c3_intersection_corr · c5_union_rkl · c5_union_fkl | 200/250 | 319 | 省 token 候选 · 两条预注册(c5 = OURS) |
-| C·OURS | **c2_quantile_budget_corr · c4_hq · c4_state** | 200 | 289 | 自研方法必须在表里有自己的行:c2(分位预算)、c4 的状态自适应控制器两档。归档 null / 对照裁决仍然成立,这三条是把它们**在同一张表里评出来**,不是重新提问 |
+| C·OURS | **c2_quantile_budget_corr · c4_pi_tail_budget_corr · c4_hq · c4_state** | 200 | 408 | 自研方法必须在表里有自己的行。**c4 的表行 = `c4_pi_tail_budget_corr`(TE=1,与全表同旗标)**;c4_hq / c4_state 的闸门读 q_et,代码拒绝折叠(`if EG.enabled() and not TERM_EVENT`),只能 gather-only,声明为例外 |
 | C·OURS 梯子 | **c2_qb_fixed8_corr · c2_qb_perseq_corr(新登记)** | 200 | 236 | c2 的 QB pinning ladder:固定 top-8(零自适应)→ 每轨迹一个 τ → 全量分位。讲透「预算的自适应哪一级在起作用」。登记为 rung + 与 c2_quantile_budget_corr **相同的修正**(TE=1),梯子内部才是单变量 |
-| C | *c4_carrier / c4_rep* | — | **0** | 已评满 250 |
+| C | *c4_carrier / c4_rep* | — | **0** | 已评满 250(.353);作 c4 行的**消融**「修而不折叠」,与 c4_pi_tail_budget_corr 成单变量对 |
 | D | d2_selectkd_corr · d3_teachability_corr | 200 | 194 | D 代表(d1 并入 d2:+0.1%)· d3 修正后 **+32% 长度**,动态不同,必须自己一条 |
 | E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
 | F | f2_hard_clip_corr · f3_power_corr | 200 | 236 | 文献标准做法(硬截 ±10)· legacy 效应最大处(+.090)的 null;合并 f1/f2_clip2.3/f4/f5 |
@@ -71,7 +71,7 @@
 | H | h1 · h2 · h3 · h4 | 200 | 538 | 最短 · 照塌 · null 代表 · h4 有自己的预注册问题(窗口 vs 散点)且动态不同(+23%,.46) |
 | N | n2_corr | 250 | 167 | N2 校准损失在修正基座上的效果(对照 vanilla_te,同为 TE 路线)。`n2_termcal` 已是「termcal + gather、TE off」且已塌,不再另登记 n2_gather |
 | A | a1_gkd_mix0.5_n0 · a3_offpolicy_n0 · a4_dagger_anneal_n0 · a5_aggrevate_n0 | 200 | 410 | 四种轨迹来源各一条:固定混合 / 纯离策 / DAgger 退火 / AggreVaTe。a4、a5 与 a1、a3 在修正载体上动态**不同**(9.9k/.22、9.7k/.21 vs 8.3k/.12、6.8k/.08),且 A-AXIS-REGISTRATION 对 a4 有 R1/R2 预注册裁决,不能合并。对照仍是 vanilla_corr,契约差异属数据来源本身,论文里声明 |
-| | **34 条** | | **≈3830** | **32 卡 5.0 天 / 64 卡 2.5 天** |
+| | **35 条** | | **≈3950** | **32 卡 5.1 天 / 64 卡 2.6 天** |
 
 **不跑的**:legacy 载体(eos 错位版)一条都不跑——塌缩已由三种子 + 16 条老臂 + w 对钉死,用户 2026-09-02 定 (归档 5 点已给 null)· b5/d1/d3/
 g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· n2_termcal/n2_corr(已答/被 TE 混淆)·
@@ -81,9 +81,10 @@ b3/b4/c1/e1/e3/j1/vanilla_n8/a2(入库数据或 exempt)。
 **基座规则(用户定)**:`k1_termfix` / N0 载体是**所有臂的 base**,臂 = base + 恰好一个旋钮,名册里没有
 任何未修 eos 的臂。k1 族的旋钮经 `TERM_EVENT=1` 骑在 base 上——代码保证先跑 termfix 再套臂的数学,
 所以每条 `_corr` 就是 `k1_termfix` + 旋钮,`vanilla_te` 是这条规则的**回归对照**(应与 vanilla_corr 重合)。
-top-k 族没有采样 k1 项可修,base = N0 载体的精确终止符 payload;终止符怎么进内核由**内核**决定而不是
-逐臂选:原生读 gathered 块的(c4、c5)按原样用,其余折叠进支撑(Path 2)。给已读块的内核再折叠是违反
-base 规则(c4 那次:8.9k/.02 → 11.1k/.33),所以修正版 c4 = `c4_carrier`。
+top-k 族**同样统一走 `TERM_EVENT=1`**(用户定,2026-09-02),c4 的表行是 `c4_pi_tail_budget_corr`,与全表同旗标;
+唯一例外是代码拒绝折叠的内核——c5 union(`topk_losses:1527` 直接 raise,该格本就是测「无事件语义的几何」)和
+c4 的 HQ/REP 闸门(q_et 只在 `not TERM_EVENT` 时读得到)——它们 gather-only 并在表里声明。c4_carrier/c4_rep
+保留为 c4 行旁边的消融「修而不折叠」(单变量对:折叠让 pi_tail 长 25%)。
 **搁置**(用户 2026-09-02 定):d1 的 entropy_only / divergence_only 分解、g2 的 filter_only / reweight_only
 分解、c1_tailbucket ——不进本轮,登记保留。**登记纪律**:top-k 族里原生读
 终止符列的内核(c4/c5)走 gather-only,TE 只给采样式 k1 族。

@@ -2908,14 +2908,17 @@ arms:
   #     first and hands each arm its EVENT-fixed sampled log-probs; the arm's math is untouched.
   #     So every *_corr here IS k1_termfix + knob, and vanilla_te (k1_rec + the flag) must
   #     reproduce vanilla_corr: it is a regression control of the base, not a new treatment.
-  #   * top-k family (c/b2/d2/d3/e): there is no sampled-k1 term to fix; the base is the N0
-  #     carrier payload (gathered exact terminators). How the kernel is told about the
-  #     terminator is decided by the KERNEL, never per arm: kernels that natively read the
-  #     gathered block (c4 pi_tail, c5 union) take it as-is (gather-only); all others get it
-  #     collapsed into the rank-ordered support (TERM_EVENT=1 Path 2). Applying the collapse
-  #     to a kernel that already reads the block is a base-rule violation, and the one such
-  #     cell we ran (c4_pi_tail_budget_corr vs c4_carrier: only that differs) went 8.9k/.02
-  #     -> 11.1k/.33. c4_carrier is therefore the corrected c4.
+  #   * top-k family (c/b2/d2/d3/e): the same fix, delivered the same way -- TERM_EVENT=1
+  #     (Path 2: the teacher's termination mass collapsed onto the student's stop id inside
+  #     the rank-ordered support). Uniform across the table (user, 2026-09-02): the c4 row
+  #     is c4_pi_tail_budget_corr, under the same flag as everyone else. The ONLY exceptions
+  #     are kernels the code refuses to run under the collapse because they consume the
+  #     gathered block itself: union_rkl/union_fkl (c5; raise at topk_losses:1527 -- the cell
+  #     exists to test geometry WITHOUT event semantics) and the c4 gates C4_HQ/C4_REP
+  #     (q_et is read only `if EG.enabled() and not TERM_EVENT`; the HQ guard refuses).
+  #     Those stay gather-only and say so. c4_carrier / c4_rep (gather-only, banked .353@250)
+  #     are kept as the ablation "fix without collapse" beside the c4 row -- the pair is the
+  #     single-knob evidence that collapse costs pi_tail 25% length (8.9k/.02 -> 11.1k/.33).
   # ===================================================================================
   - run_id: vanilla_te
     axis: N
