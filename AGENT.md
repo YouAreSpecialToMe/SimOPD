@@ -152,57 +152,17 @@ FSDP 分片一起传(28.4 GB/个),保住"以后想真 resume"的选项。幂等�
 每个训练 pod 起 lane 时会自己拉起同步器、按 pod 去重;没设 `CKPT_SYNC_REPO` 就是空操作。
 设了却没有 `HF_TOKEN` 会**大声报错**而不是静默跳过 —— 静默正是这次丢数据的方式。
 
-## 3 现在要跑什么
+## 3 旧波数据的最后一次收口(不占卡)
 
-### P0 · 判决收口(3 个格,约 27 GPU·小时)
+> 这里原来是 P0–P4 五批"续跑"计划(2026-08-24 写,当时以为 ckpt 还在)。**P0–P3 已整体作废**:
+> P0 的三格 @250 评测和 P2 的 16 条续跑都依赖盘上 ckpt(随旧集群失联);P1 的四条省 token 候选
+> 现在要重训(在 §2.2 名册里);P3 的 s1/s2 种子按用户决定不跑、w 对基线不进本轮。
+> **唯一还能做、且不占卡的只剩下面这一件。**
 
-`vanilla_corr@250`、`n2_corr@250`、`b1_skew_kl_corr@250` 的 ckpt 都在盘上,五基准评测没跑。
-**这是唯一挡着判决表出不来的东西**,一上电先跑它。
+### 旧波 wandb 重导一次(c5 的预注册读数还能读到 114 步)
 
-```
-# 队列会自动带上(refill 给 vanilla_corr 优先级 0);要手工插队就直接写队首
-printf '%s\n' "vanilla_corr_s0_16k 250" "n2_corr_s0_16k 250" "b1_skew_kl_corr_s0_16k 250" \
-  | cat - $D/evalq_exp/pending.txt > /tmp/p && mv /tmp/p $D/evalq_exp/pending.txt
-```
-
-### P1 · 省 token 假说(约 450 GPU·小时,**纯评测,不占训练卡**)
-
-同契约、同窗口下,这几条**比 vanilla_corr 短**,但修正版一个格都没评:
-
-| 臂 | 比 vanilla_corr 短 | 老版 @250 分数 |
-|---|---|---|
-| `h1_first_segment_corr` | −48.8% | 0.303(明显偏低) |
-| `c3_intersection_corr` | −15.5% | 0.345 |
-| `d2_selectkd_corr` | −6.3% | 0.227 |
-| `g2_fire_likelihood_corr` | −3.3% | 0.269 |
-
-已证实"同分更省 token"的只有 c4 家族(−9.4%、.353)。上面四条评出来才知道是"省"还是"废"。
-**别评满 10 个 ckpt**:先评 100 / 175 / 250 三步,不合格就停。
-
-### P2 · 训练补满(约 610 GPU·小时 ≈ 32 卡跑 19 小时)
-
-16 条 lane 停在半路,从最近 ckpt 续跑即可(引擎自己会续):
-
-| 剩余 | 臂 |
-|---|---|
-| 25 步 | e2_set_coverage_a0_corr · g4_failure_only_corr · g6_seqmean_corr · a3_offpolicy_n0 |
-| 50 步 | f1_soft_log_corr · f2_hard_clip_corr · h6_gen_sched_n0 · d1_tip_corr |
-| 75–125 步 | f5_tanh_corr · h4_random_scatter_corr · f2_clip2.3_corr · f4_posclip_corr |
-| 150–175 步 | h10_task_subset_n0 · c5_union_fkl · n2_termcal · c5_union_rkl |
-
-**c5_union_fkl 必须跑过 163 步**——它的预注册 onset 在那之后,现在停在 114 步,
-既没证实也没证伪。`n2_termcal` 每步 1444 秒是全场最慢,单它就占 60 卡对·小时。
-
-### P3 · 缺的种子与覆盖
-
-- **`vanilla_corr` 的 s1 / s2**:整条治愈结论现在压在一个种子上,这是最脆的一环(每种子约 60 卡对·小时)。
-- 评测欠 **1636 格**(全评 ≈ 14.7k GPU·小时 / 32 卡 19 天)——**不要全评**,按论文主表需要的臂和步挑。
-- `c4_hq` / `c4_state` 只跑到 100 步,它们的预注册判据("greedy-32k 截断 20% → 个位数")要跑深才看得见。
-- `vanilla_s0_w` 的评测当年失败,w 对至今**没有自己的基线**;补上它,跨对复现才完整。
-
-### P4 · 一条读数(不要钱)
-
-集群一通就重导一次全键动态,把 c5 的预注册判据读出来,并让尾巴补丁退休:
+wandb 在云端,不随集群走。集群一通(或任何能连 wandb 的机器)重导一次全键动态,把 c5 的
+预注册判据从旧波里读出来,并让尾巴补丁退休:
 
 ```
 python scripts/export_wave_metrics.py --since 2026-08-19 --out docs/data/training_metrics_corr_allkeys.csv.gz
@@ -211,9 +171,10 @@ python scripts/analysis/collapse_status.py --write && python scripts/analysis/ma
 python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 ```
 
-判据:**`un_p_imend` 上升而 `un_p_eot` 下降** = 学生把教师的终止符当 token 学会了
-(`c5_union_fkl` 本地 dump 只到第 4 步,读不出来)。重导后把
-`training_metrics_corr_tail_20260823.csv.gz` 从 `make_dynamics_page.py` 的默认输入里删掉。
+判据:**`un_p_imend` 上升而 `un_p_eot` 下降** = 学生把教师的终止符当 token 学会了。旧波里
+`c5_union_fkl` 跑到 114 步、`c5_union_rkl` 到 91 步,趋势读得到,但预注册的 onset(163 步后)
+读不到——那由 §2.2 里重跑的 c5 两条回答。重导后把 `training_metrics_corr_tail_20260823.csv.gz`
+从 `make_dynamics_page.py` 的默认输入里删掉。
 
 ---
 
