@@ -57,7 +57,7 @@
 
 | 轴 | 臂 | 步 | GPU·h | 它回答什么 |
 |---|---|---|---|---|
-| 对照 | `vanilla_corr` | 250 | 157 | 判决基线 |
+| 对照 | `vanilla_corr` | 250 | 157 | 判决基线。**它已跑完(旧集群到 250,评测 25–225 九格已入库),但仍要重跑**:新集群所有臂是新栈 + k=8,入库的是旧栈 + k=32,基线不同栈则全表相减都是跨栈跨 k;`vanilla_te` 也只能对同栈的它比。入库那条改任「治愈的跨集群复现」,与新的并排 |
 | 对照 | **`vanilla_te`(新登记)** | 250 | 157 | TE Path 1 是否 ≡ termfix |
 | B | b1_skew_kl_corr · b2_forward_kl_corr | 200 | 235 | null 代表 · 分数≈交付坏 |
 | C | c3_intersection_corr · c5_union_rkl · c5_union_fkl | 200/250 | 319 | 省 token 候选 · 两条预注册(c5 = OURS) |
