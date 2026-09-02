@@ -152,6 +152,24 @@ FSDP 分片一起传(28.4 GB/个),保住"以后想真 resume"的选项。幂等�
 每个训练 pod 起 lane 时会自己拉起同步器、按 pod 去重;没设 `CKPT_SYNC_REPO` 就是空操作。
 设了却没有 `HF_TOKEN` 会**大声报错**而不是静默跳过 —— 静默正是这次丢数据的方式。
 
+### 2.4 每个 run 自带分析归档(2026-09-02 起默认开,`SIMOPD_ARCHIVE=0` 关)
+
+复盘一条曲线所需的原始量在训练时就写在 run 自己的 ckpt 目录里,`ckpt_sync.py` 随权重一起上 HF
+(`<run>@aux`),不再依赖 wandb 登录或一个还活着的集群。全文与列说明见 `docs/RUN-ARCHIVE.md`。
+
+| 文件 | 内容 | 频率 |
+|---|---|---|
+| `metrics/launch_<ts>.jsonl` | verl `file` logger:wandb 拿到的每个标量 | 每步 |
+| `traj/light.jsonl` | 每序列:长度 / 末 id / 是否自然停止 / 截断 / 正文含终止符次数 / 重复 4-gram 率 / Σ学生 logprob | 每步 |
+| `traj/summary_<n>.parquet` | 整批每序列:上面 + 教师采样列 Σ / Δℓ 均值·末位·最大 / 末位教师 top1 / 末位各终止符概率 | 每 25 步 |
+| `traj/step_<n>.parquet` | 前 32 条整序列:无损 id + 逐 token 学生/教师 logprob + 教师 top1 + 各终止符列 | 每 25 步 |
+| `val_gen/<step>.jsonl` | 在环 math500 生成(verl 文本 dump) | 每 25 步 |
+| `run_manifest.json` + `manifest/launch_*.json` | 解析后的臂 env、hydra 覆盖、契约、指纹、git sha、评测 k、机器 | 每次启动 |
+
+体量一个 run ~100 MB。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
+事件级修正的量可由各终止符列离线 logsumexp 重构。**都不进 resume 指纹**(改的是"记什么",不是 loss)。
+verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 GB/run)默认不写(`SIMOPD_TRAJ_TEXT=1` 放行)。
+
 ## 3 旧波数据的最后一次收口(不占卡)
 
 > 这里原来是 P0–P4 五批"续跑"计划(2026-08-24 写,当时以为 ckpt 还在)。**P0–P3 已整体作废**:

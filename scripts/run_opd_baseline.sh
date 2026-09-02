@@ -103,13 +103,8 @@ ARM_ARGS=()
 #   top-level key silently loads no function and every IF val dies NotImplementedError.
 [ -n "${LOSS_MAX_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.loss_max_clamp="${LOSS_MAX_CLAMP}")
 [ -n "${LOG_PROB_MIN_CLAMP:-}" ] && ARM_ARGS+=(distillation.distillation_loss.log_prob_min_clamp="${LOG_PROB_MIN_CLAMP}")
-# Trajectory dump (2026-08-21). simopd.traj_dump wraps RayPPOTrainer._log_rollout_data to
-# add a token-ID parquet next to verl's own dump, whose text is decoded with
-# skip_special_tokens=True -- i.e. with the terminators, the campaign's headline mechanism,
-# removed. verl only CALLS that method when trainer.rollout_data_dir is set, so setting
-# SIMOPD_TRAJ_DIR alone would arm a wrapper around a function nobody invokes: exactly the
-# shape of the h9 relay that burned 66 steps looking armed. Wire both from the one env var.
-[ -n "${SIMOPD_TRAJ_DIR:-}" ] && ARM_ARGS+=(trainer.rollout_data_dir="${SIMOPD_TRAJ_DIR}/_verl_text/${EXPERIMENT_NAME:-run}")
+# Trajectory dump (2026-08-21) and the rest of the analysis archive are wired in the
+# "analysis archive" block below, once ckpt_dir is known -- they live next to the ckpts.
 
 train_batch_size=${TRAIN_BATCH_SIZE:-128}
 ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}   # = train batch: single epoch per rollout batch
@@ -266,7 +261,7 @@ if [ "$total_training_steps" -ge 0 ] && [ "$total_training_steps" -lt 250 ]    &
     exit 1
 fi
 
-logger=${LOGGER:-'["console","wandb"]'}
+logger=${LOGGER:-}          # finalized in the analysis-archive block below
 
 data_dir=${DATA_DIR:-$HOME/data/simopd_math}
 train_files="['$data_dir/${TRAIN_FILE_BASENAME:-train.parquet}']"
@@ -352,6 +347,43 @@ val_before_train=${VAL_BEFORE_TRAIN:-False}
 # exactly verl's use_task_rewards=True combine (policy_loss + distill*coef). Off
 # for every other arm; the coefficient default 1.0 is verl's and only bites when
 # task rewards are on.
+# ---- analysis archive (2026-09-02) ------------------------------------------
+# Everything a later analysis needs lives NEXT TO the checkpoints, in $ckpt_dir, so
+# ckpt_sync.py ships it to HF with the weights and nothing depends on a wandb login
+# or on a cluster that still exists (2026-08-24: 308 ckpts and every rollout of the
+# corrected wave died with the old cluster; the only trajectories left are the eval
+# parquets). SIMOPD_ARCHIVE=0 switches the whole layer off.
+#   metrics/launch_<ts>.jsonl   verl "file" logger: every scalar wandb gets, per step
+#   traj/                       simopd.traj_dump: token ids + per-token student/teacher
+#                               logprobs + terminator columns (sampled), per-seq summaries
+#                               every step (light) / every 25 (full). See docs/RUN-ARCHIVE.md
+#   val_gen/<step>.jsonl        in-loop math500 generations (verl's text dump)
+#   run_manifest.json           resolved arm env, git shas, contract, fingerprint, eval k
+# None of it enters the resume fingerprint (it changes what is RECORDED, never what the
+# loss computes) -- ARCHIVE_ARGS is kept out of ARM_ARGS for exactly that reason, and
+# SIMOPD_ARCHIVE / SIMOPD_TRAJ_* are excluded from the simopd= line.
+# verl only CALLS _log_rollout_data (the seam traj_dump wraps) when rollout_data_dir is
+# set; the specials-stripped text it would write there is gated inside the wrapper
+# (SIMOPD_TRAJ_TEXT, default off). Setting SIMOPD_TRAJ_DIR alone would arm a wrapper
+# around a function nobody invokes -- the shape of the h9 relay that burned 66 steps.
+ARCHIVE_ARGS=()
+if [ "${SIMOPD_ARCHIVE:-1}" = 1 ]; then
+    export SIMOPD_TRAJ_DIR=${SIMOPD_TRAJ_DIR:-$ckpt_dir/traj}
+    export SIMOPD_TRAJ_NOSUB=${SIMOPD_TRAJ_NOSUB:-1}
+    ARCHIVE_ARGS+=(trainer.rollout_data_dir="${SIMOPD_TRAJ_DIR}/_verl_text")
+    ARCHIVE_ARGS+=(trainer.validation_data_dir="${ckpt_dir}/val_gen")
+    if [ -z "$logger" ]; then
+        mkdir -p "$ckpt_dir/metrics"
+        # verl's FileLogger opens with "wb" (truncates): one file per launch, readers concat.
+        export VERL_FILE_LOGGER_PATH="$ckpt_dir/metrics/launch_$(date -u +%Y%m%dT%H%M%SZ).jsonl"
+        logger='["console","wandb","file"]'
+    fi
+    echo "analysis archive: traj=$SIMOPD_TRAJ_DIR metrics=${VERL_FILE_LOGGER_PATH:-<LOGGER given, no file logger>} val_gen=$ckpt_dir/val_gen"
+elif [ -n "${SIMOPD_TRAJ_DIR:-}" ]; then
+    ARCHIVE_ARGS+=(trainer.rollout_data_dir="${SIMOPD_TRAJ_DIR}/_verl_text/${experiment_name}")
+fi
+[ -n "$logger" ] || logger='["console","wandb"]'
+
 use_task_rewards=${USE_TASK_REWARDS:-False}
 distillation_loss_coef=${DISTILLATION_LOSS_COEF:-1.0}
 fingerprint=$(printf '%s\n' \
@@ -360,7 +392,7 @@ fingerprint=$(printf '%s\n' \
     "taskrw=$use_task_rewards" "dcoef=$distillation_loss_coef" "rolloutn=$rollout_n" \
     "ngpus=${NGPUS_PER_NODE}" "tws=${TEACHER_WORLD_SIZE}" \
     "arm=${ARM_ARGS[*]-}" "extra=$*" \
-    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG|ENTROPY_CHUNK)=' | LC_ALL=C sort | tr '\n' ' ')" \
+    "simopd=$(env | LC_ALL=C grep '^SIMOPD_' | grep -vE '^SIMOPD_(SHADOW|PI_TAIL_WIDTHS|LANE_TAG|ENTROPY_CHUNK|ARCHIVE|TRAJ_[A-Z_]+)=' | LC_ALL=C sort | tr '\n' ' ')" \
     "bs=$train_batch_size" "mini=$ppo_mini_batch_size" "lr=$actor_lr" \
     "prompt=$max_prompt_length" "resp=$max_response_length" \
     "data=$train_files" "pad=$use_remove_padding" \
@@ -400,6 +432,11 @@ else
     echo "=== fresh start: $experiment_name (fingerprint $fingerprint)"
 fi
 mkdir -p "$ckpt_dir" && printf '%s\n' "$fingerprint" > "$fp_file"
+if [ "${SIMOPD_ARCHIVE:-1}" = 1 ]; then
+    python3 "$(dirname "$0")/run_manifest.py" --ckpt-dir "$ckpt_dir" --fingerprint "$fingerprint" \
+        --arm-args "${ARM_ARGS[*]-}" --extra "$*" \
+        || echo "WARN: run_manifest.py failed -- training continues without run_manifest.json" >&2
+fi
 
 # The gate val_before_train used to be, without the 75 minutes of generation.
 # timeout 1800(2026-08-18,DLC pod GPU-012 事故):正常 ~20s 的 preflight 在一块
@@ -487,5 +524,5 @@ python3 -m verl.trainer.main_ppo \
     distillation.distillation_loss.use_task_rewards=${use_task_rewards} \
     distillation.distillation_loss.distillation_loss_coef=${distillation_loss_coef} \
     distillation.distillation_loss.use_policy_gradient=${use_policy_gradient} \
-    "${ARM_ARGS[@]+"${ARM_ARGS[@]}"}" \
+    "${ARM_ARGS[@]+"${ARM_ARGS[@]}"}" ${ARCHIVE_ARGS[@]+"${ARCHIVE_ARGS[@]}"} \
     "$@"
