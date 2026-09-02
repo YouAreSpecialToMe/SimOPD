@@ -51,7 +51,7 @@
 | 吸引子 / 早期阈值负结果 / 长度分层 | 51 run 的逐步动态(git 里有,wandb 云端还有一份) | ✅ 双备份 |
 | 整个 legacy 波(29 臂 × 3 种子) | `post_eval_cells.csv` 4700 格 | ✅ 完整 |
 
-### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,20 条 + 2 条零成本)
+### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,29 条 + 2 条零成本)
 
 单种子、评测 k=8、每 25 步。全文与合并依据见 `docs/ARM-REVIEW-20260901.md` §5。
 
@@ -62,18 +62,18 @@
 | B | b1_skew_kl_corr · b2_forward_kl_corr | 200 | 235 | null 代表 · 分数≈交付坏 |
 | C | c3_intersection_corr · c5_union_rkl · c5_union_fkl | 200/250 | 319 | 省 token 候选 · 两条预注册 |
 | C | *c4_carrier / c4_rep* | — | **0** | 已评满 250 |
-| D | d2_selectkd_corr | 200 | 88 | D 代表 |
+| D | d2_selectkd_corr · d3_teachability_corr | 200 | 194 | D 代表(d1 并入 d2:+0.1%)· d3 修正后 **+32% 长度**,动态不同,必须自己一条 |
 | E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
 | F | f2_hard_clip_corr · f3_power_corr | 200 | 236 | 文献标准做法(硬截 ±10)· legacy 效应最大处(+.090)的 null;合并 f1/f2_clip2.3/f4/f5 |
-| G | g6_seqmean_corr | 200 | 124 | G 代表(合并 g2/g4/g5) |
-| H | h1 · h2 · h3 | 200 | 392 | 最短 · 照塌 · null 代表 |
+| G | g6_seqmean_corr · g1_verified_only_corr | 200 | 288 | G null 代表(合并 g2/g4/g5,±2% 内)· g1 修正后 13.2k/.53 有副作用,G 轴最经典的一条,要评分数 |
+| H | h1 · h2 · h3 · h4 | 200 | 538 | 最短 · 照塌 · null 代表 · h4 有自己的预注册问题(窗口 vs 散点)且动态不同(+23%,.46) |
 | N | **`n2_gather`(新登记)** | 250 | 167 | N2 自己的效果,TE off |
 | A | a1_gkd_mix0.5_n0 · a3_offpolicy_n0 · a4_dagger_anneal_n0 · a5_aggrevate_n0 | 200 | 410 | 四种轨迹来源各一条:固定混合 / 纯离策 / DAgger 退火 / AggreVaTe。a4、a5 与 a1、a3 在修正载体上动态**不同**(9.9k/.22、9.7k/.21 vs 8.3k/.12、6.8k/.08),且 A-AXIS-REGISTRATION 对 a4 有 R1/R2 预注册裁决,不能合并。对照仍是 vanilla_corr,契约差异属数据来源本身,论文里声明 |
-| | **20 条** | | **≈2430** | **32 卡 3.2 天 / 64 卡 1.6 天** |
+| | **29 条** | | **≈3300** | **32 卡 4.3 天 / 64 卡 2.1 天** |
 
-**不跑的**:legacy 载体(eos 错位版)一条都不跑——塌缩已由三种子 + 16 条老臂 + w 对钉死,用户 2026-09-02 定 · c2(归档 5 点已给 null)· b5/d1/d3/
-g1/g2/g4/g5/h4/f1/f2_clip2.3/f4/f5/c4_hq/c4_state/n2_termcal/n2_corr(动态判决或被代表合并)·
-b3/b4/c1/e1/e3/h5–h10/j1/vanilla_n8/a2(入库数据或 exempt)。
+**不跑的**:legacy 载体(eos 错位版)一条都不跑——塌缩已由三种子 + 16 条老臂 + w 对钉死,用户 2026-09-02 定 · c2(**OURS,归档 5 点已给 null Δ−.001;若要自家方法有一行,加回 119**)(归档 5 点已给 null)· b5/d1/d3/
+g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· c4_hq/c4_state(预注册的改善已由对照臂 c4_carrier 独自达成 —— 预测被对照裁决,非弃置)· n2_termcal/n2_corr(已答/被 TE 混淆)·
+b3/b4/c1/e1/e3/j1/vanilla_n8/a2(入库数据或 exempt)。
 
 **两条新登记**(需用户在 `configs/arms.yaml` 登记):`vanilla_te` = `k1_rec` + gather +
 `TERM_EVENT=1`;`n2_gather` = `k1_termcal` + gather、TE off。**登记纪律**:top-k 族里原生读
