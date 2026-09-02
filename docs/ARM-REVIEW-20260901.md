@@ -272,3 +272,17 @@ c4_hq / c4_state、c4_rep、c4_carrier、c5 并集两条,全是 **OURS**。自�
   分解、c1_tailbucket(ν 探针)。别人的方法,主表 null 够用;登记保留,不进本轮。
 
 名册 **34 条 + 2 条零成本 ≈ 3830 GPU·h**(32 卡 5.0 天 / 64 卡 2.5 天)。
+
+### 6.3 登记落地与两处更正(2026-09-02)
+
+四条已写入 `configs/arms.yaml`(YAML 解析通过、`arm.py env` 四条全部解析):`vanilla_te`、
+`c2_qb_fixed8_corr`、`c2_qb_perseq_corr`、`h5_gen100_n0`。
+
+两处更正:
+1. **不登记 `n2_gather`**。查登记发现 `n2_termcal` 本就是「`k1_termcal` + gather、TE off」
+   (GATHER_EOS=1、TOPK 66、无 TERM_EVENT)——它就是那格,已跑并塌缩(eos_p .012@100)。
+   N 轴用现成的 `n2_corr`(TE 路线,修过),对照 `vanilla_te`(同为 TE 路线)。
+2. **`h5_gen100` 是漏网的 legacy 臂**。本轮铁律(用户定):名册里不得出现任何未修 eos 的
+   臂。R-H1 深度剂量线的 0.6% 那一级因此登记为 `h5_gen100_n0`,与 h7/h8 的 `_n0` 同写法。
+
+名册臂数与预算不变(34 条 + 2 条零成本 ≈ 3830 GPU·h)。

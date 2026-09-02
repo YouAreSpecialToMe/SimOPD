@@ -2898,3 +2898,114 @@ arms:
            151643,151645, where im_end actually stops the rollout) is the registered
            follow-up: 'cure by teaching' head-to-head against N0's 'cure by translation'.
            Contract pinned legacy here to stay single-knob against banked b2."
+
+  # ===================================================================================
+  # 2026-09-02 rerun roster registrations (AGENT.md §2.2, docs/ARM-REVIEW-20260901.md).
+  # Rule for this wave: EVERY arm rides a terminator-identity fix -- no legacy-carrier
+  # cells. Three fix routes exist and are NOT interchangeable (c4_carrier vs
+  # c4_pi_tail_budget_corr: only TERM_EVENT differs, length 8.9k -> 11.1k, clip .02 -> .33):
+  #   k1_termfix   the N0 kernel (vanilla_corr, all _n0)
+  #   gather-only  exact terminator columns as plain support columns, no collapse (c4/c5)
+  #   TERM_EVENT=1 event-level sampled column + support collapse (every *_corr)
+  # vanilla_te below is the control that pins the first and third together.
+  # ===================================================================================
+  - run_id: vanilla_te
+    axis: N
+    cohort: supplement
+    status: stock
+    desc: "[OURS] N0 carrier + SIMOPD_TERM_EVENT=1 on the PLAIN k1 kernel: is TERM_EVENT's Path 1 the same treatment as k1_termfix?"
+    env:
+      DISTILLATION_LOSS_MODE: k1_rec
+      # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
+      DISTILLATION_TOPK: 66
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      # ---- the knob: the same flag every *_corr arm carries, on the kernel vanilla_corr replaced
+      SIMOPD_TERM_EVENT: "1"
+    note: "REGISTERED 2026-09-02 (user go-ahead, rerun roster). WHY: the corrected wave put 18
+           *_corr arms (their own kernel + TERM_EVENT=1) on one table against vanilla_corr
+           (k1_termfix, no TERM_EVENT) and assumed the two routes are the same cure. Never
+           tested. The one single-knob pair we have says the routes differ: c4_carrier
+           (gather-only) vs c4_pi_tail_budget_corr (+TERM_EVENT) = 8.9k/.02 vs 11.1k/.33.
+           This cell is k1_rec + the N0 carrier + TERM_EVENT=1 -- vanilla_corr with the
+           kernel swapped back to plain k1 and the fix delivered by the flag instead.
+           Prediction SAME: vanilla_te ~= vanilla_corr (late length 9.7k, clip .11,
+           composite within noise) -> the *_corr table is licensed as-is. Prediction
+           DIFF: vanilla_te sits closer to n2_corr's band (clip ~.23, +8% length) -> every
+           *_corr row must be read against vanilla_te, not vanilla_corr, and the
+           'medicine nullified' residuals get re-based. Contract pinned off."
+
+  - run_id: c2_qb_fixed8_corr
+    axis: N
+    cohort: supplement
+    status: stock
+    desc: "[OURS] N0 + c2 QB pinning ladder rung 0 on the corrected base: fixed teacher-rank top-8, zero adaptivity"
+    env:
+      DISTILLATION_LOSS_MODE: "qb_quantile_budget"
+      DISTILLATION_TOPK: 66
+      SIMOPD_QB_MARGIN: "max"
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_QB_SCOPE: "fixed"
+      SIMOPD_TERM_EVENT: "1"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      USE_POLICY_GRADIENT: "False"
+    note: "REGISTERED 2026-09-02 (user: 'c2 梯子补上'). = c2_qb_fixed8 with exactly the fix
+           knobs of c2_quantile_budget_corr (TOPK 64 -> 66 for the two gathered terminator
+           columns, TERM_EVENT=1, same carrier), so the three rungs fixed -> sequence ->
+           batch-quantile differ in SIMOPD_QB_SCOPE alone. Legacy rung ran 50 steps as a
+           probe; first full run. Reads with c2_quantile_budget_corr's archived null
+           (delta vs vanilla_corr -.001 over 5 matched steps): the ladder asks which level of
+           adaptivity, if any, moves length/truncation at equal budget."
+
+  - run_id: c2_qb_perseq_corr
+    axis: N
+    cohort: supplement
+    status: stock
+    desc: "[OURS] N0 + c2 QB pinning ladder rung 1 on the corrected base: one tau per trajectory"
+    env:
+      DISTILLATION_LOSS_MODE: "qb_quantile_budget"
+      DISTILLATION_TOPK: 66
+      SIMOPD_QB_MARGIN: "max"
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_QB_SCOPE: "sequence"
+      SIMOPD_TERM_EVENT: "1"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      USE_POLICY_GRADIENT: "False"
+    note: "REGISTERED 2026-09-02, middle rung of the corrected ladder (see c2_qb_fixed8_corr).
+           = c2_qb_perseq + the c2_quantile_budget_corr fix knobs; SIMOPD_QB_SCOPE=sequence is
+           the only difference from its siblings. Legacy rung ran 41 steps as a probe."
+
+  - run_id: h5_gen100_n0
+    axis: N
+    cohort: supplement
+    status: stock
+    desc: "[wave19-style] h5_gen100 under the v2 dual-stop contract + N0 (k1_termfix): the 0.6% rung of the depth dose line, now on the fixed carrier"
+    env:
+      MAX_RESPONSE_LENGTH: "100"
+      DISTILLATION_LOSS_MODE: "k1_termfix"
+      DISTILLATION_TOPK: "66"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_EOS_IDS: "151643,151645"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "151645"
+      SIMOPD_SHADOW: "0"
+    note: "REGISTERED 2026-09-02 (rerun roster rule: no legacy-carrier cells). Mirrors
+           h7_gen512_n0 / h8_gen2048_n0 with the cap at 100 so H-AXIS-REGISTRATION R-H1
+           (depth dose line h5/h7/h8 + vanilla endpoint) is complete on one carrier; the
+           legacy h5_gen100 row stands as the banked legacy-contract reading. Trains for
+           almost nothing (legacy 8 s/step); cost is the eval."

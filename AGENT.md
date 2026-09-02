@@ -69,7 +69,7 @@
 | F | f2_hard_clip_corr · f3_power_corr | 200 | 236 | 文献标准做法(硬截 ±10)· legacy 效应最大处(+.090)的 null;合并 f1/f2_clip2.3/f4/f5 |
 | G | g6_seqmean_corr · g1_verified_only_corr | 200 | 288 | G null 代表(合并 g2/g4/g5,±2% 内)· g1 修正后 13.2k/.53 有副作用,G 轴最经典的一条,要评分数 |
 | H | h1 · h2 · h3 · h4 | 200 | 538 | 最短 · 照塌 · null 代表 · h4 有自己的预注册问题(窗口 vs 散点)且动态不同(+23%,.46) |
-| N | **`n2_gather`(新登记)** | 250 | 167 | N2 自己的效果,TE off |
+| N | n2_corr | 250 | 167 | N2 校准损失在修正基座上的效果(对照 vanilla_te,同为 TE 路线)。`n2_termcal` 已是「termcal + gather、TE off」且已塌,不再另登记 n2_gather |
 | A | a1_gkd_mix0.5_n0 · a3_offpolicy_n0 · a4_dagger_anneal_n0 · a5_aggrevate_n0 | 200 | 410 | 四种轨迹来源各一条:固定混合 / 纯离策 / DAgger 退火 / AggreVaTe。a4、a5 与 a1、a3 在修正载体上动态**不同**(9.9k/.22、9.7k/.21 vs 8.3k/.12、6.8k/.08),且 A-AXIS-REGISTRATION 对 a4 有 R1/R2 预注册裁决,不能合并。对照仍是 vanilla_corr,契约差异属数据来源本身,论文里声明 |
 | | **34 条** | | **≈3830** | **32 卡 5.0 天 / 64 卡 2.5 天** |
 
@@ -77,9 +77,12 @@
 g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· n2_termcal/n2_corr(已答/被 TE 混淆)·
 b3/b4/c1/e1/e3/j1/vanilla_n8/a2(入库数据或 exempt)。
 
-**四条新登记**(需用户在 `configs/arms.yaml` 登记):`vanilla_te` = `k1_rec` + gather +
-`TERM_EVENT=1`;`n2_gather` = `k1_termcal` + gather、TE off;`c2_qb_fixed8_corr` / `c2_qb_perseq_corr`
-= 对应 rung + 与 `c2_quantile_budget_corr` 相同的修正旋钮(TOPK 66、gather、TE=1)。
+**四条新登记(2026-09-02 已入 `configs/arms.yaml`)**:`vanilla_te` = `k1_rec` + N0 载体 +
+`TERM_EVENT=1`;`c2_qb_fixed8_corr` / `c2_qb_perseq_corr` = 对应 rung + 与 `c2_quantile_budget_corr`
+相同的修正旋钮(TOPK 66、gather、TE=1,只差 `SIMOPD_QB_SCOPE`);`h5_gen100_n0` = h7/h8 的 `_n0`
+写法、帽 100。**本轮铁律:名册里没有任何未修 eos 的臂**——三条修正路线各自声明:
+`k1_termfix`(vanilla_corr、全部 `_n0`)/ gather-only(c4 家族、c5)/ `TERM_EVENT=1`(全部 `_corr`);
+`vanilla_te` 就是把第一和第三条钉在一起的那格。
 **搁置**(用户 2026-09-02 定):d1 的 entropy_only / divergence_only 分解、g2 的 filter_only / reweight_only
 分解、c1_tailbucket ——不进本轮,登记保留。**登记纪律**:top-k 族里原生读
 终止符列的内核(c4/c5)走 gather-only,TE 只给采样式 k1 族。
