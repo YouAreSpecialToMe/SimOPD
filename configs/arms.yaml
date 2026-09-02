@@ -2901,19 +2901,27 @@ arms:
 
   # ===================================================================================
   # 2026-09-02 rerun roster registrations (AGENT.md §2.2, docs/ARM-REVIEW-20260901.md).
-  # Rule for this wave: EVERY arm rides a terminator-identity fix -- no legacy-carrier
-  # cells. Three fix routes exist and are NOT interchangeable (c4_carrier vs
-  # c4_pi_tail_budget_corr: only TERM_EVENT differs, length 8.9k -> 11.1k, clip .02 -> .33):
-  #   k1_termfix   the N0 kernel (vanilla_corr, all _n0)
-  #   gather-only  exact terminator columns as plain support columns, no collapse (c4/c5)
-  #   TERM_EVENT=1 event-level sampled column + support collapse (every *_corr)
-  # vanilla_te below is the control that pins the first and third together.
+  # BASE RULE for this wave (user, 2026-09-02): k1_termfix / the N0 carrier is the base of
+  # EVERY arm; an arm = that base + exactly one knob. No legacy-carrier cells.
+  #   * sampled-k1 family (f/g/h/d1/b1/b5, vanilla): the knob rides on the base through
+  #     SIMOPD_TERM_EVENT=1 -- by construction (losses.py _unpack) the termfix kernel runs
+  #     first and hands each arm its EVENT-fixed sampled log-probs; the arm's math is untouched.
+  #     So every *_corr here IS k1_termfix + knob, and vanilla_te (k1_rec + the flag) must
+  #     reproduce vanilla_corr: it is a regression control of the base, not a new treatment.
+  #   * top-k family (c/b2/d2/d3/e): there is no sampled-k1 term to fix; the base is the N0
+  #     carrier payload (gathered exact terminators). How the kernel is told about the
+  #     terminator is decided by the KERNEL, never per arm: kernels that natively read the
+  #     gathered block (c4 pi_tail, c5 union) take it as-is (gather-only); all others get it
+  #     collapsed into the rank-ordered support (TERM_EVENT=1 Path 2). Applying the collapse
+  #     to a kernel that already reads the block is a base-rule violation, and the one such
+  #     cell we ran (c4_pi_tail_budget_corr vs c4_carrier: only that differs) went 8.9k/.02
+  #     -> 11.1k/.33. c4_carrier is therefore the corrected c4.
   # ===================================================================================
   - run_id: vanilla_te
     axis: N
     cohort: supplement
     status: stock
-    desc: "[OURS] N0 carrier + SIMOPD_TERM_EVENT=1 on the PLAIN k1 kernel: is TERM_EVENT's Path 1 the same treatment as k1_termfix?"
+    desc: "[OURS] regression control of the base: plain k1 + N0 carrier + SIMOPD_TERM_EVENT=1 must reproduce vanilla_corr (k1_termfix) -- licenses every *_corr row as 'k1_termfix + one knob'"
     env:
       DISTILLATION_LOSS_MODE: k1_rec
       # ---- the N0 carrier (identical to vanilla_corr): gathered terminators + sampled column
@@ -2933,11 +2941,12 @@ arms:
            (gather-only) vs c4_pi_tail_budget_corr (+TERM_EVENT) = 8.9k/.02 vs 11.1k/.33.
            This cell is k1_rec + the N0 carrier + TERM_EVENT=1 -- vanilla_corr with the
            kernel swapped back to plain k1 and the fix delivered by the flag instead.
-           Prediction SAME: vanilla_te ~= vanilla_corr (late length 9.7k, clip .11,
-           composite within noise) -> the *_corr table is licensed as-is. Prediction
-           DIFF: vanilla_te sits closer to n2_corr's band (clip ~.23, +8% length) -> every
-           *_corr row must be read against vanilla_te, not vanilla_corr, and the
-           'medicine nullified' residuals get re-based. Contract pinned off."
+           By construction (losses.py _unpack: termfix runs first, the arm math is untouched)
+           this cell should reproduce vanilla_corr; it is run as a REGRESSION CONTROL of the base
+           rule, because the one place the base was violated (c4 + collapse) cost 25% length.
+           Prediction SAME (expected): vanilla_te ~= vanilla_corr -> every *_corr row is licensed
+           as k1_termfix + one knob. Prediction DIFF (a bug): the flag path is not the kernel
+           path -> stop the wave and fix the base before reading any *_corr row. Contract off."
 
   - run_id: c2_qb_fixed8_corr
     axis: N

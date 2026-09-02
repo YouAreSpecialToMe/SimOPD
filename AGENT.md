@@ -77,12 +77,13 @@
 g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· n2_termcal/n2_corr(已答/被 TE 混淆)·
 b3/b4/c1/e1/e3/j1/vanilla_n8/a2(入库数据或 exempt)。
 
-**四条新登记(2026-09-02 已入 `configs/arms.yaml`)**:`vanilla_te` = `k1_rec` + N0 载体 +
-`TERM_EVENT=1`;`c2_qb_fixed8_corr` / `c2_qb_perseq_corr` = 对应 rung + 与 `c2_quantile_budget_corr`
-相同的修正旋钮(TOPK 66、gather、TE=1,只差 `SIMOPD_QB_SCOPE`);`h5_gen100_n0` = h7/h8 的 `_n0`
-写法、帽 100。**本轮铁律:名册里没有任何未修 eos 的臂**——三条修正路线各自声明:
-`k1_termfix`(vanilla_corr、全部 `_n0`)/ gather-only(c4 家族、c5)/ `TERM_EVENT=1`(全部 `_corr`);
-`vanilla_te` 就是把第一和第三条钉在一起的那格。
+**四条新登记(2026-09-02 已入 `configs/arms.yaml`)**:`vanilla_te`、`c2_qb_fixed8_corr`、`c2_qb_perseq_corr`、`h5_gen100_n0`。
+**基座规则(用户定)**:`k1_termfix` / N0 载体是**所有臂的 base**,臂 = base + 恰好一个旋钮,名册里没有
+任何未修 eos 的臂。k1 族的旋钮经 `TERM_EVENT=1` 骑在 base 上——代码保证先跑 termfix 再套臂的数学,
+所以每条 `_corr` 就是 `k1_termfix` + 旋钮,`vanilla_te` 是这条规则的**回归对照**(应与 vanilla_corr 重合)。
+top-k 族没有采样 k1 项可修,base = N0 载体的精确终止符 payload;终止符怎么进内核由**内核**决定而不是
+逐臂选:原生读 gathered 块的(c4、c5)按原样用,其余折叠进支撑(Path 2)。给已读块的内核再折叠是违反
+base 规则(c4 那次:8.9k/.02 → 11.1k/.33),所以修正版 c4 = `c4_carrier`。
 **搁置**(用户 2026-09-02 定):d1 的 entropy_only / divergence_only 分解、g2 的 filter_only / reweight_only
 分解、c1_tailbucket ——不进本轮,登记保留。**登记纪律**:top-k 族里原生读
 终止符列的内核(c4/c5)走 gather-only,TE 只给采样式 k1 族。
