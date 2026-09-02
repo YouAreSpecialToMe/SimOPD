@@ -11,7 +11,9 @@
 
 修正终止符身份错位(内核 `k1_rec` → `k1_termfix`)之后,**vanilla 不再晚期塌缩**;
 坏载体上量到的"药效"在修正载体上**归零**。所以现在缺的不是新方法,是**把修正载体上的
-曲线补齐到能下判决**——训练还差约 610 GPU·小时,评测欠着 1636 个格。
+曲线补齐到能下判决**——旧机器已弃、ckpt 未上云,所以是 §2 的全部重跑(35 条 ≈ 3950 GPU·h)。
+2026-09-02 起每个 run **自带分析归档**(§2.4):轨迹、逐 token 学生/教师量、每序列 FKL/RKL/JSD、
+熵、判分、run 定义,随权重一起上 HF —— 旧集群失联时"只剩 eval parquet"的局面不会再有。
 
 ---
 
@@ -168,9 +170,37 @@ FSDP 分片一起传(28.4 GB/个),保住"以后想真 resume"的选项。幂等�
 | `val_gen/<step>.jsonl` | 在环 math500 生成(verl 文本 dump) | 每 25 步 |
 | `run_manifest.json` + `manifest/launch_*.json` | 解析后的臂 env、hydra 覆盖、契约、指纹、git sha、评测 k、机器 | 每次启动 |
 
-三处记录靠 `seq_key`(响应 id 的哈希,driver/worker 各自算)对接。体量一个 run ~250 MB。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
+三处记录靠 `seq_key`(响应 id 的 63 位哈希,driver/worker 各自算)对接。体量一个 run ~250 MB。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
 事件级修正的量可由各终止符列离线 logsumexp 重构。**都不进 resume 指纹**(改的是"记什么",不是 loss)。
 verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 GB/run)默认不写(`SIMOPD_TRAJ_TEXT=1` 放行)。
+
+**要保存的三类特征 → 文件**(2026-09-02 定):
+
+| 特征 | 在哪 |
+|---|---|
+| ① rollout 本身:长度、熵、自然停止/截断、结尾 id | `traj/light.jsonl`(`resp_len ent_mean ent_last ent_tail256 last_is_stop truncated`);batch 级在 `metrics/` |
+| ② 学生模仿教师:学生轨迹上的 forward KL / reverse KL / JSD,采样 token 的 Δℓ | `traj/div/rank*.jsonl`(`fkl rkl jsd tv qS pS agree` × mean/last/tail256);`summary_<n>` 的 `dl_*`;逐 token 在 `div/tok_*` 与 `step_<n>` |
+| ③ 学生能力:训练题判分、在环 math500、坏模式频率 | `light.jsonl` 的 `score`;`metrics/` 的 `val/*` 与 `val_gen/`;坏模式 = `rep4 truncated n_stop_body ent_tail256` |
+| 轨迹本身(行为分析) | `traj/ids_<n>.parquet`(整批无损 id)+ `step_<n>.parquet`(子集逐 token 量)+ 离线评测 parquet 的 `token_ids/response/finish_reason` |
+
+② 只能在 actor worker 上算(只有它同时握着学生完整分布与教师 top-K 块):`simopd/div_panel.py`
+包住 verl 的 `compute_topk_loss`(逐 token)与注册表查表(按序列聚合落盘),**所有 top-k 臂同一定义**
+(教师块 ∪ gather 终止列 ∪ 采样列按 id 去重,两侧各加尾桶;是真 KL 的下界),与臂自己的
+`SUPPORT_MODE` / `TERM_EVENT` 折叠无关;分块 logsumexp,不物化 [N, V]。步号由 driver 经
+`meta_info["simopd_step"]` 注入;熵由 driver 在 `_compute_old_log_prob` 处暂存。
+
+旋钮(默认值都对;只列名字):`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_DIR / EVERY / N / MOD / LIGHT / TEXT`、
+`SIMOPD_DIV_PANEL / DIV_CHUNK`、`LOGGER`(显式给了就不再加 `file`)。
+
+**首个 run 的验收**(本地只用合成 batch 与 stub 过的 verl 接缝测过,真 batch 没跑过):
+1. stderr 里有 `traj_dump armed` 和 `div_panel armed` 两行 —— 但**横幅不是证据,文件才是**。
+2. 第 1 步后:`traj/light.jsonl` 每步 +256 行、`traj/div/rank*.jsonl` 有行且 `step` 非空;
+   第 25 步后:`summary_25 / step_25 / ids_25.parquet` 与 `div/tok_step25_*.parquet` 出现,
+   `metrics/launch_*.jsonl` 在长,`val_gen/` 有 25.jsonl。
+3. 数值:`div` 里 `qS_mean` 接近 1(教师块覆盖),`summary` 里 `tch_lp_nan` 接近 0(采样列找对了),
+   `light` 与 `div` 按 `seq_key` merge 后行数不掉。
+4. `ckpt_sync` 日志有 `OK <run>@25` 与 `OK aux <run>`,HF 仓库里 `SYNCED.json` 在长。
+任何一条不成立都是"看着武装了其实没有"的形状(h9 中继烧 66 步的那种),先修再铺 lane。
 
 ## 3 旧波数据的最后一次收口(不占卡)
 
@@ -254,7 +284,9 @@ tokenizer/config 不必重传);**目录结构原样保留** `<arm>_s0_16k/global
 `WANDB_API_KEY`(在 `$ROOT/simopd_env.sh`,source 它,别 echo)、`HF_HOME` / `HF_ENDPOINT` /
 `HF_HUB_OFFLINE`、`VLLM_USE_MODELSCOPE` 与 `VERL_USE_MODELSCOPE`(**新集群务必显式设成
 False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 把整条评测队列烧成 FAILED)、
-`CKPT_ROOT` / `DATA_DIR` / `SIMOPD_STORE`。
+`CKPT_ROOT` / `DATA_DIR` / `SIMOPD_STORE`;ckpt 与归档上云:`HF_TOKEN`(只从环境读)、
+`CKPT_SYNC_REPO` / `CKPT_SYNC_FULL` / `CKPT_SYNC_EVERY`;评测协议:`SIMOPD_SUITE_K`(重训 = 8);
+归档层:`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_*`、`SIMOPD_DIV_PANEL`、`VERL_FILE_LOGGER_PATH`(启动器自己算)。
 
 ---
 
@@ -267,7 +299,9 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
    `$D/corr_wave/slot<k>_s0_lanes`(格式 `arm:gpu,gpu`,一行)。
 4. `task.sh status` / `task.sh alive` 看心跳;`task.sh sh <槽> '<命令>'` 当 ssh 用;
    `task.sh tty <槽>` 是真交互 shell。
-5. P0 的三个格插队,然后 P2 的 lane 图铺开。
+5. `simopd_env.sh` 里给 `CKPT_SYNC_REPO` 与 `HF_TOKEN`(§2.3),`SIMOPD_SUITE_K=8`(§2.2b)。
+6. **先只铺一条 lane**(建议 `vanilla_corr`),按 §2.4 的验收清单看归档层与 ckpt_sync 真在写、真在传;
+   过了再按 §2.2 名册铺满。
 
 ---
 
@@ -286,3 +320,12 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
   否则同 pod 所有 worker 会误判卡忙、集体坐等(已修,但换集群后值得复验一次)。
 - **别在跑着的 bash 脚本上原地改**:换 inode(写新文件再 mv)才安全。
 - **同一个 ckpt 目录不能有两个写者**:迁移时先确认旧 lane 真死透(日志 >15 分钟没动静)。
+- **`ckpt_sync.py` 曾经根本跑不起来**:校验段有个 `(dp := dp)` 的 SyntaxError,2026-09-02 才发现 ——
+  它此前在任何机器上都没执行过。"自动上传"只认日志里的 `OK` 行和仓库里的 `SYNCED.json`,别信脚本存在。
+- **verl 的 `FileLogger` 以 `wb` 打开会截断**:所以一次启动一个 `metrics/launch_<ts>.jsonl`,续跑/重试
+  不会覆盖上一段;读的时候按 step 拼、后写覆盖先写。
+- **`seq_key` 必须 ≤ 63 位**:`pandas.read_json` 读不了 > 2^63 的整数(本地测试当场炸),
+  `simopd/seqkey.py` 已截到 63 位;别"顺手"改回 64 位。
+- **归档层的失败语义是"喊一次、训练继续"**:`traj_dump` / `div_panel` / `run_manifest` 任何一环坏了
+  只在 stderr 出一行,不会停训练。所以验收看文件、不看横幅(§2.4 清单);发现 stderr 有
+  `写盘失败` / `面板失败` 就当这个 run 没有归档。
