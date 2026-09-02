@@ -64,6 +64,7 @@ def find_ckpts(root, with_opt=(), settle=120):
 
 
 AUX_PATTERNS = ["metrics/*.jsonl", "traj/*.parquet", "traj/*.json", "traj/*.jsonl",
+                "traj/div/*.jsonl", "traj/div/*.parquet",
                 "val_gen/*", "manifest/*.json", "run_manifest.json",
                 "simopd_fingerprint.txt", "simopd_stop_contract.txt",
                 "latest_checkpointed_iteration.txt"]

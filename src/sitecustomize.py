@@ -149,6 +149,18 @@ def _after_verl_losses():
     # lazily imported from inside the registry fn, it installed one call too late
     # and b3's first micro-batch silently dropped the EOPD term (audit 2026-08-07).
     import simopd.b3_additive  # noqa: F401  (install() runs at import, idempotent)
+    # Analysis archive (2026-09-02): per-sequence FKL/RKL/JSD of the student against
+    # the teacher's block, on the student's own rollouts, for EVERY top-k arm. Wraps
+    # compute_topk_loss (per-token) and get_distillation_loss_fn (per-sequence dump),
+    # so it must come last. Diagnostics only: a failure here is loud, never fatal.
+    try:
+        from simopd import div_panel
+        div_panel.install()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        print("[simopd] div_panel install FAILED -- this run will have no div/ records; "
+              "training continues", file=sys.stderr, flush=True)
 
 
 def _after_vllm_server():
@@ -264,7 +276,8 @@ REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch
                     "simopd.gkd_stats", "simopd.a5_aggrevate", "simopd.h_horizon",
                     "simopd.h_budget", "simopd.h9_controller",
                     "simopd.teacher_registry", "simopd.b3_additive",
-                    "simopd.eos_gather", "simopd.stop_set", "simopd.traj_dump")
+                    "simopd.eos_gather", "simopd.stop_set", "simopd.traj_dump",
+                    "simopd.seqkey", "simopd.div_panel")
 
 
 def _after_ray_trainer():

@@ -15,12 +15,15 @@
 不想停、正文里何时开始出现 im_end)全都无从复盘。这一层把复盘所需的原始量在训练时
 就落在 run 自己的 ckpt 目录里,随权重一起上云:
 
-  step_<n>.parquet     抽样 N 条整序列:prompt/response id、逐 token 学生 logprob(old_log_probs)、
-                       教师采样列 logprob、教师 top1 id/logprob、每个终止符 id 的教师 logprob 列
-  summary_<n>.parquet  整批每序列一行:长度/分数/结尾/截断/重复率/Σlogprob/Δℓ 均值与末位/
+  step_<n>.parquet     采样子集(seq_key % SIMOPD_TRAJ_MOD == 0,至多 N 条)的整序列:prompt/response id、
+                       逐 token 学生 logprob(old_log_probs)与熵、教师采样列 logprob、教师 top1、各终止符列
+  ids_<n>.parquet      整批每序列的无损 id(prompt/response),供行为分析
+  summary_<n>.parquet  整批每序列一行:长度/分数/结尾/截断/重复率/Σlogprob/熵/Δℓ 均值与末位/
                        末位教师 top1/末位各终止符概率/正文里终止符出现次数
-  light.jsonl          每一步每序列一行的轻摘要(不碰教师块,毫秒级):长度/结尾/分数/重复率
+  light.jsonl          每一步每序列一行的轻摘要(不碰教师块,毫秒级):长度/结尾/分数/重复率/熵
   meta.json            一次性:契约、E_S/E_T、K、P、T、列说明
+  div/                 worker 侧 simopd.div_panel 的按序列 FKL/RKL/JSD(同 seq_key 对接)
+每条记录带 seq_key(simopd.seqkey:响应 id 的 64 位滚动哈希),两侧、多文件之间靠它对接。
 
 采样与开销:整批全存是 256 seq x 16k tok x 250 步 ~ 1e9 token/run,不可能。默认每 25 步
 (与 save_freq 同拍)存前 32 条整序列 + 整批摘要,一个 run 十几到几十 MB;light 每步几十 KB。
@@ -29,7 +32,8 @@
   SIMOPD_TRAJ_DIR      输出目录。未设 = 完全不装(零开销)。run_opd_baseline.sh 默认给 $ckpt_dir/traj。
   SIMOPD_TRAJ_NOSUB    =1 不再套 <experiment> 子目录(启动器已把目录定到 run 自己的 ckpt 目录下)。
   SIMOPD_TRAJ_EVERY    整批摘要 + 抽样整条的间隔(默认 25)。
-  SIMOPD_TRAJ_N        每次存多少条整序列(默认 32;<=0 整批,慎用)。
+  SIMOPD_TRAJ_N        整序列至多存多少条(默认 32;<=0 不设上限)。
+  SIMOPD_TRAJ_MOD      采样子集规则 seq_key % MOD == 0(默认 8;与 div_panel 共用,两侧同一子集)。
   SIMOPD_TRAJ_LIGHT    =1(默认)每步追加 light.jsonl;=0 关。
   SIMOPD_TRAJ_TEXT     =1 才放行 verl 自己那份剥了特殊符的文本(每步整批,~1 GB/run);默认 0。
 
@@ -43,7 +47,7 @@ import sys
 import time
 
 _MARK = "_simopd_traj_dump"
-_state = {"warned": False, "wrote": 0, "meta": False, "tch_warned": False}
+_state = {"warned": False, "wrote": 0, "meta": False, "tch_warned": False, "entropys": None}
 
 
 def enabled():
@@ -59,6 +63,7 @@ def _cfg():
         light=(e.get("SIMOPD_TRAJ_LIGHT", "1").strip() != "0"),
         text=(e.get("SIMOPD_TRAJ_TEXT", "0").strip() == "1"),
         nosub=(e.get("SIMOPD_TRAJ_NOSUB", "0").strip() == "1"),
+        mod=int(e.get("SIMOPD_TRAJ_MOD", "8") or 8),
     )
 
 
@@ -146,6 +151,12 @@ def _extract(batch, want_teacher):
                       f"教师列不落盘", file=sys.stderr, flush=True)
             tids = tlp = None
 
+    ent = _state.get("entropys")
+    if ent is not None and tuple(ent.shape) != (B, T):
+        ent = None
+    from simopd.seqkey import keys_from_padded
+    keys = keys_from_padded(responses, lens)
+
     ntb = getattr(batch, "non_tensor_batch", None) or {}
     uid = [str(u) for u in ntb["uid"]] if "uid" in ntb else [None] * B
     gts = [None] * B
@@ -156,7 +167,8 @@ def _extract(batch, want_teacher):
         except Exception:
             pass
     return dict(B=B, T=T, P=P, responses=responses, prompts=prompts, attn=attn, lens=lens,
-                scores=scores, old_lp=old_lp, adv0=adv0, tids=tids, tlp=tlp, uid=uid, gts=gts)
+                scores=scores, old_lp=old_lp, adv0=adv0, tids=tids, tlp=tlp, uid=uid, gts=gts,
+                ent=ent, keys=keys)
 
 
 # ---- 逐序列的量 ----------------------------------------------------------------------
@@ -210,7 +222,8 @@ def _light_row(ex, b, step, stop_all):
     r = ex["responses"][b, :L]
     last = int(r[-1]) if L else None
     last_is_stop = bool(last is not None and last in stop_all)
-    row = dict(step=step, seq=b, uid=ex["uid"][b], resp_len=L, score=float(ex["scores"][b]),
+    row = dict(step=step, seq=b, seq_key=ex["keys"][b], uid=ex["uid"][b], resp_len=L,
+               score=float(ex["scores"][b]),
                adv=float(ex["adv0"][b]), last_id=last, last_is_stop=last_is_stop,
                truncated=bool(L >= ex["T"] and not last_is_stop),
                n_stop_body=int(np.isin(r[:-1], stop_all).sum()) if L > 1 else 0,
@@ -219,19 +232,33 @@ def _light_row(ex, b, step, stop_all):
         s = ex["old_lp"][b, :L]
         row["stu_lp_sum"] = float(s.sum())
         row["stu_lp_last"] = float(s[-1])
+    if ex["ent"] is not None and L:
+        e = ex["ent"][b, :L]
+        row["ent_mean"] = float(e.mean())
+        row["ent_last"] = float(e[-1])
+        row["ent_tail256"] = float(e[-256:].mean())
     return row
 
 
-def _full_rows(ex, step, n_want, stop_all):
-    """抽样整序列(含逐 token 列)+ 整批摘要。"""
+def _full_rows(ex, step, n_want, stop_all, mod=8):
+    """采样子集的整序列(含逐 token 列)+ 整批摘要 + 整批 ids。
+    子集 = seq_key % mod == 0(worker 侧 div_panel 用同一规则,两边逐 token 记录对得上),至多 n_want 条。"""
     import numpy as np
 
     B, T, P = ex["B"], ex["T"], ex["P"]
-    n = B if n_want <= 0 else min(n_want, B)
-    rows, summ = [], []
+    pick = [b for b in range(B) if ex["keys"][b] % max(mod, 1) == 0 and int(ex["lens"][b]) > 0]
+    if n_want > 0:
+        pick = pick[:n_want]
+    pick = set(pick)
+    rows, summ, ids = [], [], []
     for b in range(B):
         L = int(ex["lens"][b])
         base = _light_row(ex, b, step, stop_all)
+        p_ids = ex["prompts"][b]
+        if ex["attn"] is not None:
+            p_ids = p_ids[ex["attn"][b, :P]]
+        ids.append(dict(step=step, seq=b, seq_key=ex["keys"][b], uid=ex["uid"][b], resp_len=L,
+                        prompt_ids=p_ids.tolist(), response_ids=ex["responses"][b, :L].tolist()))
         tch = _teacher_seq(ex, b, L, stop_all) if (ex["tids"] is not None and L) else None
         s = dict(base)
         if tch is not None:
@@ -250,19 +277,18 @@ def _full_rows(ex, step, n_want, stop_all):
             for sid in stop_all:
                 s[f"p_last_{sid}"] = float(np.exp(tch[f"tch_lp_{sid}"][-1]))   # NaN 传播
         summ.append(s)
-        if b < n:
-            p = ex["prompts"][b]
-            if ex["attn"] is not None:
-                p = p[ex["attn"][b, :P]]
-            row = dict(base, prompt_ids=p.tolist(), response_ids=ex["responses"][b, :L].tolist(),
+        if b in pick:
+            row = dict(base, prompt_ids=p_ids.tolist(), response_ids=ex["responses"][b, :L].tolist(),
                        gt=ex["gts"][b])
             if ex["old_lp"] is not None:
                 row["stu_lp"] = ex["old_lp"][b, :L].tolist()
+            if ex["ent"] is not None:
+                row["ent"] = ex["ent"][b, :L].tolist()
             if tch is not None:
                 for k, v in tch.items():
                     row[k] = v.tolist()
             rows.append(row)
-    return rows, summ
+    return rows, summ, ids
 
 
 # ---- 写盘 ----------------------------------------------------------------------------
@@ -287,6 +313,8 @@ def _write_meta(d, cfg, ex, roll, es, et, stop_all):
             dl="Δℓ = stu_lp - tch_lp;dl_last = 序列末 token(自然停止时就是终止事件)",
             n_stop_body="末 token 之前正文里出现终止符 id 的次数(im_end 混进正文的信号)",
             rep4="重复 4-gram 占比(→1 = 死循环)",
+            ent="学生全词表逐 token 熵(old_log_prob 阶段 = rollout 策略);ent_tail256 = 末 256 token 均值",
+            seq_key="simopd.seqkey 的响应 id 哈希;与 div/ 和 ids_ 对接",
             truncated="resp_len == T 且末 token 不是终止符(撞帽)",
             note="事件级修正(TERM_EVENT)的量可离线重构:停机位上 log p_S(E_S)/log q_T(E_T) 由各终止符列 logsumexp",
         ),
@@ -313,8 +341,9 @@ def _write(batch, step):
     if is_full:
         import pandas as pd
 
-        rows, summ = _full_rows(ex, step, cfg["n"], stop_all)
-        for name, data in ((f"step_{step}.parquet", rows), (f"summary_{step}.parquet", summ)):
+        rows, summ, ids = _full_rows(ex, step, cfg["n"], stop_all, cfg["mod"])
+        for name, data in ((f"step_{step}.parquet", rows), (f"summary_{step}.parquet", summ),
+                           (f"ids_{step}.parquet", ids)):
             path = os.path.join(d, name)
             tmp = path + ".tmp"
             pd.DataFrame(data).to_parquet(tmp)
@@ -330,8 +359,9 @@ def _write(batch, step):
         light_rows = [_light_row(ex, b, step, stop_all) for b in range(ex["B"])]
 
     if cfg["light"]:
-        keep = ("step", "seq", "uid", "resp_len", "score", "adv", "last_id", "last_is_stop",
-                "truncated", "n_stop_body", "rep4", "stu_lp_sum", "stu_lp_last")
+        keep = ("step", "seq", "seq_key", "uid", "resp_len", "score", "adv", "last_id", "last_is_stop",
+                "truncated", "n_stop_body", "rep4", "stu_lp_sum", "stu_lp_last",
+                "ent_mean", "ent_last", "ent_tail256")
         lines = [json.dumps({k: r.get(k) for k in keep}, ensure_ascii=False) for r in light_rows]
         with open(os.path.join(d, "light.jsonl"), "a") as f:
             f.write("\n".join(lines) + "\n")
@@ -370,6 +400,38 @@ def install():
 
     setattr(_log_rollout_data, _MARK, True)
     cls._log_rollout_data = _log_rollout_data
+
+    # (a) old_log_prob 阶段算出的全词表熵在 fit 循环里被 pop 掉;这里先留一份 CPU 拷贝。
+    _olp = getattr(cls, "_compute_old_log_prob", None)
+    if _olp is not None and not getattr(_olp, _MARK, False):
+        def _compute_old_log_prob(self, batch):
+            out = _olp(self, batch)
+            try:
+                dp = out[0] if isinstance(out, tuple) else out
+                ent = dp.batch.get("entropys", None) if hasattr(dp, "batch") else None
+                if ent is not None:
+                    if getattr(ent, "is_nested", False):
+                        ent = ent.to_padded_tensor(0)
+                    _state["entropys"] = ent.detach().float().cpu().numpy()
+            except Exception as e:
+                _state["entropys"] = None
+                print(f"[simopd] traj_dump: 熵暂存失败({e!r}),本步不记 ent", file=sys.stderr, flush=True)
+            return out
+        setattr(_compute_old_log_prob, _MARK, True)
+        cls._compute_old_log_prob = _compute_old_log_prob
+
+    # (b) worker 侧的 div_panel 需要知道当前步:meta_info 随 to_tensordict 进 non-tensor 数据。
+    _upd = getattr(cls, "_update_actor", None)
+    if _upd is not None and not getattr(_upd, _MARK, False):
+        def _update_actor(self, batch):
+            try:
+                batch.meta_info["simopd_step"] = int(getattr(self, "global_steps", -1))
+            except Exception:
+                pass
+            return _upd(self, batch)
+        setattr(_update_actor, _MARK, True)
+        cls._update_actor = _update_actor
+
     cfg = _cfg()
     print(f"[simopd] traj_dump armed: {_dir(cfg)} (每 {cfg['every']} 步整批摘要 + {cfg['n']} 条整序列,"
           f"light={'on' if cfg['light'] else 'off'},verl 文本={'on' if cfg['text'] else 'off'})",

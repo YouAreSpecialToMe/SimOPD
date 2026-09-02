@@ -160,13 +160,15 @@ FSDP 分片一起传(28.4 GB/个),保住"以后想真 resume"的选项。幂等�
 | 文件 | 内容 | 频率 |
 |---|---|---|
 | `metrics/launch_<ts>.jsonl` | verl `file` logger:wandb 拿到的每个标量 | 每步 |
-| `traj/light.jsonl` | 每序列:长度 / 末 id / 是否自然停止 / 截断 / 正文含终止符次数 / 重复 4-gram 率 / Σ学生 logprob | 每步 |
+| `traj/light.jsonl` | 每序列:长度 / 熵(均值·末位·末 256)/ 末 id / 是否自然停止 / 截断 / 正文含终止符次数 / 重复 4-gram 率 / Σ学生 logprob / 训练题判分 | 每步 |
+| `traj/div/rank<r>.jsonl` | **worker 侧**每序列:学生轨迹上的 forward KL / reverse KL / JSD / TV(教师块 + 尾桶,所有臂同一定义)+ 覆盖 qS/pS + top1 一致率,各取 mean/last/tail256 | 每步 |
 | `traj/summary_<n>.parquet` | 整批每序列:上面 + 教师采样列 Σ / Δℓ 均值·末位·最大 / 末位教师 top1 / 末位各终止符概率 | 每 25 步 |
-| `traj/step_<n>.parquet` | 前 32 条整序列:无损 id + 逐 token 学生/教师 logprob + 教师 top1 + 各终止符列 | 每 25 步 |
+| `traj/ids_<n>.parquet` | 整批每序列的无损 prompt/response id(行为分析) | 每 25 步 |
+| `traj/step_<n>.parquet` + `div/tok_*` | 采样子集(seq_key % 8 == 0,≤32 条):逐 token 学生 logprob/熵、教师采样列、top1、各终止符列、FKL/RKL/JSD | 每 25 步 |
 | `val_gen/<step>.jsonl` | 在环 math500 生成(verl 文本 dump) | 每 25 步 |
 | `run_manifest.json` + `manifest/launch_*.json` | 解析后的臂 env、hydra 覆盖、契约、指纹、git sha、评测 k、机器 | 每次启动 |
 
-体量一个 run ~100 MB。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
+三处记录靠 `seq_key`(响应 id 的哈希,driver/worker 各自算)对接。体量一个 run ~250 MB。教师列按 id 在教师块里查找(不依赖 top-K / gather 的列布局),找不到记 NaN;
 事件级修正的量可由各终止符列离线 logsumexp 重构。**都不进 resume 指纹**(改的是"记什么",不是 loss)。
 verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 GB/run)默认不写(`SIMOPD_TRAJ_TEXT=1` 放行)。
 
