@@ -262,3 +262,13 @@ c4_hq / c4_state、c4_rep、c4_carrier、c5 并集两条,全是 **OURS**。自�
 未加回的 C 轴探针 c1_direct / c1_tailbucket / c2_qb_fixed8 / c2_qb_perseq 是 legacy 波里的
 短程消融(25–119 步),属机制注脚,不进主表。
 名册 **32 条 + 2 条零成本 ≈ 3590 GPU·h**(32 卡 4.7 天 / 64 卡 2.3 天)。
+
+### 6.2 机制消融的取舍(2026-09-02,用户定)
+
+- **补**:c2 的 QB pinning ladder —— `c2_qb_fixed8_corr`(rung 0,固定 top-8,零自适应)与
+  `c2_qb_perseq_corr`(rung 1,每轨迹一个 τ),与 c2 全量分位构成三级梯子。登记为 rung +
+  与 `c2_quantile_budget_corr` **相同的修正旋钮**,梯子内部保持单变量。+236 GPU·h。
+- **搁置**:d1_tip 的 entropy_only / divergence_only 分解、g2_fire 的 filter_only / reweight_only
+  分解、c1_tailbucket(ν 探针)。别人的方法,主表 null 够用;登记保留,不进本轮。
+
+名册 **34 条 + 2 条零成本 ≈ 3830 GPU·h**(32 卡 5.0 天 / 64 卡 2.5 天)。
