@@ -51,7 +51,7 @@
 | 吸引子 / 早期阈值负结果 / 长度分层 | 51 run 的逐步动态(git 里有,wandb 云端还有一份) | ✅ 双备份 |
 | 整个 legacy 波(29 臂 × 3 种子) | `post_eval_cells.csv` 4700 格 | ✅ 完整 |
 
-### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,29 条 + 2 条零成本)
+### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,32 条 + 2 条零成本)
 
 单种子、评测 k=8、每 25 步。全文与合并依据见 `docs/ARM-REVIEW-20260901.md` §5。
 
@@ -60,7 +60,8 @@
 | 对照 | `vanilla_corr` | 250 | 157 | 判决基线 |
 | 对照 | **`vanilla_te`(新登记)** | 250 | 157 | TE Path 1 是否 ≡ termfix |
 | B | b1_skew_kl_corr · b2_forward_kl_corr | 200 | 235 | null 代表 · 分数≈交付坏 |
-| C | c3_intersection_corr · c5_union_rkl · c5_union_fkl | 200/250 | 319 | 省 token 候选 · 两条预注册 |
+| C | c3_intersection_corr · c5_union_rkl · c5_union_fkl | 200/250 | 319 | 省 token 候选 · 两条预注册(c5 = OURS) |
+| C·OURS | **c2_quantile_budget_corr · c4_hq · c4_state** | 200 | 289 | 自研方法必须在表里有自己的行:c2(分位预算)、c4 的状态自适应控制器两档。归档 null / 对照裁决仍然成立,这三条是把它们**在同一张表里评出来**,不是重新提问 |
 | C | *c4_carrier / c4_rep* | — | **0** | 已评满 250 |
 | D | d2_selectkd_corr · d3_teachability_corr | 200 | 194 | D 代表(d1 并入 d2:+0.1%)· d3 修正后 **+32% 长度**,动态不同,必须自己一条 |
 | E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
@@ -69,10 +70,10 @@
 | H | h1 · h2 · h3 · h4 | 200 | 538 | 最短 · 照塌 · null 代表 · h4 有自己的预注册问题(窗口 vs 散点)且动态不同(+23%,.46) |
 | N | **`n2_gather`(新登记)** | 250 | 167 | N2 自己的效果,TE off |
 | A | a1_gkd_mix0.5_n0 · a3_offpolicy_n0 · a4_dagger_anneal_n0 · a5_aggrevate_n0 | 200 | 410 | 四种轨迹来源各一条:固定混合 / 纯离策 / DAgger 退火 / AggreVaTe。a4、a5 与 a1、a3 在修正载体上动态**不同**(9.9k/.22、9.7k/.21 vs 8.3k/.12、6.8k/.08),且 A-AXIS-REGISTRATION 对 a4 有 R1/R2 预注册裁决,不能合并。对照仍是 vanilla_corr,契约差异属数据来源本身,论文里声明 |
-| | **29 条** | | **≈3300** | **32 卡 4.3 天 / 64 卡 2.1 天** |
+| | **32 条** | | **≈3590** | **32 卡 4.7 天 / 64 卡 2.3 天** |
 
-**不跑的**:legacy 载体(eos 错位版)一条都不跑——塌缩已由三种子 + 16 条老臂 + w 对钉死,用户 2026-09-02 定 · c2(**OURS,归档 5 点已给 null Δ−.001;若要自家方法有一行,加回 119**)(归档 5 点已给 null)· b5/d1/d3/
-g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· c4_hq/c4_state(预注册的改善已由对照臂 c4_carrier 独自达成 —— 预测被对照裁决,非弃置)· n2_termcal/n2_corr(已答/被 TE 混淆)·
+**不跑的**:legacy 载体(eos 错位版)一条都不跑——塌缩已由三种子 + 16 条老臂 + w 对钉死,用户 2026-09-02 定 (归档 5 点已给 null)· b5/d1/d3/
+g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· n2_termcal/n2_corr(已答/被 TE 混淆)·
 b3/b4/c1/e1/e3/j1/vanilla_n8/a2(入库数据或 exempt)。
 
 **两条新登记**(需用户在 `configs/arms.yaml` 登记):`vanilla_te` = `k1_rec` + gather +
