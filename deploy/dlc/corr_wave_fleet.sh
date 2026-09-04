@@ -38,7 +38,9 @@
 set -uo pipefail
 
 ROOT=${ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+# 换集群必改的头号变量。从前是写死的一行,没有覆盖口 —— 而 ckpt / 评测队列 / 日志 / lane 图
+# 全挂在它下面。认 SIMOPD_STORE(refill、run_opd_baseline 用的也是这个名),默认不变。
+D=${SIMOPD_STORE:-/mgfs/shared/Group_GY/changhao/simopd_data}
 SEED=${SEED:-0}
 LOGD=$D/corr_wave
 # ONE job for the whole wave (the 2026-08-19 afternoon submission): a 5-worker pytorchjob,
@@ -61,8 +63,18 @@ else
 fi
 export SLOT SEED SLOT_BASE
 
-# lane spec: "arm:gpus" (2 or 4 comma-separated GPU ids). Plain case (bash 3 on the
-# submitter's mac has no associative arrays).
+# lane spec: "arm:gpus[:steps]" —— gpus 是 2 或 4 个逗号分隔的 GPU id;steps 可选,
+# 不写 = 250(与从前逐字节相同)。第三段是 2026-09-02 加的:名册(AGENT.md §2.2)里 35 条
+# 有 30 条是 **200 步**,而这里从前把 250 写死,于是「200 步」那一列根本没有执行路径 ——
+# 照跑 250 就是每条多花 25% 训练 + 多一个评测点。用 _spec_parse 解析,别再用 ${spec##*:}
+# 取 GPU(有第三段时它取到的是步数)。
+_spec_parse() {   # SPEC -> 置 _ARM / _GPUS / _STEPS
+    _ARM=${1%%:*}
+    local rest=${1#*:}
+    _GPUS=${rest%%:*}
+    if [ "$rest" = "$_GPUS" ]; then _STEPS=${FLEET_TOTAL_STEPS:-250}; else _STEPS=${rest#*:}; fi
+}
+# Plain case (bash 3 on the submitter's mac has no associative arrays).
 _lanes_for() {
     case "$1" in
         0) echo "vanilla_corr:0,1 n2_corr:2,3 b1_skew_kl_corr:4,5 b5_k2_corr:6,7" ;;
@@ -74,24 +86,6 @@ _lanes_for() {
         *) echo "" ;;
     esac
 }
-# WAVE QUEUE: an override file replaces the built-in slot map. Written by the operator
-# (hop pod) as $LOGD/slot<k>_s<seed>_lanes; the DONE idle loop below promotes a staged
-# .next file into it and re-execs, so successive waves chain with NO dlc action at all.
-_OVR="$LOGD/slot${SLOT}_s${SEED}_lanes"
-if [ -f "$_OVR" ]; then
-    LANES=$(cat "$_OVR")
-    echo "== lane map OVERRIDE from $_OVR: $LANES"
-else
-    LANES=$(_lanes_for "$SLOT")
-fi
-if [ -z "$LANES" ]; then
-    if [ "${_slot_from_rank:-0}" = 1 ]; then
-        while true; do echo "rank ${_rank} -> SLOT ${SLOT}: no lanes in the slot table (0-5); idling ($(date))"; sleep 600; done
-    fi
-    echo "unknown SLOT=$SLOT (0-5)"; exit 2
-fi
-ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
-
 # The abort marker is a RELOAD request. Idle loops (no lanes running) honour it by
 # re-exec'ing this script from the shared tree IN PLACE -- the same container, the same
 # DLC job, no AIMaster restart policy involved and no `dlc submit`: whatever the tree
@@ -115,6 +109,38 @@ _abort_check() {
         exec bash "$ROOT/deploy/dlc/corr_wave_fleet.sh"
     fi
 }
+
+# WAVE QUEUE: an override file replaces the built-in slot map. Written by the operator
+# (hop pod) as $LOGD/slot<k>_s<seed>_lanes; the DONE idle loop below promotes a staged
+# .next file into it and re-execs, so successive waves chain with NO dlc action at all.
+_OVR="$LOGD/slot${SLOT}_s${SEED}_lanes"
+if [ -f "$_OVR" ]; then
+    LANES=$(cat "$_OVR")
+    echo "== lane map OVERRIDE from $_OVR: $LANES"
+else
+    # 内置表是**旧波**的 lane 图,里面 24 条有 8 条(b5/d1_tip/f1/f2_clip2.3/g2/g4/g5/
+    # n2_termcal)是本轮名册明确不跑的。少写一个覆盖文件就静默开跑错的一整波 —— 这是
+    # 「数据在、脚本不报错、结果是另一个实验」那一类。要用它必须明说。
+    if [ "${FLEET_ALLOW_BUILTIN_LANES:-0}" != 1 ]; then
+        while true; do
+            _abort_check
+            echo "slot ${SLOT}: 没有 lane 图覆盖文件 $_OVR,而内置表是旧波的臂(与 AGENT.md §2.2 名册不符)。"
+            echo "   写覆盖文件:printf '%s\n' 'vanilla_corr:0,1:250 b1_skew_kl_corr:2,3:200 ...' > $_OVR"
+            echo "   真要用内置旧表:FLEET_ALLOW_BUILTIN_LANES=1  ($(date))"
+            sleep 120
+            [ -f "$_OVR" ] && { LANES=$(cat "$_OVR"); echo "== lane map 覆盖文件出现了,继续"; break; }
+        done
+    fi
+    [ -n "${LANES:-}" ] || LANES=$(_lanes_for "$SLOT")
+fi
+if [ -z "$LANES" ]; then
+    if [ "${_slot_from_rank:-0}" = 1 ]; then
+        while true; do echo "rank ${_rank} -> SLOT ${SLOT}: no lanes in the slot table (0-5); idling ($(date))"; sleep 600; done
+    fi
+    echo "unknown SLOT=$SLOT (0-5)"; exit 2
+fi
+ARMS=(); for spec in $LANES; do ARMS+=("${spec%%:*}"); done
+
 
 # ---------------------------------------------------------------- submitter --
 if [ -z "${MLP_ROLE_INDEX:-}${MLP_WORKER_RACK_RANK_INDEX:-}${DLC_JOB_ID:-}" ]; then
@@ -355,13 +381,13 @@ _kill_all_ray() { pkill -f "site-packages/ray/" 2>/dev/null; sleep 2; pkill -KIL
 # 退出的那一刻就把它的卡接过去,每张卡一个单卡 worker。队列用共享 claim 目录
 # (mkdir 原子),多开一个 worker 只会多认领,不会重复评同一项。
 # 只在真的跑满时交卡:没跑满就退出的 lane 属于崩溃,那对卡要留给它自己的重试。
-_eval_handoff() {   # ARM GPUS
-    local arm=$1 gpus=$2 ck q g
+_eval_handoff() {   # ARM GPUS [STEPS]
+    local arm=$1 gpus=$2 steps=${3:-${FLEET_TOTAL_STEPS:-250}} ck q g
     [ "${FLEET_EVAL_HANDOFF:-1}" = 1 ] || return 0
     ck=$(ls -d "$D/ckpt/simopd/${arm}_s${SEED}_16k/global_step_"* 2>/dev/null |
          sed 's/.*global_step_//' | sort -n | tail -1)
-    if ! [ "${ck:-0}" -ge "${FLEET_TOTAL_STEPS:-250}" ] 2>/dev/null; then
-        echo "lane ${arm}: 退出时只到 ${ck:-0} 步,不交卡(留给重试/重启)"
+    if ! [ "${ck:-0}" -ge "$steps" ] 2>/dev/null; then
+        echo "lane ${arm}: 退出时只到 ${ck:-0}/${steps} 步,不交卡(留给重试/重启)"
         return 0
     fi
     q=${EVAL_QUEUE:-$D/evalq_exp}
@@ -529,11 +555,11 @@ echo "== Phase R: markers present for: ${ARMS[*]}"
 echo "== Phase L: GPU state -- used MiB: $(_gpu_used 0,1,2,3,4,5,6,7)"
 _gpu_sweep 0,1,2,3,4,5,6,7
 _warm_ray "Phase L"
-echo "== Phase L: slot ${SLOT} lanes: $LANES (250 steps, seed ${SEED})"
+echo "== Phase L: slot ${SLOT} lanes: $LANES (步数见各 lane 的第三段,默认 250;seed ${SEED})"
 [ -n "${WANDB_API_KEY:-}" ] || export WANDB_MODE=offline
 
-_launch_lane() {  # ARM GPUS
-    local ARM=$1 GPUS=$2 attempt
+_launch_lane() {  # ARM GPUS [STEPS]
+    local ARM=$1 GPUS=$2 STEPS=${3:-${FLEET_TOTAL_STEPS:-250}} attempt
     for attempt in 1 2 3; do
         (
             set -e
@@ -541,7 +567,14 @@ _launch_lane() {  # ARM GPUS
             eval "$_arm_env"
             export EXPERIMENT_NAME="${ARM}_s${SEED}_16k"
             export CUDA_VISIBLE_DEVICES=$GPUS
-            export TOTAL_TRAINING_STEPS=250
+            export TOTAL_TRAINING_STEPS=$STEPS
+            # run_opd_baseline.sh 拒绝「未打标的 <250 步」——那个守卫防的是从 shell 漏出来的
+            # STEPS=3。名册里写死的 200 步是审计地平线,lane 图**就是**那份记录,所以这里显式
+            # 打开开关并把它打进日志,而不是让人去 shell 里 export 一个全局的。
+            if [ "$STEPS" -lt 250 ] 2>/dev/null; then
+                export SIMOPD_SHORT_RUN_OK=1
+                echo "lane ${ARM}: 地平线 ${STEPS} 步(名册规定),SIMOPD_SHORT_RUN_OK=1 已按 lane 图开启"
+            fi
             export MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-16384}
             # Derived, not hardcoded (2026-08-21): arm.py's env above is exactly the step
             # that can swap the pair (a2_coldstart replaces STUDENT_MODEL, the I-axis and
@@ -573,17 +606,17 @@ _launch_lane() {  # ARM GPUS
 _LSTAG=${LANE_STAGGER:-$(cat "$LOGD/LANE_STAGGER" 2>/dev/null || echo 150)}
 _lpids=(); _larms=(); _lgpus=(); _lstart=(); _lretry=(); _ldelay=0; _now0=$(date +%s)
 for spec in $LANES; do
-    ARM=${spec%%:*}; GPUS=${spec##*:}
+    _spec_parse "$spec"; ARM=$_ARM; GPUS=$_GPUS; STEPS=$_STEPS
     # 重启时,已经跑满的臂不再起 lane —— 直接把那对卡给 eval(slot6 的 h7 就是这种)
     _ck=$(ls -d "$D/ckpt/simopd/${ARM}_s${SEED}_16k/global_step_"* 2>/dev/null |
           sed 's/.*global_step_//' | sort -n | tail -1)
-    if [ "${_ck:-0}" -ge "${FLEET_TOTAL_STEPS:-250}" ] 2>/dev/null; then
-        echo "lane ${ARM}: 已跑满 ${_ck} 步,跳过训练"
-        _eval_handoff "$ARM" "$GPUS"
+    if [ "${_ck:-0}" -ge "$STEPS" ] 2>/dev/null; then
+        echo "lane ${ARM}: 已跑满 ${_ck}/${STEPS} 步,跳过训练"
+        _eval_handoff "$ARM" "$GPUS" "$STEPS"
         continue
     fi
     ( [ "$_ldelay" -gt 0 ] && sleep "$_ldelay"; _gpu_sweep "$GPUS"; _wait_gpu_free "$GPUS"
-      _launch_lane "$ARM" "$GPUS" ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 & _lpids+=($!)
+      _launch_lane "$ARM" "$GPUS" "$STEPS" ) > "$LOGD/lane_${ARM}_s${SEED}.log" 2>&1 & _lpids+=($!)
     _larms+=("$ARM"); _lgpus+=("$GPUS"); _lstart+=($(( _now0 + _ldelay ))); _lretry+=(0)
     _ldelay=$(( _ldelay + _LSTAG ))
 done

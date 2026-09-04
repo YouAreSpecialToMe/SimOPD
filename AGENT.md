@@ -395,18 +395,37 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
    Qwen3-4B-Instruct-2507 + 评测集),训练集 `scripts/prep_nemotron_math.py`。
    拉之前 `unset HF_HUB_OFFLINE`,拉完再设回去。
 1c. **改路径**:`deploy/dlc/*.sh` 里有 20+ 处写死 `/mgfs/shared/Group_GY/changhao/...`。
-   多数是 `${VAR:-默认}` 可以用环境覆盖,但 `eval_farm.sh` 的 venv 路径
-   `V=/mgfs/.../SimOPD/simopd/bin/python` **是硬写死、没有覆盖口**,必须改。
+   两处从前**硬写死没有覆盖口**的已经改成认环境变量(默认不变):舰队的数据根
+   `corr_wave_fleet.sh` 的 `D` 现在认 **`SIMOPD_STORE`**(ckpt / 评测队列 / 日志 / lane 图
+   全挂在它下面,是换集群第一个要改的),`eval_farm.sh` 的 venv 路径认 **`SIMOPD_PY`**。
+   其余带 `${VAR:-默认}` 的用环境覆盖即可;`rehearse_n2.sh` 里的 `D` 仍是写死的,要彩排先改它。
 2. 起载体(DLC 形态见 `bash deploy/dlc/forever.sh` 打印的控制台卡片;**表单里的自动重启一定要开**)。
 3. 装 payload:评测节点 `task.sh set <槽> $ROOT/deploy/dlc/eval_farm.sh`
    (worker 已在仓库里,§2.6;装之前先 `bash deploy/dlc/test_eval_worker.sh` 看全绿);
-   训练节点 `task.sh set <槽> $ROOT/deploy/dlc/slot_resume.sh` + 写 lane 图
-   `$D/corr_wave/slot<k>_s0_lanes`(格式 `arm:gpu,gpu`,一行)。
+   训练节点 `task.sh set <槽> $ROOT/deploy/dlc/slot_resume.sh` + 写 lane 图。
+3b. **lane 图别手写** —— 35 条要带对步数(30 条 200、5 条 250),手抄错一条不会报错,
+   只会安静地多跑或少跑 50 步。用生成器,它逐条过 `arm.py env`,解析不了就当场失败:
+   ```
+   python scripts/make_lane_map.py --print                      # 先看
+   python scripts/make_lane_map.py --out $D/corr_wave --seed 0   # 写 slot<k>_s0_lanes
+   ```
+   格式是 `arm:gpu,gpu[:steps]`,第三段不写 = 250。8 卡 pod / 2 卡 lane 时 35 条 = 9 个 slot、
+   70 张卡;64 卡就先铺 8 个 slot,余下的等前面跑完再链上去(`.next` 机制,见舰队脚本)。
+   **没有覆盖文件时舰队现在会停下来喊**,不再回落到内置表 —— 内置的是**旧波**的 lane 图,
+   24 条里有 8 条(b5 / d1_tip / f1 / f2_clip2.3 / g2 / g4 / g5 / n2_termcal)是本轮明确不跑的,
+   少写一个文件就静默开跑另一个实验。真要用旧表:`FLEET_ALLOW_BUILTIN_LANES=1`。
+3c. **彩排(Phase R)会先跑,别以为卡住了。** 舰队在起 lane 之前对每条没有 `.OK` 标记的臂
+   跑一次三步彩排(`deploy/dsw/rehearse_n2.sh`,证明 sitecustomize 钩子在教师的 vLLM
+   engine-core 里真的生效、终止符块真的到了内核),通过就自动 `touch
+   $D/corr_wave/rehearsal_<arm>.OK`。**载体 `vanilla_corr` 的彩排必须先过**,否则所有 lane
+   都不会起,日志每 2 分钟打一行 `CARRIER REHEARSAL FAILED/MISSING`。单条彩排失败只会
+   丢掉那一条 lane(`rehearsal not PASS -- skipped`),别的照跑。新集群第一次会把 35 条
+   全彩排一遍,要留出时间。
 4. `task.sh status` / `task.sh alive` 看心跳;`task.sh sh <槽> '<命令>'` 当 ssh 用;
    `task.sh tty <槽>` 是真交互 shell。
 5. `simopd_env.sh` 里给 `CKPT_SYNC_REPO` 与 `HF_TOKEN`(§2.3),`SIMOPD_SUITE_K=8`(§2.2b)。
-6. **先只铺一条 lane**(建议 `vanilla_corr`),按 §2.4 的验收清单看归档层与 ckpt_sync 真在写、真在传;
-   过了再按 §2.2 名册铺满。
+6. **先只铺一条 lane**(建议 `vanilla_corr:0,1:250`,它也是载体彩排要过的那条),按 §2.4 的
+   验收清单看归档层与 ckpt_sync 真在写、真在传;过了再用 3b 的生成器铺满。
 
 ---
 
@@ -425,6 +444,11 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
   否则同 pod 所有 worker 会误判卡忙、集体坐等(已修,但换集群后值得复验一次)。
 - **别在跑着的 bash 脚本上原地改**:换 inode(写新文件再 mv)才安全。
 - **同一个 ckpt 目录不能有两个写者**:迁移时先确认旧 lane 真死透(日志 >15 分钟没动静)。
+- **步数从前写死在舰队里**:`_launch_lane` 里曾是 `export TOTAL_TRAINING_STEPS=250`,而名册
+  35 条有 30 条是 200 步 —— 「200 步」那一列根本没有执行路径,照跑就是每条多 25% 训练加一个
+  评测点。现在步数从 lane 图第三段来(`arm:gpu,gpu:steps`),<250 时舰队会显式打开
+  `SIMOPD_SHORT_RUN_OK=1` 并打进日志:`run_opd_baseline.sh` 拒绝「未打标的 <250 步」,
+  那个守卫防的是从 shell 漏出来的 `STEPS=3`,而 lane 图就是「on the record」的那份记录。
 - **只活在盘上的脚本等于没有**:`eval_worker_exp.sh` 从未进 git,旧盘一失联就永久丢了,
   而三处调用只会打一行"找不到,卡先闲着"——静默不评。已重写并入库(§2.6)。
   **凡是被 payload/fleet 调用的东西都必须在仓库里**,盘上只放数据。
