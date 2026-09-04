@@ -15,6 +15,12 @@
 2026-09-02 起每个 run **自带分析归档**(§2.4):轨迹、逐 token 学生/教师量、每序列 FKL/RKL/JSD、
 熵、判分、run 定义,随权重一起上 HF —— 旧集群失联时"只剩 eval parquet"的局面不会再有。
 
+> **开跑前有一个硬阻塞(2026-09-02 复核发现)**:`eval_worker_exp.sh` **从未进过 git**
+> (`git log --all --diff-filter=AD` 为空),只在已失联的旧盘上 —— **它已经丢了**,不是
+> "带走"的问题。评测农场整条链子指着它:`eval_farm.sh:19`、`corr_wave_fleet.sh:372`、
+> `worker.sh:582`。不重写它,第一条臂跑到 25 步交卡时会静默不评(fleet 只打一行
+> 「找不到 …,卡先闲着」)。契约见 §2.6。训练侧不受影响,可以先开训。
+
 ---
 
 ## 1 已经定了的(别重跑)
@@ -55,7 +61,9 @@
 
 ### 2.2 重训名册(2026-09-01 定稿:**全部重跑 = 论文臂表**,35 条 + 2 条零成本)
 
-单种子、评测 k=8、每 25 步。全文与合并依据见 `docs/ARM-REVIEW-20260901.md` §5。
+单种子、评测 k=8、每 25 步。合并依据见 `docs/ARM-REVIEW-20260901.md` **§6–§6.5**
+(§5.3 那张「20 条」表已被 §6 的复查整体推翻 —— 它还写着 `n2_gather`、c4 行 = `c4_carrier`、
+「删 h5/h7/h8/h9 预算臂」,**照它铺 lane 会跑错**;终稿是 §6.5 的 35 条 ≈3950)。
 
 | 轴 | 臂 | 步 | GPU·h | 它回答什么 |
 |---|---|---|---|---|
@@ -71,9 +79,34 @@
 | F | f2_hard_clip_corr · f3_power_corr | 200 | 236 | 文献标准做法(硬截 ±10)· legacy 效应最大处(+.090)的 null;合并 f1/f2_clip2.3/f4/f5 |
 | G | g6_seqmean_corr · g1_verified_only_corr | 200 | 288 | G null 代表(合并 g2/g4/g5,±2% 内)· g1 修正后 13.2k/.53 有副作用,G 轴最经典的一条,要评分数 |
 | H | h1 · h2 · h3 · h4 | 200 | 538 | 最短 · 照塌 · null 代表 · h4 有自己的预注册问题(窗口 vs 散点)且动态不同(+23%,.46) |
+| H 预算线 | **h5_gen100_n0 · h7_gen512_n0 · h8_gen2048_n0 · h6_gen_sched_n0 · h9_prune_adapt_n0 · h10_task_subset_n0** | 200 | 465 | 深度剂量 R-H1–R-H4 四条预注册裁决。曾被我在压预算时整条删掉、被用户抓回(ARM-REVIEW §6 「不能删 → 整条预算线恢复」)。训练极便宜(h5 约 8 秒/步),成本几乎全在评测;**它们自带小帽,截断率天然高,别按主表阈值误判成塌缩** |
 | N | n2_corr | 250 | 167 | N2 校准损失在修正基座上的效果(对照 vanilla_te,同为 TE 路线)。`n2_termcal` 已是「termcal + gather、TE off」且已塌,不再另登记 n2_gather |
 | A | a1_gkd_mix0.5_n0 · a3_offpolicy_n0 · a4_dagger_anneal_n0 · a5_aggrevate_n0 | 200 | 410 | 四种轨迹来源各一条:固定混合 / 纯离策 / DAgger 退火 / AggreVaTe。a4、a5 与 a1、a3 在修正载体上动态**不同**(9.9k/.22、9.7k/.21 vs 8.3k/.12、6.8k/.08),且 A-AXIS-REGISTRATION 对 a4 有 R1/R2 预注册裁决,不能合并。对照仍是 vanilla_corr,契约差异属数据来源本身,论文里声明 |
 | | **35 条** | | **≈3950** | **32 卡 5.1 天 / 64 卡 2.6 天** |
+
+**表里是简写,lane 图要精确名。** 下面 37 行是 `arm.py env` 全部解析通过的真名
+(2026-09-02 逐条验过),直接抄:
+
+```
+vanilla_corr            vanilla_te
+b1_skew_kl_corr         b2_forward_kl_corr
+c3_intersection_corr    c5_union_rkl              c5_union_fkl
+c2_quantile_budget_corr c4_pi_tail_budget_corr    c4_hq          c4_state
+c2_qb_fixed8_corr       c2_qb_perseq_corr
+d2_selectkd_corr        d3_teachability_corr
+e2_set_coverage_a0_corr
+f2_hard_clip_corr       f3_power_corr
+g6_seqmean_corr         g1_verified_only_corr
+h1_first_segment_corr   h2_last_segment_corr      h3_random_segment_corr   h4_random_scatter_corr
+h5_gen100_n0            h7_gen512_n0              h8_gen2048_n0
+h6_gen_sched_n0         h9_prune_adapt_n0         h10_task_subset_n0
+n2_corr
+a1_gkd_mix0.5_n0        a3_offpolicy_n0           a4_dagger_anneal_n0      a5_aggrevate_n0
+# 零成本(已评满 250,不重跑,只作 c4 行的消融):c4_carrier  c4_rep
+```
+
+`h1`/`h2`/`h3`/`h4` **不是** `arms.yaml` 里的 run_id,写进 lane 图会被 `arm.py env` 当场拒掉
+(`unknown arm`)——那是好事,但别以为简写能用。
 
 **不跑的**:legacy 载体(eos 错位版)一条都不跑——塌缩已由三种子 + 16 条老臂 + w 对钉死,用户 2026-09-02 定 (归档 5 点已给 null)· b5/d1/d3/
 g2/g4/g5/f1/f2_clip2.3/f4/f5/b5/d1(修正后与代表 ±3% 内且无独立预注册问题,合并)· n2_termcal/n2_corr(已答/被 TE 混淆)·
@@ -128,7 +161,9 @@ SIMOPD_SUITE_K=8      # 写进 simopd_env.sh;只作用于原 k=32 的两组,mine
 **不动的**:`MAX_TOKENS=32768` —— 健康臂只写 ~9k 用不到帽,只有塌缩臂跑满,
 而**截断率是头号仪表**,降帽等于改测量对象。
 
-**逐批预算见 §2.2 的表:训练 1380 + 评测 509 = 1888 GPU·小时。**
+**预算以 §2.2 的表为准:35 条 ≈ 3950 GPU·h**(训练 + 评测,32 卡 5.1 天 / 64 卡 2.6 天)。
+> 这里原先写着「训练 1380 + 评测 509 = 1888」——那是 2026-08-24 那版 16 条名册的数,
+> 名册两次恢复(§6 的 9 条、§6.1–6.5 的 6 条)之后早就不成立了,已作废。
 
 **不再重训**:全部 legacy 载体臂、`n2_termcal`(每步 1444 秒最慢且已塌透)、
 以及没进 T2 面板的其余 f/g/d/h 臂(动态已归档、分类已完成)。
@@ -203,6 +238,38 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 4. `ckpt_sync` 日志有 `OK <run>@25` 与 `OK aux <run>`,HF 仓库里 `SYNCED.json` 在长。
 任何一条不成立都是"看着武装了其实没有"的形状(h9 中继烧 66 步的那种),先修再铺 lane。
 
+### 2.6 必须重写:`eval_worker_exp.sh`(已随旧盘丢失)
+
+**状态**:从未提交进 git,本机无副本,旧盘不可达 = **没了**。§4 的"必须带走"清单写于
+08-24(当时盘还在),现在那一行只是历史记录。
+
+**谁在等它**:
+
+| 调用点 | 行为 |
+|---|---|
+| `deploy/dlc/eval_farm.sh:19` | 每卡 `nohup bash "$D/eval_worker_exp.sh" <gpu> <队列目录>` |
+| `deploy/dlc/eval_farm.sh:25` | 每 5 分钟按 `pgrep -f "eval_worker_exp.sh $g $Q"` 补起 |
+| `deploy/dlc/corr_wave_fleet.sh:372` | 交卡前检查存在;**不在就只打一行日志、卡闲着**(静默不评) |
+| `deploy/dlc/worker.sh:582` | 同样的起法 |
+
+**要重写的契约**(全部可从现存代码反推,不用猜):
+
+1. 入参 `$1 = GPU index`(数字)、`$2 = 队列目录 `$D/evalq_exp``。
+2. 队列:`$2/pending.txt` 每行一格,由 `scripts/eval_refill_exp.py --write --watch 1200`
+   原子替换写出(整行读,读不到半截)。行格式见 `eval_refill_exp.py` 的 `_RUNPAT`。
+3. 认领:在 `$2/claims/<run>__<step>/` 建目录 + 写 `owner` 文件,**每 5 分钟 touch 一次心跳**。
+   refill 侧按 mtime 收尸:`age >= 7200` 视为陈旧、`rm -rf` 回收(`eval_refill_exp.py:71-95`)。
+   **删 claim 必须 `rm -rf` 不能 `rmdir`** —— 目录里有 `owner` 文件,`rmdir` 删不动,
+   2026-08-23 就是这么攒出 722 个僵尸 claim 把 651 行队列锁死的。
+4. 干活:`python scripts/eval_offline.py`(在 git 里,没丢),`SIMOPD_SUITE_K=8`。
+5. 选卡:`nvidia-smi` **不认数字 `CUDA_VISIBLE_DEVICES`**,要按 index 精确取行
+   (2026-08-23 的读卡修补就在丢掉的那份里,重写时别再踩)。
+6. 环境:顶上 `. ./simopd_env.sh` 并 `export VLLM_USE_MODELSCOPE=False VERL_USE_MODELSCOPE=False`
+   (`eval_farm.sh` 已经做了双保险,worker 里再确认一次)。
+
+**验收**:队列放 1 格 → worker 认领(claims 里出现目录)→ 出 parquet → claim 消失 →
+`pending.txt` 下一轮少一行。**必须在第一条臂跑到 25 步之前跑通**。
+
 ## 3 旧波数据的最后一次收口(不占卡)
 
 > 这里原来是 P0–P4 五批"续跑"计划(2026-08-24 写,当时以为 ckpt 还在)。**P0–P3 已整体作废**:
@@ -231,7 +298,12 @@ python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 
 ## 4 换集群:带什么 / 重建什么
 
-**必须带走**(`$D = .../simopd_data`):
+> **这一节写于 2026-08-24,当时旧盘还连得上,所以它讲的是"搬运"。现在旧盘已不可达,
+> 下面这张"必须带走"表已经是历史记录 —— 表里的东西没有一样搬得出来了。**留着是因为它
+> 说清了每样东西的作用,而这正是 §2(全部重跑)与 §2.4(归档随权重上云)存在的理由。
+> 唯一还要照做的是最后那行 `eval_worker_exp.sh`:它没了,必须重写,见 §2.6。
+
+**当时的"必须带走"**(`$D = .../simopd_data`):
 
 | 东西 | 体量 | 说明 |
 |---|---|---|
@@ -248,8 +320,12 @@ python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
 
 ### 4.1 ckpt 走 HuggingFace(2026-08-24 定稿:**只传权重**)
 
-前提已经变了:换机器后**不能 resume**(优化器状态与数据顺序留在旧盘),而 §2.5 的方案是
-"降锚点 + 只从 0 重跑 4 条",**所以全量 `global_step_N/` 不用传**。传两样就够:
+前提已经变了:换机器后**不能 resume**(优化器状态与数据顺序留在旧盘),而现在的方案是
+**§2.2 的全部重跑(35 条,全从 0 起)**,**所以全量 `global_step_N/` 不用传**。传两样就够:
+
+> (原文这里引的 "§2.5「降锚点 + 只从 0 重跑 4 条」" 是 08-24 那版计划,小节与方案都已作废。
+> **本节整体也只对"旧盘还在"的世界成立**;对新集群真正生效的是 §2.3 的 `ckpt_sync.py`
+> —— 边训边传,而不是训完再搬。)
 
 | 传什么 | 体量 | 换来什么 |
 |---|---|---|
@@ -293,9 +369,23 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
 
 ## 6 上电顺序
 
+0. **先造 `simopd_env.sh`** —— 它**不在 git 里**(`.gitignore:20`,因为含 wandb key),
+   而 `run_opd_baseline.sh` / `eval_offline.py` / `preflight.py` / `fetch_assets.py` /
+   `eval_farm.sh` / `coldstart.sh` 全都 source 它。新集群上它不存在,得先写。必须有:
+   `WANDB_API_KEY`、`CKPT_ROOT`、`DATA_DIR`、`SIMOPD_STORE`、`HF_HOME`、
+   `VLLM_USE_MODELSCOPE=False`、`VERL_USE_MODELSCOPE=False`、`SIMOPD_SUITE_K=8`、
+   `CKPT_SYNC_REPO`、`HF_TOKEN`。**别进 git、别回显。**
 1. 挂盘、建 venv、`git clone` 到 `$ROOT`,`source simopd_env.sh` 自检 wandb 可达。
+1b. **拉模型与数据**(`HF_HUB_OFFLINE` 默认是 1,不先拉就是离线找不到权重):
+   `python scripts/fetch_assets.py --data-dir $DATA_DIR`(学生 Qwen3-1.7B-Base + 教师
+   Qwen3-4B-Instruct-2507 + 评测集),训练集 `scripts/prep_nemotron_math.py`。
+   拉之前 `unset HF_HUB_OFFLINE`,拉完再设回去。
+1c. **改路径**:`deploy/dlc/*.sh` 里有 20+ 处写死 `/mgfs/shared/Group_GY/changhao/...`。
+   多数是 `${VAR:-默认}` 可以用环境覆盖,但 `eval_farm.sh` 的 venv 路径
+   `V=/mgfs/.../SimOPD/simopd/bin/python` **是硬写死、没有覆盖口**,必须改。
 2. 起载体(DLC 形态见 `bash deploy/dlc/forever.sh` 打印的控制台卡片;**表单里的自动重启一定要开**)。
-3. 装 payload:评测节点 `task.sh set <槽> $ROOT/deploy/dlc/eval_farm.sh`;
+3. 装 payload:评测节点 `task.sh set <槽> $ROOT/deploy/dlc/eval_farm.sh`
+   (**先做完 §2.6** —— 否则 8 个 worker 全在找一个不存在的脚本);
    训练节点 `task.sh set <槽> $ROOT/deploy/dlc/slot_resume.sh` + 写 lane 图
    `$D/corr_wave/slot<k>_s0_lanes`(格式 `arm:gpu,gpu`,一行)。
 4. `task.sh status` / `task.sh alive` 看心跳;`task.sh sh <槽> '<命令>'` 当 ssh 用;
