@@ -15,11 +15,10 @@
 2026-09-02 起每个 run **自带分析归档**(§2.4):轨迹、逐 token 学生/教师量、每序列 FKL/RKL/JSD、
 熵、判分、run 定义,随权重一起上 HF —— 旧集群失联时"只剩 eval parquet"的局面不会再有。
 
-> **开跑前有一个硬阻塞(2026-09-02 复核发现)**:`eval_worker_exp.sh` **从未进过 git**
-> (`git log --all --diff-filter=AD` 为空),只在已失联的旧盘上 —— **它已经丢了**,不是
-> "带走"的问题。评测农场整条链子指着它:`eval_farm.sh:19`、`corr_wave_fleet.sh:372`、
-> `worker.sh:582`。不重写它,第一条臂跑到 25 步交卡时会静默不评(fleet 只打一行
-> 「找不到 …,卡先闲着」)。契约见 §2.6。训练侧不受影响,可以先开训。
+> **2026-09-02 复核发现的硬阻塞已解除**:`eval_worker_exp.sh` 从未进过 git、随旧盘丢失,
+> 而评测农场整条链子指着它。**已按契约重写并放进仓库**(`deploy/dlc/eval_worker_exp.sh`,
+> 30 条断言的无 GPU 测试台 `deploy/dlc/test_eval_worker.sh` 全绿),三个调用点改为优先用
+> 仓库里那份、盘上副本兜底。详见 §2.6。
 
 ---
 
@@ -238,21 +237,33 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 4. `ckpt_sync` 日志有 `OK <run>@25` 与 `OK aux <run>`,HF 仓库里 `SYNCED.json` 在长。
 任何一条不成立都是"看着武装了其实没有"的形状(h9 中继烧 66 步的那种),先修再铺 lane。
 
-### 2.6 必须重写:`eval_worker_exp.sh`(已随旧盘丢失)
+### 2.6 `eval_worker_exp.sh`:已丢失,已重写(2026-09-02)
 
-**状态**:从未提交进 git,本机无副本,旧盘不可达 = **没了**。§4 的"必须带走"清单写于
+**原状态**:从未提交进 git,本机无副本,旧盘不可达 = **没了**。§4 的"必须带走"清单写于
 08-24(当时盘还在),现在那一行只是历史记录。
+
+**现状态**:按下面的契约重写,**放在 `deploy/dlc/eval_worker_exp.sh`(在 git 里)**。
+三个调用点已改成 `EVALW=${EVALW:-$ROOT/deploy/dlc/eval_worker_exp.sh}`、盘上副本兜底,
+所以这次它不会再随任何一块盘消失。配套测试台 `deploy/dlc/test_eval_worker.sh` 不需要 GPU、
+任何机器都能跑(mac 也行),30 条断言覆盖:抢单原子性(两 worker 只跑一次)、心跳打在
+**目录**上、陈 claim 收尸、带 `owner` 的 claim 删得掉、**按 index 判卡**(index 0 忙时
+不误判)、`--bench` 子集、失败退避、`ckpt` 缺失不热重试、队列行序即优先级、日志里
+refill 要 grep 的状态词。**第一天先跑一遍它**:
+
+```
+bash deploy/dlc/test_eval_worker.sh      # 期望 RESULT: ALL PASS
+```
 
 **谁在等它**:
 
 | 调用点 | 行为 |
 |---|---|
-| `deploy/dlc/eval_farm.sh:19` | 每卡 `nohup bash "$D/eval_worker_exp.sh" <gpu> <队列目录>` |
-| `deploy/dlc/eval_farm.sh:25` | 每 5 分钟按 `pgrep -f "eval_worker_exp.sh $g $Q"` 补起 |
-| `deploy/dlc/corr_wave_fleet.sh:372` | 交卡前检查存在;**不在就只打一行日志、卡闲着**(静默不评) |
-| `deploy/dlc/worker.sh:582` | 同样的起法 |
+| `deploy/dlc/eval_farm.sh` `_start_worker()` | 每卡 `nohup bash "$EVALW" <gpu> <队列目录>` |
+| `deploy/dlc/eval_farm.sh` 值守循环 | 每 5 分钟按 `pgrep -f "eval_worker_exp.sh $g $Q"` 补起(basename 不变,所以换路径不影响去重) |
+| `deploy/dlc/corr_wave_fleet.sh` `_eval_handoff()` | 交卡前检查存在;**不在就只打一行日志、卡闲着**(静默不评) |
+| `deploy/dlc/worker.sh` backfill 段 | 同样的起法 |
 
-**要重写的契约**(全部可从现存代码反推,不用猜):
+**契约**(全部从现存代码反推,已实现;改这个脚本前先读):
 
 1. 入参 `$1 = GPU index`(数字)、`$2 = 队列目录 `$D/evalq_exp``。
 2. 队列:`$2/pending.txt` 每行一格,由 `scripts/eval_refill_exp.py --write --watch 1200`
@@ -267,8 +278,11 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 6. 环境:顶上 `. ./simopd_env.sh` 并 `export VLLM_USE_MODELSCOPE=False VERL_USE_MODELSCOPE=False`
    (`eval_farm.sh` 已经做了双保险,worker 里再确认一次)。
 
-**验收**:队列放 1 格 → worker 认领(claims 里出现目录)→ 出 parquet → claim 消失 →
-`pending.txt` 下一轮少一行。**必须在第一条臂跑到 25 步之前跑通**。
+**真集群验收**(测试台证明不了 vLLM 真起得来):队列放 1 格 → worker 认领(claims 里出现
+目录)→ 出 parquet → claim 消失 → `pending.txt` 下一轮少一行。**在第一条臂跑到 25 步之前做。**
+
+**还没被证明的**:真 vLLM 起得来、`eval_suite.py` 在新栈上跑得通、单卡显存够 32768 token。
+这三件只能在有卡的地方验。
 
 ## 3 旧波数据的最后一次收口(不占卡)
 
@@ -385,7 +399,7 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
    `V=/mgfs/.../SimOPD/simopd/bin/python` **是硬写死、没有覆盖口**,必须改。
 2. 起载体(DLC 形态见 `bash deploy/dlc/forever.sh` 打印的控制台卡片;**表单里的自动重启一定要开**)。
 3. 装 payload:评测节点 `task.sh set <槽> $ROOT/deploy/dlc/eval_farm.sh`
-   (**先做完 §2.6** —— 否则 8 个 worker 全在找一个不存在的脚本);
+   (worker 已在仓库里,§2.6;装之前先 `bash deploy/dlc/test_eval_worker.sh` 看全绿);
    训练节点 `task.sh set <槽> $ROOT/deploy/dlc/slot_resume.sh` + 写 lane 图
    `$D/corr_wave/slot<k>_s0_lanes`(格式 `arm:gpu,gpu`,一行)。
 4. `task.sh status` / `task.sh alive` 看心跳;`task.sh sh <槽> '<命令>'` 当 ssh 用;
@@ -411,6 +425,9 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
   否则同 pod 所有 worker 会误判卡忙、集体坐等(已修,但换集群后值得复验一次)。
 - **别在跑着的 bash 脚本上原地改**:换 inode(写新文件再 mv)才安全。
 - **同一个 ckpt 目录不能有两个写者**:迁移时先确认旧 lane 真死透(日志 >15 分钟没动静)。
+- **只活在盘上的脚本等于没有**:`eval_worker_exp.sh` 从未进 git,旧盘一失联就永久丢了,
+  而三处调用只会打一行"找不到,卡先闲着"——静默不评。已重写并入库(§2.6)。
+  **凡是被 payload/fleet 调用的东西都必须在仓库里**,盘上只放数据。
 - **`ckpt_sync.py` 曾经根本跑不起来**:校验段有个 `(dp := dp)` 的 SyntaxError,2026-09-02 才发现 ——
   它此前在任何机器上都没执行过。"自动上传"只认日志里的 `OK` 行和仓库里的 `SYNCED.json`,别信脚本存在。
 - **verl 的 `FileLogger` 以 `wb` 打开会截断**:所以一次启动一个 `metrics/launch_<ts>.jsonl`,续跑/重试

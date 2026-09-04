@@ -12,11 +12,19 @@ set -u
 D=${D:-/mgfs/shared/Group_GY/changhao/simopd_data}
 ROOT=${ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 LOGD=${LOGD:-$D/corr_wave}; Q=$D/evalq_exp
-V=/mgfs/shared/Group_GY/changhao/SimOPD/simopd/bin/python
+# 换集群必改(AGENT.md §6 1c):原先这一行是硬写死、没有覆盖口的
+V=${SIMOPD_PY:-/mgfs/shared/Group_GY/changhao/SimOPD/simopd/bin/python}
+[ -x "$V" ] || V=$(command -v python3)
 cd "$ROOT" && . ./simopd_env.sh
 export VLLM_USE_MODELSCOPE=False VERL_USE_MODELSCOPE=False   # 双保险:env 文件缺行也不回退
+# eval worker 的位置(2026-09-02):**仓库里那份是权威**。上一份只躺在 $D 上、从未进过
+# git,随旧集群一起没了,而这里三处调用都指着它 —— 缺了就是「卡先闲着」,静默不评。
+# 盘上副本只作老 pod 的兜底。
+EVALW=${EVALW:-$ROOT/deploy/dlc/eval_worker_exp.sh}
+[ -f "$EVALW" ] || EVALW=$D/eval_worker_exp.sh
+[ -f "$EVALW" ] || { echo "[eval_farm] 找不到 eval_worker_exp.sh(仓库与盘上都没有),没有 worker 可起"; exit 1; }
 RFLOG=$LOGD/eval_refill_slot${SLOT:-7}.log
-_start_worker() { ( cd "$ROOT" && nohup bash "$D/eval_worker_exp.sh" "$1" "$Q" >> "$LOGD/evalw_slot${SLOT:-7}_gpu$1.log" 2>&1 & ); }
+_start_worker() { ( cd "$ROOT" && nohup bash "$EVALW" "$1" "$Q" >> "$LOGD/evalw_slot${SLOT:-7}_gpu$1.log" 2>&1 & ); }
 _start_refill() { [ "${SLOT:-7}" = 7 ] || return 0
     ( cd "$ROOT" && nohup "$V" scripts/eval_refill_exp.py --write --watch 1200 >> "$RFLOG" 2>&1 & ); }
 for g in 0 1 2 3 4 5 6 7; do _start_worker "$g"; done

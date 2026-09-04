@@ -296,6 +296,12 @@ export MACHINE
 # claims whose owner never wrote a complete artifact set and has been silent
 # for 2h -- evalq_exp has no refill reaper, so the fleet reaps for itself.
 bash "$DATA/reap_orphan_vllm.sh" 2>/dev/null || true
+# eval worker 的位置(2026-09-02):**仓库里那份是权威**。上一份只躺在 $D 上、从未进过
+# git,随旧集群一起没了,而这里三处调用都指着它 —— 缺了就是「卡先闲着」,静默不评。
+# 盘上副本只作老 pod 的兜底。
+EVALW=${EVALW:-$EXP_ROOT/deploy/dlc/eval_worker_exp.sh}
+[ -f "$EVALW" ] || EVALW=$DATA/eval_worker_exp.sh
+
 EVAL_OUT="$DATA/evals"
 claim_complete() {  # RUN STEP -> 0 when all five benchmark artifacts exist
     local n=0 b
@@ -579,7 +585,7 @@ while :; do
         # banner makes the seam obvious when reading the tail.
         echo "=== boot $MACHINE gpu$g $(date +%FT%T) pid=$$ ===" \
             >> "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log"
-        nohup bash "$DATA/eval_worker_exp.sh" "$g" "$EVALQ" \
+        nohup bash "$EVALW" "$g" "$EVALQ" \
             >> "$LOG_DIR/${MACHINE}_evalw_gpu${g}.log" 2>&1 &
         _backfilled=$((_backfilled + 1))
         echo "eval backfill: worker on gpu $g"

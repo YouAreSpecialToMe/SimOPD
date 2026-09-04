@@ -369,13 +369,16 @@ _eval_handoff() {   # ARM GPUS
         echo "lane ${arm}: 跑满 ${ck} 步,但 eval 队列空,卡先闲着"
         return 0
     fi
-    if [ ! -x "$D/eval_worker_exp.sh" ] && [ ! -f "$D/eval_worker_exp.sh" ]; then
-        echo "lane ${arm}: 跑满 ${ck} 步,但找不到 $D/eval_worker_exp.sh,卡先闲着"
+    # 仓库里那份是权威,盘上副本兜底(见 deploy/dlc/eval_worker_exp.sh 抬头 / AGENT.md §2.6)
+    local evalw=${EVALW:-$ROOT/deploy/dlc/eval_worker_exp.sh}
+    [ -f "$evalw" ] || evalw=$D/eval_worker_exp.sh
+    if [ ! -f "$evalw" ]; then
+        echo "lane ${arm}: 跑满 ${ck} 步,但仓库与盘上都没有 eval_worker_exp.sh,卡先闲着"
         return 0
     fi
     _gpu_sweep "$gpus"
     for g in ${gpus//,/ }; do
-        ( cd "$ROOT" && nohup bash "$D/eval_worker_exp.sh" "$g" "$q" \
+        ( cd "$ROOT" && nohup bash "$evalw" "$g" "$q" \
             > "$LOGD/evalw_slot${SLOT}_gpu${g}.log" 2>&1 & )
         echo "lane ${arm}: 跑满 ${ck} 步 -> GPU ${g} 交给 eval worker(队列 $q,日志 $LOGD/evalw_slot${SLOT}_gpu${g}.log)"
     done
