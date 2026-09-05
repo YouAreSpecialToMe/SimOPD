@@ -125,6 +125,11 @@ EXPECT_PG = {
     "h6_gen_sched": True, "h9_prune_adapt": True,
     "i0_think_scorer": True, "i1_priv_cot": True,
     "vanilla_n8": True, "j1_kdrl": False,
+    # 2026-09-02 登记的四条(ARM-REVIEW §6.3);分支同各自的对照臂:vanilla_te 同 vanilla_corr
+    # (k1 族,PG),c2 梯子两条同 c2_quantile_budget_corr(预算族,direct),h5_gen100_n0 同
+    # h7_gen512_n0(k1_termfix,PG)。漏在这张表外 = 「not in the lint's branch table」=
+    # 舰队发射门直接不起 lane —— 2026-09-04 审查发现时四条都漏着。
+    "vanilla_te": True, "c2_qb_fixed8_corr": False, "c2_qb_perseq_corr": False, "h5_gen100_n0": True,
 }
 # Kernels that split the sampled column off the teacher payload.
 WANT_SAMPLED_MODES = {"eopd_entropy_gate", "k1_fire_gate", "tip_select",

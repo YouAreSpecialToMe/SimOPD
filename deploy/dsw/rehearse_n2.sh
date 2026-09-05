@@ -19,7 +19,8 @@ set -euo pipefail
 GPUS=${1:?gpu pair, e.g. 0,1}
 ARM=${ARM:-vanilla_corr}
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+D=${SIMOPD_STORE:-/mgfs/shared/Group_GY/changhao/simopd_data}
+export SIMOPD_STORE=$D          # arms.yaml 的资产路径靠它展开(arm.py env)
 LOGD=$D/n2
 mkdir -p "$LOGD"
 cd "$ROOT"

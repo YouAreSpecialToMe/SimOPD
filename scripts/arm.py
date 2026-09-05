@@ -7,6 +7,7 @@
 
 import argparse
 import os
+import re
 import sys
 
 import yaml
@@ -53,6 +54,14 @@ def main():
             sys.exit(f"arm '{args.run_id}' is not runnable yet — blocked on: {arm.get('seam', '?')}")
         print(f"export EXPERIMENT_NAME={arm['run_id']}")
         for k, v in (arm.get("env") or {}).items():
+            # 2026-09-04:登记表里的资产路径写成 $SIMOPD_STORE/...(从前是写死的旧集群绝对路径,
+            # 换集群后六条名册臂全指向一块已失联的盘)。这里展开,而不是留给 shell 的 eval ——
+            # python 侧消费者(run_manifest、lint)也要看到真实路径。展不开就拒绝,不给静默默认。
+            v = os.path.expandvars(str(v))
+            left = re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", v)
+            if left:
+                sys.exit(f"arm '{args.run_id}': {k}={v!r} 引用了未设置的环境变量 {sorted(set(left))} "
+                         f"—— 先 export SIMOPD_STORE=<数据根>(见 AGENT.md §6 第 0 步)")
             print(f"export {k}={v}")
 
     elif args.cmd == "check":

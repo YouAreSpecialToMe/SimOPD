@@ -41,6 +41,7 @@ ROOT=${ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 # 换集群必改的头号变量。从前是写死的一行,没有覆盖口 —— 而 ckpt / 评测队列 / 日志 / lane 图
 # 全挂在它下面。认 SIMOPD_STORE(refill、run_opd_baseline 用的也是这个名),默认不变。
 D=${SIMOPD_STORE:-/mgfs/shared/Group_GY/changhao/simopd_data}
+export SIMOPD_STORE=$D          # arms.yaml 里的资产路径写成 $SIMOPD_STORE/...,arm.py env 在此展开
 SEED=${SEED:-0}
 LOGD=$D/corr_wave
 # ONE job for the whole wave (the 2026-08-19 afternoon submission): a 5-worker pytorchjob,
@@ -560,6 +561,22 @@ echo "== Phase L: slot ${SLOT} lanes: $LANES (步数见各 lane 的第三段,默
 
 _launch_lane() {  # ARM GPUS [STEPS]
     local ARM=$1 GPUS=$2 STEPS=${3:-${FLEET_TOTAL_STEPS:-250}} attempt
+    # 资产断言(2026-09-04):臂 env 里凡是指向文件的值(a1/a3/a4 的 GKD_CACHE、a5/h6/h9 的
+    # *_KEYS、h10 的子集 parquet)先看在不在盘上。缺了就在这里响亮失败,不进三次 Ray 起停;
+    # gkd_mix 的 install 在文件缺失时虽然也会 raise,但那是 vLLM 起完之后的事,而 h9 曾因
+    # 中继冷启动烧掉 66 步 —— 缺资产的 lane 就该在起之前被拦下。h_axis_fleet 有 Phase P,
+    # 这份舰队脚本从前没有。
+    local _missing="" _v
+    for _v in $(python scripts/arm.py env "$ARM" 2>/dev/null | sed -n 's/^export [A-Z0-9_]*=\(.*\)$/\1/p'); do
+        case "$_v" in
+            /*.parquet|/*.parquet.dry|/*.json|/*/hf) [ -e "$_v" ] || _missing="$_missing $_v" ;;
+        esac
+    done
+    if [ -n "$ARM" ] && [ -n "$_missing" ]; then
+        echo "lane ${ARM}: 缺资产,不起 lane:$_missing"
+        echo "lane ${ARM}: 生成方法见 AGENT.md §6 1d(gen_offpolicy.py / gen_task_subset.py)"
+        return 1
+    fi
     for attempt in 1 2 3; do
         (
             set -e

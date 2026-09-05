@@ -20,7 +20,8 @@
 set -uo pipefail
 
 ROOT=/mgfs/shared/Group_GY/changhao/SimOPD
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+D=${SIMOPD_STORE:-/mgfs/shared/Group_GY/changhao/simopd_data}
+export SIMOPD_STORE=$D   # arms.yaml 的资产路径写成 $SIMOPD_STORE/...,arm.py env 在此展开
 ARMS_ALL=(h6_gen_sched h9_prune_adapt h10_task_subset h7_gen512 h8_gen2048)
 SEED=${SEED:-0}
 

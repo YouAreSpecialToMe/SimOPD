@@ -230,6 +230,10 @@ def _light_row(ex, b, step, stop_all):
     row = dict(step=step, seq=b, seq_key=ex["keys"][b], uid=ex["uid"][b], resp_len=L,
                score=float(ex["scores"][b]),
                adv=float(ex["adv0"][b]), last_id=last, last_is_stop=last_is_stop,
+               # 每行带上 rollout 停机集(与 2026-08-20 版同名同义):meta.json 有一份,但行级
+               # 消费者(traj_dump_battery、按契约分组的离线分析)读的是这一列 —— 09-02 重写时
+               # 把它挪进 meta 就把电池弄红了。一个短字符串,留着。
+               stop_set=",".join(map(str, stop_all)) if stop_all else "",
                truncated=bool(L >= ex["T"] and not last_is_stop),
                n_stop_body=int(np.isin(r[:-1], stop_all).sum()) if L > 1 else 0,
                rep4=rep4(r))
@@ -387,7 +391,7 @@ def _write(batch, step):
 
     if cfg["light"]:
         keep = ("step", "seq", "seq_key", "uid", "resp_len", "score", "adv", "last_id", "last_is_stop",
-                "truncated", "n_stop_body", "rep4", "stu_lp_sum", "stu_lp_last",
+                "stop_set", "truncated", "n_stop_body", "rep4", "stu_lp_sum", "stu_lp_last",
                 "ent_mean", "ent_last", "ent_tail256")
         lines = [json.dumps({k: r.get(k) for k in keep}, ensure_ascii=False) for r in light_rows]
         with open(os.path.join(d, "light.jsonl"), "a") as f:

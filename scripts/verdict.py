@@ -104,6 +104,11 @@ ARMS = [  # ledger order: axis order from the plan
     "c4_rep", "c4_hq", "c4_state", "c4_carrier",
     "c5_union_rkl", "c5_union_fkl",
     "c4_pi_tail_budget_corr", "c2_quantile_budget_corr",
+    # 2026-09-04 审查补录:名册 35 条里这 13 条从未进过这张名单,它们的裁决行「就是不会打印」
+    # (arm_lint 会报,但那一项在舰队发射门里被豁免,所以没人看见)。
+    "vanilla_te", "c2_qb_fixed8_corr", "c2_qb_perseq_corr",
+    "h5_gen100_n0", "h7_gen512_n0", "h8_gen2048_n0", "h6_gen_sched_n0", "h9_prune_adapt_n0", "h10_task_subset_n0",
+    "a1_gkd_mix0.5_n0", "a3_offpolicy_n0", "a4_dagger_anneal_n0", "a5_aggrevate_n0",
 ]
 # Arms judged against a non-vanilla base (self-contained mini-cells). The base row
 # itself still appears vs vanilla, which reads out the cell's boundary knob.
@@ -116,7 +121,13 @@ BASE_OVERRIDES = {"j1_kdrl": "vanilla_n8",
                   # c5 对照:RKL 的教师-only 对面是 c1,FKL 的是 b2
                   "c5_union_rkl": "c1_lsm_topk32_renorm", "c5_union_fkl": "b2_forward_kl",
                   "c4_pi_tail_budget_corr": "c4_pi_tail_budget",
-                  "c2_quantile_budget_corr": "c2_quantile_budget"}
+                  "c2_quantile_budget_corr": "c2_quantile_budget",
+                  # vanilla_te 是 base 的回归对照(预期与 vanilla_corr 重合);c2 梯子两级读的是
+                  # 「预算自适应哪一级在起作用」,对面是全量分位的 c2_quantile_budget_corr。
+                  # `_n0`(v2 契约)那九条按 AGENT.md §2.2 仍对 vanilla_corr 读、契约差异在论文里声明
+                  # —— 与既有 *_corr 臂同规矩,不在这里另配基线。
+                  "vanilla_te": "vanilla_corr",
+                  "c2_qb_fixed8_corr": "c2_quantile_budget_corr", "c2_qb_perseq_corr": "c2_quantile_budget_corr"}
 TRANSFER = ("humanevalplus", "mbppplus", "ifeval")  # amc23 is in-domain (suite); audit S3
 
 

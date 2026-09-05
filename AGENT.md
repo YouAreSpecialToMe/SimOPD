@@ -2,8 +2,9 @@
 
 **写于 2026-08-24,起因:08-23 14:19 两张 DLC 单同时掉线,64 卡停机,可能要换集群。**
 这页只回答三件事:哪些结论已经定了(别重跑)、现在要跑什么(按优先级和预算)、
-换集群要带走什么。方法与机制读 `docs/MECHANISMS.md`,派工真源是 `configs/campaign.tsv`,
-臂的唯一真源是 `configs/arms.yaml`。
+换集群要带走什么。方法与机制读 `docs/MECHANISMS.md`;臂的唯一真源是 `configs/arms.yaml`;
+本轮派工走 lane 图(§6 3b,`configs/campaign.tsv` 是旧波的派工记录,只有 `arm_lint` 还读它)。
+**2026-09-04 全项目审查报告:`docs/AUDIT-20260904.md`**(按严重度列的 findings、已修/未修)。
 
 ---
 
@@ -28,10 +29,17 @@
 |---|---|---|
 | 晚期掉分是"不会停",不是能力退化 | legacy 三种子截断 .92–1.00、长度撞 32k 帽 | MECHANISMS §M-I |
 | 修正内核消除塌缩 | 单旋钮对照(同为 `STOP_IDS=off`):.247 → **.348@200**,截断 .97 → .10 | MECHANISMS §M-I cure |
-| 独立复现 | `c4_carrier` / `c4_rep` 跑满 250,composite **.353**、截断 .07/.08 | 同上 |
+| top-k 族在坏载体上本就不塌 | 旧载体 `c4_pi_tail_budget` 三种子 @250 = .353/.354/.357、截断 .08(post_eval_bystep);`c4_carrier`(gather-only 载体)与 `c4_rep`(**无载体**,只有重复门)同为 .353 | 判读台 §3 |
 | 坏载体上的"药效"是抗塌缩 | c2/c4 在坏载体 +0.107@250,修正载体 ±0.01;同批极差 .086 → ≤.012 | 判读台 §3 |
 | 大多数臂动态上分不出来 | 25/34 条健康臂晚期均长挤在 8.5k–9.7k | 判读台 §4 |
 | 没有早期预警阈值 | 健康的 vanilla_corr 在 35–48 步把三个阈值全触发过 | 判读台 §8 |
+
+**一处曾写错的定性(2026-09-04 审查改正)**:`c4_carrier` / `c4_rep` 以前被记成"修正内核的独立复现"。
+不是。`c4_rep` 的登记是 `TOPK 32`、**没有 N0 载体、没有 TERM_EVENT** —— 它根本没修 eos;它 .353 不塌,
+是因为**旧载体上的 top-k 族本来就不塌**(`c4_pi_tail_budget` 三种子 @250 全 .353,截断 .08),这正是
+"坏载体上量到的药效 = 抗塌缩"那条结论的另一面。`c4_carrier` 加了 gather-only 载体后仍 .353 = 载体对 c4
+**惰性**(药效归零的 C 轴版本)。修正内核的"复现",只有塌过的臂被修好才算:vanilla 三种子 .247 → vanilla_corr
+.348 是唯一一条;b2/d3/g1 等 `_corr` 的"修后不塌"是第二层证据。**别再把 c4 两条当作治愈的复现引用。**
 
 **限制**(每次引用结论都要一起说):corr 侧全是 **n=1 种子**;`vanilla_corr@250` 的评测
 **没跑**;`_n0` 那组同时改了载体和停止契约,不是单旋钮,且其 `stop_set=151645`
@@ -54,7 +62,7 @@
 |---|---|---|
 | 治愈对照(headline) | legacy vanilla 三种子全评完 + `vanilla_corr` 25–225 九个完整格 | ✅ 曲线到 225,判据用晚期斜率,**不需要 250** |
 | 药效归零 | b2 / c2 / c4 的 legacy 与 corr 版在 ≤175 步的同步差 | ✅ 全部已评 |
-| 独立复现 | `c4_carrier` / `c4_rep` 评到 250(.353) | ✅ 完整 |
+| top-k 族的抗塌缩(与"药效归零"同一件事) | `c4_pi_tail_budget` 三种子 + `c4_carrier` / `c4_rep` 评到 250(全 .353) | ✅ 完整 |
 | 吸引子 / 早期阈值负结果 / 长度分层 | 51 run 的逐步动态(git 里有,wandb 云端还有一份) | ✅ 双备份 |
 | 整个 legacy 波(29 臂 × 3 种子) | `post_eval_cells.csv` 4700 格 | ✅ 完整 |
 
@@ -72,7 +80,7 @@
 | C | c3_intersection_corr · c5_union_rkl · c5_union_fkl | 200/250 | 319 | 省 token 候选 · 两条预注册(c5 = OURS) |
 | C·OURS | **c2_quantile_budget_corr · c4_pi_tail_budget_corr · c4_hq · c4_state** | 200 | 408 | 自研方法必须在表里有自己的行。**c4 的表行 = `c4_pi_tail_budget_corr`(TE=1,与全表同旗标)**;c4_hq / c4_state 的闸门读 q_et,代码拒绝折叠(`if EG.enabled() and not TERM_EVENT`),只能 gather-only,声明为例外 |
 | C·OURS 梯子 | **c2_qb_fixed8_corr · c2_qb_perseq_corr(新登记)** | 200 | 236 | c2 的 QB pinning ladder:固定 top-8(零自适应)→ 每轨迹一个 τ → 全量分位。讲透「预算的自适应哪一级在起作用」。登记为 rung + 与 c2_quantile_budget_corr **相同的修正**(TE=1),梯子内部才是单变量 |
-| C | *c4_carrier / c4_rep* | — | **0** | 已评满 250(.353);作 c4 行的**消融**「修而不折叠」,与 c4_pi_tail_budget_corr 成单变量对 |
+| C | *c4_carrier / c4_rep* | — | **0** | 已评满 250(.353),不重跑。**`c4_carrier`** = gather-only 载体、无 TE,与 `c4_pi_tail_budget_corr`(TE=1)成"折叠 vs 不折叠"的单变量对;**`c4_rep` 没有载体**(TOPK 32 + 重复门),它是"重复门单独能否防塌"的读数,**不是**修正的消融 —— 别把两条混写成"修而不折叠" |
 | D | d2_selectkd_corr · d3_teachability_corr | 200 | 194 | D 代表(d1 并入 d2:+0.1%)· d3 修正后 **+32% 长度**,动态不同,必须自己一条 |
 | E | e2_set_coverage_a0_corr | 200 | 140 | 第二条塌缩通路 |
 | F | f2_hard_clip_corr · f3_power_corr | 200 | 236 | 文献标准做法(硬截 ±10)· legacy 效应最大处(+.090)的 null;合并 f1/f2_clip2.3/f4/f5 |
@@ -101,7 +109,7 @@ h5_gen100_n0            h7_gen512_n0              h8_gen2048_n0
 h6_gen_sched_n0         h9_prune_adapt_n0         h10_task_subset_n0
 n2_corr
 a1_gkd_mix0.5_n0        a3_offpolicy_n0           a4_dagger_anneal_n0      a5_aggrevate_n0
-# 零成本(已评满 250,不重跑,只作 c4 行的消融):c4_carrier  c4_rep
+# 零成本(已评满 250,不重跑):c4_carrier(c4 行的"不折叠"对照) c4_rep(无载体,重复门读数)
 ```
 
 `h1`/`h2`/`h3`/`h4` **不是** `arms.yaml` 里的 run_id,写进 lane 图会被 `arm.py env` 当场拒掉
@@ -379,6 +387,13 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
 `CKPT_SYNC_REPO` / `CKPT_SYNC_FULL` / `CKPT_SYNC_EVERY`;评测协议:`SIMOPD_SUITE_K`(重训 = 8);
 归档层:`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_*`、`SIMOPD_DIV_PANEL`、`VERL_FILE_LOGGER_PATH`(启动器自己算)。
 
+**软件栈(2026-09-04 从本地环境与 lock 抄下,新集群照这个装)**:verl = 上游 `volcengine/verl`
+**commit `aebd1f8`**(2026-07-31;本地无任何未提交补丁,已核;`deploy/dsw/setup.sh` 现已钉此 commit,
+`VERL_COMMIT=` 可换)、vLLM **0.26.0+cu129**(`setup.sh` / `deploy/pai/Dockerfile` 里的 wheel URL)、
+torch **2.11.0+cu129**、ray 2.56.1、transformers 5.10.4、tensordict 0.10.0(`deploy/pai/requirements.lock`)、
+flash-attn 2.8.3.post1(cp312 wheel 就在 `deploy/dsw/` 里,56 MB)。`src/sitecustomize.py` 的八个钩子挂在
+verl/vLLM 的具体内部符号上 —— **换任一版本都要重跑 CPU 电池再上卡**。
+
 ---
 
 ## 6 上电顺序
@@ -394,6 +409,15 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
    `python scripts/fetch_assets.py --data-dir $DATA_DIR`(学生 Qwen3-1.7B-Base + 教师
    Qwen3-4B-Instruct-2507 + 评测集),训练集 `scripts/prep_nemotron_math.py`。
    拉之前 `unset HF_HUB_OFFLINE`,拉完再设回去。
+1d. **派生数据(7 条名册臂的前置,从前一个字没写)**:
+   - `$SIMOPD_STORE/gkd_offpolicy.parquet` —— a1 / a3 / a4 的教师离策缓存。**GPU、一次性、贵**
+     (教师 4B 对整个训练集各生成一条 16k 帽的回答):`python scripts/gen_offpolicy.py`
+     (`slurm/gen_offpolicy.sbatch` 是旧集群的提交样板)。
+   - `$SIMOPD_STORE/gkd_offpolicy.parquet.dry` —— a5 / h6 / h9 只要**键**(前缀哈希),CPU 几分钟:
+     `python scripts/gen_offpolicy.py --dry`。
+   - `$DATA_DIR/train_sub50.parquet` —— h10 的确定性子集,CPU:`python scripts/gen_task_subset.py`。
+   这些路径在 `configs/arms.yaml` 里现在写成 `$SIMOPD_STORE/...`(2026-09-04 前是写死的旧盘绝对路径),
+   `arm.py env` 展开、展不开就拒绝;舰队起 lane 前会断言文件在,缺了那条 lane 不起并指到这里。
 1c. **改路径**:`deploy/dlc/*.sh` 里有 20+ 处写死 `/mgfs/shared/Group_GY/changhao/...`。
    两处从前**硬写死没有覆盖口**的已经改成认环境变量(默认不变):舰队的数据根
    `corr_wave_fleet.sh` 的 `D` 现在认 **`SIMOPD_STORE`**(ckpt / 评测队列 / 日志 / lane 图
@@ -449,6 +473,20 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
   评测点。现在步数从 lane 图第三段来(`arm:gpu,gpu:steps`),<250 时舰队会显式打开
   `SIMOPD_SHORT_RUN_OK=1` 并打进日志:`run_opd_baseline.sh` 拒绝「未打标的 <250 步」,
   那个守卫防的是从 shell 漏出来的 `STEPS=3`,而 lane 图就是「on the record」的那份记录。
+- **登记表里曾写死旧集群绝对路径**:`configs/arms.yaml` 14 处 `/mgfs/.../simopd_data/...`(A 轴缓存、
+  a5/h6/h9 的键文件、a2 的 SFT 起点、h10 的子集),六条名册臂换集群即指向一块不存在的盘,而 `arm.py env`
+  照样输出、舰队照样起 lane、直到 vLLM 起完才在 `gkd_mix.install()` 里炸。已改成 `$SIMOPD_STORE/...`
+  + `arm.py` 展开 + 舰队起 lane 前断言。**登记表里不许再出现绝对路径。**
+- **`setup.sh` 曾拉 verl 的上游 HEAD**(`--depth 1`,不钉 commit):钩子挂在 verl 内部符号上,新集群装出
+  "当天的 verl"就是赌。已钉 `aebd1f8`。
+- **产生 `docs/data/` 证据的分析脚本有 ~20 个从未进 git**(`eos_stop_audit.py`、`eval_offline_textdump.py`、
+  `analyze_diag.py`、`emit_dynamics.py`、`clock_b2.py`、`v2probe_paired.py` ……,见 `docs/AUDIT-20260904.md` F 节),
+  与 `eval_worker_exp.sh` 同一死法:只在盘上。头号机制 `docs/data/eos_stop_audit.txt` 的生成脚本现在**不可复现**。
+  **凡写 `docs/data/` 的脚本一律进 `scripts/analysis/`。**
+- **`arm_lint` 的分支表 / `verdict.py` 名单要随登记同步**:四条新臂漏在 `EXPECT_PG` 外 = 舰队发射门
+  "not in the lint's branch table" = **lanes NOT launched**(这一项不在门的豁免正则里);13 条 `_n0`/新臂漏在
+  `verdict.py ARMS` 外 = 裁决行"就是不会打印"。两处已补。登记新臂的清单:`arms.yaml` → `arm_lint.EXPECT_PG`
+  → `verdict.ARMS`(+`BASE_OVERRIDES`)→ `make_lane_map.ROSTER`。
 - **只活在盘上的脚本等于没有**:`eval_worker_exp.sh` 从未进 git,旧盘一失联就永久丢了,
   而三处调用只会打一行"找不到,卡先闲着"——静默不评。已重写并入库(§2.6)。
   **凡是被 payload/fleet 调用的东西都必须在仓库里**,盘上只放数据。

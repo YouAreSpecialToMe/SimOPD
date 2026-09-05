@@ -37,9 +37,15 @@ ROSTER = [(a, 250) for a in STEPS_250] + [(a, 200) for a in STEPS_200]
 
 def check_arms():
     bad = []
+    env = dict(os.environ)
+    if not env.get("SIMOPD_STORE"):
+        # arm.py 会把 arms.yaml 里的 $SIMOPD_STORE 展开、展不开就拒绝。这里只验臂名能不能解析,
+        # 不验资产在不在(那是舰队起 lane 前的断言),所以没设时用占位符 —— 并明说。
+        env["SIMOPD_STORE"] = "/SIMOPD_STORE-unset"
+        print("  (SIMOPD_STORE 未设:用占位符只验臂名;资产路径由舰队起 lane 前断言)", file=sys.stderr)
     for arm, _ in ROSTER:
         r = subprocess.run([sys.executable, os.path.join(HERE, "arm.py"), "env", arm],
-                           capture_output=True, text=True, cwd=ROOT)
+                           capture_output=True, text=True, cwd=ROOT, env=env)
         if r.returncode != 0 or not r.stdout.strip():
             bad.append((arm, (r.stderr or r.stdout).strip().splitlines()[-1:] or [""]))
     if bad:

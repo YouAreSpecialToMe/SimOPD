@@ -15,6 +15,7 @@ set -u
 ARM=${1:?arm}; GPUS=${2:?gpus,如 6,7}; SEED=${3:-0}; SLOT=${4:-x}
 ROOT=${ROOT:-/mgfs/shared/Group_GY/changhao/SimOPD-exp}
 D=${SIMOPD_STORE:-/mgfs/shared/Group_GY/changhao/simopd_data}
+export SIMOPD_STORE=$D   # arms.yaml 的资产路径靠它展开(arm.py env)
 cd "$ROOT" || exit 1
 source simopd/bin/activate
 [ -f "$ROOT/simopd_env.sh" ] && source "$ROOT/simopd_env.sh"

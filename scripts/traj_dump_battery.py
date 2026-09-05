@@ -116,6 +116,10 @@ class Boom(dict):
 
 
 calls = {"n": 0}
+# 2026-09-02 起 verl 自己那份剥特殊符的文本 dump 默认不写(每步整批约 1 GB/run),包装器只在
+# SIMOPD_TRAJ_TEXT=1 时才调原函数 —— 这个用例要证明的是「写盘失败不弄挂训练、原函数照常」,
+# 所以显式打开;默认关的那一面下面另测一次。
+os.environ["SIMOPD_TRAJ_TEXT"] = "1"
 
 
 def fake_orig(self, batch, rei, timing, d):

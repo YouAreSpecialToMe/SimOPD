@@ -54,7 +54,7 @@ arms:
            distributional top-k divergence, direction fixed by D) is an amendment
            candidate, not this arm"
     env:
-      SIMOPD_GKD_CACHE: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_CACHE: $SIMOPD_STORE/gkd_offpolicy.parquet
       SIMOPD_GKD_LAMBDA: "0.5"
     seam: "REVISED 2026-08-06: the i1 surgery pattern opens a cheaper path than the
            TransferQueue surgery originally feared. Rollout-server injection: patch
@@ -96,7 +96,7 @@ arms:
            log-ratio-weighted cloning of teacher text. Read it as the data-source
            endpoint, never as 'supervised KD'"
     env:
-      SIMOPD_GKD_CACHE: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_CACHE: $SIMOPD_STORE/gkd_offpolicy.parquet
       SIMOPD_GKD_LAMBDA: "1.0"
     seam: "identical to a1_gkd_mix0.5 (shared machinery); unlock = a1's unlock"
 
@@ -145,7 +145,7 @@ arms:
            tok) => no lock; whether short-form survives the lambda -> 0 handoff
            IS the gradual-vs-abrupt mechanism question vs a2."
     env:
-      SIMOPD_GKD_CACHE: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet
+      SIMOPD_GKD_CACHE: $SIMOPD_STORE/gkd_offpolicy.parquet
       SIMOPD_GKD_SCHEDULE: "mode=linear,start=1.0,end=0.0,warmup=0,decay=250"
     seam: "a1's rollout-server injection + gkd_schedule (step-dependent coin) +
            gkd_stats relay (server -> trainer wandb bridge, same-node lane
@@ -207,7 +207,7 @@ arms:
            tokens is the proof of a natural stop, kappa+1 the proof of a cap."
     env:
       SIMOPD_A5_TMAX_SCHEDULE: "mode=linear,start=0,end=16384,warmup=0,decay=250"
-      SIMOPD_A5_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+      SIMOPD_A5_KEYS: $SIMOPD_STORE/gkd_offpolicy.parquet.dry
     seam: "LANDED 2026-08-15. Same vLLMHttpServer.generate wrap family as gkd_mix
            (mutually exclusive with it -- install refuses SIMOPD_GKD_CACHE):
            student prefix capped at kappa -> teacher ONLINE continuation via a
@@ -274,8 +274,8 @@ arms:
       # r6 taxonomy the three flying 16k rows are therefore the --filter verifier
       # ABLATION cell, not the validity recipe cell; the recipe cell needs a fresh
       # stage-1 under the pinned hyperparameters (relabel tracked in campaign.tsv).
-      STUDENT_MODEL: /mgfs/shared/Group_GY/changhao/simopd_data/ckpt/coldstart_sft/hf
-      DATA_DIR: /mgfs/shared/Group_GY/changhao/simopd_data/simopd_math
+      STUDENT_MODEL: $SIMOPD_STORE/ckpt/coldstart_sft/hf
+      DATA_DIR: $SIMOPD_STORE/simopd_math
       TRAIN_FILE_BASENAME: train_coldstart_remainder.parquet
 
   # ---- B: divergence ----
@@ -1344,7 +1344,7 @@ arms:
            axis; against vanilla: the accuracy-vs-generated-tokens frontier."
     env:
       SIMOPD_H_SCHEDULE: "mode=linear,start=128,end=16384,warmup=0,decay=250"
-      SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+      SIMOPD_H_KEYS: $SIMOPD_STORE/gkd_offpolicy.parquet.dry
 
   - run_id: h9_prune_adapt
     axis: H
@@ -1373,7 +1373,7 @@ arms:
            n_gpus_per_node=1; DP>1 would need a single-writer rule)."
     env:
       SIMOPD_H9_ADAPT: "1"
-      SIMOPD_H_KEYS: /mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry
+      SIMOPD_H_KEYS: $SIMOPD_STORE/gkd_offpolicy.parquet.dry
 
   # ---- I: teacher conditioning (2026-08-06 pre-registered; docs/design-thinking-cells.md) ----
   - run_id: i0_think_scorer
@@ -2537,7 +2537,7 @@ arms:
     status: stock
     desc: "[wave19] a1_gkd_mix0.5 under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
     env:
-      SIMOPD_GKD_CACHE: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet"
+      SIMOPD_GKD_CACHE: "$SIMOPD_STORE/gkd_offpolicy.parquet"
       SIMOPD_GKD_LAMBDA: "0.5"
       DISTILLATION_LOSS_MODE: "k1_termfix"
       DISTILLATION_TOPK: "66"
@@ -2555,7 +2555,7 @@ arms:
     status: stock
     desc: "[wave19] a3_offpolicy under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
     env:
-      SIMOPD_GKD_CACHE: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet"
+      SIMOPD_GKD_CACHE: "$SIMOPD_STORE/gkd_offpolicy.parquet"
       SIMOPD_GKD_LAMBDA: "1.0"
       DISTILLATION_LOSS_MODE: "k1_termfix"
       DISTILLATION_TOPK: "66"
@@ -2573,7 +2573,7 @@ arms:
     status: stock
     desc: "[wave19] a4_dagger_anneal under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
     env:
-      SIMOPD_GKD_CACHE: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet"
+      SIMOPD_GKD_CACHE: "$SIMOPD_STORE/gkd_offpolicy.parquet"
       SIMOPD_GKD_SCHEDULE: "mode=linear,start=1.0,end=0.0,warmup=0,decay=250"
       DISTILLATION_LOSS_MODE: "k1_termfix"
       DISTILLATION_TOPK: "66"
@@ -2592,7 +2592,7 @@ arms:
     desc: "[wave19] a5_aggrevate under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
     env:
       SIMOPD_A5_TMAX_SCHEDULE: "mode=linear,start=0,end=16384,warmup=0,decay=250"
-      SIMOPD_A5_KEYS: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry"
+      SIMOPD_A5_KEYS: "$SIMOPD_STORE/gkd_offpolicy.parquet.dry"
       DISTILLATION_LOSS_MODE: "k1_termfix"
       DISTILLATION_TOPK: "66"
       SIMOPD_KEEP_SAMPLED: "1"
@@ -2610,7 +2610,7 @@ arms:
     desc: "[wave19] h6_gen_sched under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
     env:
       SIMOPD_H_SCHEDULE: "mode=linear,start=128,end=16384,warmup=0,decay=250"
-      SIMOPD_H_KEYS: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry"
+      SIMOPD_H_KEYS: "$SIMOPD_STORE/gkd_offpolicy.parquet.dry"
       DISTILLATION_LOSS_MODE: "k1_termfix"
       DISTILLATION_TOPK: "66"
       SIMOPD_KEEP_SAMPLED: "1"
@@ -2662,7 +2662,7 @@ arms:
     desc: "[wave19] h9_prune_adapt under the v2 dual-stop contract + N0 (k1_termfix): the only change vs the v2 run is the event-level terminator reading"
     env:
       SIMOPD_H9_ADAPT: "1"
-      SIMOPD_H_KEYS: "/mgfs/shared/Group_GY/changhao/simopd_data/gkd_offpolicy.parquet.dry"
+      SIMOPD_H_KEYS: "$SIMOPD_STORE/gkd_offpolicy.parquet.dry"
       DISTILLATION_LOSS_MODE: "k1_termfix"
       DISTILLATION_TOPK: "66"
       SIMOPD_KEEP_SAMPLED: "1"

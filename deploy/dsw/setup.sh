@@ -293,7 +293,19 @@ if [ "${SIMOPD_MIRRORS:-1}" = "1" ] && [ "${SIMOPD_RACE:-1}" = "1" ] && command 
 fi
 
 echo "=== [1/6] third-party checkouts ==="
-[ -d verl ] || git clone --depth 1 "$(GH https://github.com/volcengine/verl.git)"
+# verl 钉到 commit(2026-09-04 审查):src/sitecustomize.py 的八个钩子挂在 verl/vLLM 的具体内部
+# 符号上(RayPPOTrainer._log_rollout_data、compute_topk_loss、_pad_teacher_outputs、
+# vllm.v1.worker.gpu.sample.prompt_logprob ...)。从前这里 --depth 1 拉上游 HEAD,新集群装出来的
+# 是「当天的 verl」,钩子挂不上时有的响、有的静默。本地 verl/ 无任何未提交补丁(已核),所以钉
+# commit 就够了。要换版本:VERL_COMMIT=<sha> bash deploy/dsw/setup.sh,并重跑 CPU 电池。
+VERL_COMMIT=${VERL_COMMIT:-aebd1f8a27d5606226f2b85682cacaf2fdf7eaa7}   # upstream volcengine/verl, 2026-07-31
+if [ ! -d verl ]; then
+    git clone --no-checkout "$(GH https://github.com/volcengine/verl.git)" verl
+    git -C verl fetch --depth 1 origin "$VERL_COMMIT"
+    git -C verl checkout -q "$VERL_COMMIT"
+fi
+_have=$(git -C verl rev-parse HEAD 2>/dev/null || echo none)
+[ "$_have" = "$VERL_COMMIT" ] || echo "WARN: verl/ 在 ${_have:0:10},钉的是 ${VERL_COMMIT:0:10} —— 钩子按后者验证过"
 # Read-only references for arm provenance checks (PROTOCOL-unified section 2); the
 # audit ports their methods, never their harnesses.
 [ -d EasyOPD ] || git clone --depth 1 "$(GH https://github.com/lds-ustc/EasyOPD.git)" || true
