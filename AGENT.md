@@ -26,6 +26,20 @@
 > 09-09 之前从 git 新 clone 起的 run 归档是坏的(教师列错一位、V1 下一个文件不写);集群上在跑的
 > 名册臂用的是手工修过的树,**训练与归档都不受影响,不用重跑**。细节 §2.4 末尾。
 
+> **2026-09-09 用户令:起 H 预算线六条**(`h5_gen100_n0 h7_gen512_n0 h8_gen2048_n0 h6_gen_sched_n0
+> h9_prune_adapt_n0 h10_task_subset_n0`,各 200 步)。09-08 报告的 29 条里没有它们(所以真实进度是 58.6%
+> 不是 70.3%);ARM-REVIEW 定的是「不能删 → 整条预算线恢复」。**h5 照跑**:它的契约(`STOP_IDS=151645`)与在跑
+> 的 A 轴四条 `_n0` 完全一样,按名册对 `vanilla_corr` 读、契约差异在论文里声明,不另立规矩。
+> **起之前**:① 树含 `c913d26`(工作区有同内容手工改动:先 `git stash`,`git merge --ff-only`,再 `git stash drop`);
+> ② `$SIMOPD_STORE/gkd_offpolicy.parquet.dry` 在(a5 在跑它就在);③ h10 要 `$DATA_DIR/train_sub50.parquet`,
+> 没有就 `python scripts/gen_task_subset.py --train-parquet $DATA_DIR/train.parquet --frac 0.5 --out $DATA_DIR/train_sub50.parquet`(CPU,秒级);
+> ④ Phase R 会自动给没 `.OK` 的臂跑三步彩排,现在彩排连归档文件一起验(§2.4)。
+> lane 行(**只取这六条,别把 slot6/slot7 整段拿去用** —— 那两段里的 h4 与 a1 已在跑,同一 ckpt 目录不能有两个写者;卡号按空位改):
+> `h5_gen100_n0:2,3:200 h7_gen512_n0:4,5:200 h8_gen2048_n0:6,7:200`
+> `h6_gen_sched_n0:0,1:200 h9_prune_adapt_n0:2,3:200 h10_task_subset_n0:4,5:200`
+> (`python scripts/make_lane_map.py --print | grep -E 'h(5|6|7|8|9|10)_'` 可再生成。)它们自带小帽、截断率天然高,
+> 别按主表阈值误判成塌缩(§2.2)。本地 09-09 连不上跳板,这条令只能经 git 送达。
+
 ---
 
 ## 1 已经定了的(别重跑)
