@@ -125,7 +125,7 @@ def load_cells(path):
     salv = P(correct|truncated) per cell trc*acc/tr over cells with tr>0
     comp = canonical composite (aime24+25 合组后四组均值,仅完整格)
     """
-    if not os.path.exists(path):
+    if not os.path.exists(path) or os.path.getsize(path) == 0:   # /dev/null = 没有套件面板
         return {}
     c = pd.read_csv(path)
     # 旧口径是「run 名含 16k」。wave20 之后新登记的臂(c4_carrier / c4_rep / c4_hq /
@@ -204,6 +204,13 @@ def main():
                          "the eval parquets); pass /dev/null to build the training-only page")
     ap.add_argument("--cells", default=os.path.join(ROOT, "docs/data/post_eval_cells.csv"),
                     help="per-cell suite table; feeds the eval-set panel block")
+    # 2026-09-09:同一生成器也出「名册重训」页(results/<date> 经 export_retrain_dynamics.py 转出的
+    # 单波 dump)。重训臂与 08 月 corr 波同名,不能并进默认页,所以标题与数据来源句可换。
+    ap.add_argument("--title", default="训练动力学总览")
+    ap.add_argument("--source-note", default=(
+        '数据 <span class="mono">docs/data/training_metrics_{16k,exp,corr}_allkeys.csv.gz</span> 三份合并'
+        '(corr 波由 <span class="mono">scripts/export_wave_metrics.py</span> 刷新)+ 套件表取自 '
+        '<span class="mono">docs/campaign_16k_report.md</span>,'))
     a = ap.parse_args()
     suite_curve, suite_fin = parse_suite(a.suite_md)
     cells = load_cells(a.cells)
@@ -333,6 +340,7 @@ def main():
     payload = dict(every=a.every, seeds=seeds, nmax=NMAX, anchor=STUDENT_ANCHOR, cap=CAP,
                    arms=arms_meta, metrics=metrics, specific=specific)
     html = TEMPLATE.replace("/*__DATA__*/", json.dumps(payload, separators=(",", ":")))
+    html = html.replace("__TITLE__", a.title).replace("__SOURCE__", a.source_note)
     with open(a.out, "w") as f:
         f.write(html)
     print(f"wrote {a.out}  ({os.path.getsize(a.out)/2**20:.1f} MiB, {len(arms_meta)} arms, "
@@ -342,7 +350,7 @@ def main():
 TEMPLATE = r"""<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SimOPD · 训练动力学总览</title>
+<title>SimOPD · __TITLE__</title>
 <style>
 :root{color-scheme:light;--bg:#fbfcfd;--panel:#f2f5f8;--raise:#fff;
  --ink:#12161d;--ink2:#4d5663;--ink3:#7f8a99;--faint:#9fadbd;--rule:#dbe2ea;--rule2:#e9eef4;
@@ -420,7 +428,7 @@ footer{padding:14px 18px 0;color:var(--ink3);font-size:11.5px;border-top:1px sol
 </style></head><body>
 <div class="app">
 <aside>
-  <h1>训练动力学总览</h1>
+  <h1>__TITLE__</h1>
   <div class="sub" id="meta"></div>
   <input id="q" type="search" placeholder="搜索臂 / 轴…" aria-label="搜索">
   <div class="chips" id="chips"></div>
@@ -450,11 +458,11 @@ const fmt=v=>v==null?"–":Math.abs(v)>=1000?Math.round(v).toLocaleString():Math
 let hot=null, pins=[], filt="all", qs="", cross=null;
 
 $("#meta").textContent=`${NAMES.length} 臂 · ${D.nmax} 步 · 种子 ${D.seeds.join("/")} · 每 ${D.every} 步`;
-$("#foot").innerHTML=`细线 = 该臂三种子均值;固定臂另画三条种子细线。竖虚线 = 该臂 lock 步(此后 ≥90% rollout 撞帽)。`
+$("#foot").innerHTML=(D.seeds.length>1?`细线 = 该臂各种子均值;固定臂另画各种子细线。`:`单种子(seed ${D.seeds[0]}),每条曲线就是那一条 run。`)+`竖虚线 = 该臂 lock 步(此后 ≥90% rollout 撞帽)。`
  +` 两个信号面板<b>刻意分开</b>:k1 族报 Δℓ,top-k 族报散度 loss,量纲不同不得同图。`
  +` <b>两块记分牌不可混读</b>:in-loop 是 greedy·16k 帽的健康遥测,离线套件是 τ=0.7·top-p0.95·32k·avg@3 的正式测量;`
  +` 终止受损的臂在 greedy 下会一路复读到帽而取不出答案,套件分因此可高出 0.2 以上(f3:0.473 → 0.684)。`
- +` 数据 <span class="mono">docs/data/training_metrics_{16k,exp,corr}_allkeys.csv.gz</span> 三份合并(corr 波由 <span class="mono">scripts/export_wave_metrics.py</span> 刷新)+ 套件表取自 <span class="mono">docs/campaign_16k_report.md</span>,`
+ +` __SOURCE__`
  +` 由 <span class="mono">scripts/make_dynamics_page.py</span> 生成。`;
 
 /* ---------- sidebar ---------- */

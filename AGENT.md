@@ -341,6 +341,12 @@ python scripts/export_wave_metrics.py --since 2026-08-19 --out docs/data/trainin
 python scripts/analysis/export_wave_dynamics.py --out docs/data/inloop_wave_dynamics.csv   # 已含 un_p_imend 三列
 python scripts/analysis/collapse_status.py --write && python scripts/analysis/make_cure_page.py
 python scripts/make_dynamics_page.py && python scripts/make_campaign_tables.py
+# 2026-09 名册重训(results/<date>/,rushi-Q 用 extract.py 导出后推上来)→ 单独一页 docs/retrain-dynamics.html。
+# 别并进默认页:重训臂与 08 月 corr 波同名(vanilla_corr、*_corr、*_n0),同名不同实验;套件面板给空文件,
+# 否则旧波的离线曲线会按臂名挂到重训臂上(173 个 ckpt 尚无离线评测)。
+python scripts/analysis/export_retrain_dynamics.py --results results/20260909
+python scripts/make_dynamics_page.py --csv docs/data/training_metrics_retrain_20260909_allkeys.csv.gz \
+    --suite-md /dev/null --cells /dev/null --title "2026-09 名册重训 · 训练动力学" --out docs/retrain-dynamics.html
 ```
 
 判据:**`un_p_imend` 上升而 `un_p_eot` 下降** = 学生把教师的终止符当 token 学会了。旧波里
