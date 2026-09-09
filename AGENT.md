@@ -21,6 +21,11 @@
 > 30 条断言的无 GPU 测试台 `deploy/dlc/test_eval_worker.sh` 全绿),三个调用点改为优先用
 > 仓库里那份、盘上副本兜底。详见 §2.6。
 
+> **2026-09-09:集群上两处手工修复已移植回 git**(`traj_dump` 教师列切片 `[P-1:P+L-1]`;启动器钉
+> `trainer.use_v1=False` + `sitecustomize` 在 V1 路径被 import 时拒绝 + 彩排要求归档文件真在)。
+> 09-09 之前从 git 新 clone 起的 run 归档是坏的(教师列错一位、V1 下一个文件不写);集群上在跑的
+> 名册臂用的是手工修过的树,**训练与归档都不受影响,不用重跑**。细节 §2.4 末尾。
+
 ---
 
 ## 1 已经定了的(别重跑)
@@ -235,13 +240,26 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 旋钮(默认值都对;只列名字):`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_DIR / EVERY / IDS_EVERY / N / MOD / LIGHT / TEXT`、`SIMOPD_DIV_MOD`、
 `SIMOPD_DIV_PANEL / DIV_CHUNK`、`LOGGER`(显式给了就不再加 `file`)。
 
+**两条硬约束(2026-09-09,集群上的手工修复移植回 git;09-09 之前从 git 新 clone 起的 run 归档是坏的)**:
+- **`trainer.use_v1=False` 必须在启动命令里**(`run_opd_baseline.sh` 已固定传)。verl `aebd1f8` 默认
+  `use_v1=true`,走 `verl/trainer/ppo/v1` 的 `PPOTrainer`;归档层三处 driver 侧接缝按类名挂在 legacy
+  `RayPPOTrainer` 上,V1 下**横幅照打、`traj/` 一个文件不写、`div` 行 `step` 全 null**。`src/sitecustomize.py`
+  在 `verl.trainer.ppo.v1` 被 import 时(只有 V1 路径会 import 它)调 `traj_dump.refuse_v1()` 直接拒绝;
+  `rehearse_n2.sh` 三步彩排要求 `traj/light.jsonl`、`ids_*.parquet`、带数字 `step` 的 `div` 行真在。
+- **教师列切片是 `[P-1:P+L-1]`**(`traj_dump._teacher_seq`):教师块按 logits 约定,第 i 行是对位置 i+1
+  的 token 的分布(verl `extract_prompt_logprobs` 丢 vLLM 第 0 项、末尾补全 0 哑行),与 verl 自己切模型
+  输出的 `no_padding_2_padding` 同一移位。`traj_dump_battery.py` 现在按这个布局造教师块并断言
+  `tch_top1_id == response_ids`、`tch_lp_nan == 0`、`tch_lp_last` 有限 —— 09-09 前的电池根本没放教师块,
+  `_teacher_seq` 一次都没被测到,"26/26 绿"对这段代码什么也没证明。
+
 **首个 run 的验收**(本地只用合成 batch 与 stub 过的 verl 接缝测过,真 batch 没跑过):
 1. stderr 里有 `traj_dump armed` 和 `div_panel armed` 两行 —— 但**横幅不是证据,文件才是**。
 2. 第 1 步后:`traj/light.jsonl` 每步 +256 行、`traj/ids_1.parquet` 出现且 256 行、`traj/div/rank*.jsonl` 有行且 `step` 非空;
    第 25 步后:`summary_25 / step_25.parquet` 与 `div/tok_step25_*.parquet` 出现(后者各 rank 文件合起来 256 行,整批),
    `metrics/launch_*.jsonl` 在长,`val_gen/` 有 25.jsonl。
-3. 数值:`div` 里 `qS_mean` 接近 1(教师块覆盖),`summary` 里 `tch_lp_nan` 接近 0(采样列找对了),
-   `light` 与 `div` 按 `seq_key` merge 后行数不掉。
+3. 数值:`div` 里 `qS_mean` 接近 1(教师块覆盖),`summary` 里 `tch_lp_nan` **等于 0**(`KEEP_SAMPLED=1`
+   时采样列必在块里;非零 = 教师列错位,09-09 前的 git 版本就是 0.566),`tch_lp_last` 有限,
+   `div` 行的 `step` 非 null(全 null = V1 trainer,见下),`light` 与 `div` 按 `seq_key` merge 后行数不掉。
 4. `ckpt_sync` 日志有 `OK <run>@25` 与 `OK aux <run>`,HF 仓库里 `SYNCED.json` 在长。
 任何一条不成立都是"看着武装了其实没有"的形状(h9 中继烧 66 步的那种),先修再铺 lane。
 
@@ -450,6 +468,9 @@ verl/vLLM 的具体内部符号上 —— **换任一版本都要重跑 CPU 电�
 5. `simopd_env.sh` 里给 `CKPT_SYNC_REPO` 与 `HF_TOKEN`(§2.3),`SIMOPD_SUITE_K=8`(§2.2b)。
 6. **先只铺一条 lane**(建议 `vanilla_corr:0,1:250`,它也是载体彩排要过的那条),按 §2.4 的
    验收清单看归档层与 ckpt_sync 真在写、真在传;过了再用 3b 的生成器铺满。
+   起新 lane 的树必须含 09-09 的提交(`git log --oneline | grep use_v1`)。集群上在跑的树对同样两个
+   文件有手工的工作区改动:合并前 `git stash`,`git merge --ff-only` 之后 `git stash drop`(内容一致),
+   别 `git pull`、别在跑着的 lane 下面换 `run_opd_baseline.sh` 的 inode 以外的方式改它。
 
 ---
 
@@ -496,6 +517,12 @@ verl/vLLM 的具体内部符号上 —— **换任一版本都要重跑 CPU 电�
   不会覆盖上一段;读的时候按 step 拼、后写覆盖先写。
 - **`seq_key` 必须 ≤ 63 位**:`pandas.read_json` 读不了 > 2^63 的整数(本地测试当场炸),
   `simopd/seqkey.py` 已截到 63 位;别"顺手"改回 64 位。
+- **verl 默认 `trainer.use_v1=true`,归档钩子挂在 legacy trainer 上**:V1 下横幅照打、一个文件不写、
+  `div` 行 `step` 全 null(09-08 集群报告)。启动器钉 `trainer.use_v1=False`;sitecustomize 在 V1 模块
+  被 import 时拒绝;彩排看文件。"钩子装上了"从来不是"钩子被调用了"。
+- **教师块是 logits 约定**(第 i 行预测位置 i+1):响应 token j 在第 `P-1+j` 行,末个真实行是 verl 补的
+  全 0 哑行,padding 的 id 是 `pad_token_id`(Qwen 就是 151643 = eot)。任何直接扫教师块的代码都按
+  `[P-1:P+L-1]` 切;判据 `tch_lp_nan == 0`。09-09 前 `traj_dump` 切 `[P:P+L]`,电池没放教师块所以没红。
 - **归档层的失败语义是"喊一次、训练继续"**:`traj_dump` / `div_panel` / `run_manifest` 任何一环坏了
   只在 stderr 出一行,不会停训练。所以验收看文件、不看横幅(§2.4 清单);发现 stderr 有
   `写盘失败` / `面板失败` 就当这个 run 没有归档。

@@ -280,6 +280,17 @@ REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch
                     "simopd.seqkey", "simopd.div_panel")
 
 
+def _refuse_v1_trainer():
+    """verl.trainer.ppo.v1 is imported only from TaskRunnerV1 (main_ppo.py: init_agent_loop_manager
+    and run), so its appearance means trainer.use_v1 selected the V1 trainer. traj_dump's three
+    driver-side seams bind the legacy RayPPOTrainer by class name; V1's PPOTrainer never calls
+    them. Cluster report 2026-09-08: under V1 the banners print, traj/ gets no file, div rows
+    carry step=null. With the archive on, refuse here -- at bringup, not 200 steps later."""
+    from simopd import traj_dump
+
+    traj_dump.refuse_v1(where="verl.trainer.ppo.v1 imported (TaskRunnerV1 path)")
+
+
 def _after_ray_trainer():
     """SIMOPD_TRAJ_DIR 有值时,给 verl 的 rollout 落盘补一份 token id 版。
 
@@ -319,6 +330,10 @@ _TARGETS = {
     # SIMOPD_TRAJ_DIR only: wrap the trainer's rollout dump so the ids are kept
     # alongside verl's specials-stripped text. Gated inside install().
     "verl.trainer.ppo.ray_trainer": _after_ray_trainer,
+    # Archive on + V1 trainer = hooks bound to a class that never runs (2026-09-09). This
+    # package is imported only on the V1 path, so its import IS the signal; raising here is
+    # the loud failure. run_opd_baseline.sh pins trainer.use_v1=False.
+    "verl.trainer.ppo.v1": _refuse_v1_trainer,
 }
 
 

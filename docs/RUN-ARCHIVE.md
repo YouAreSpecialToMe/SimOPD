@@ -86,6 +86,15 @@ E_S、E_T 与本 run 的契约。
 
 记录的终止符集合 = rollout 停机集 ∪ E_S ∪ E_T(去重保序),通常就是 `{151643, 151645}`。
 
+教师块的**行坐标是 logits 约定**(2026-09-09 修正):第 i 行是教师看完前缀后对位置 i+1 的 token 的分布
+(verl `extract_prompt_logprobs` 丢掉 vLLM 第 0 项、末尾补一行全 0 哑行;`_pad_teacher_outputs` 按 prompt 左填、
+response 右填,padding 的 id 是 `pad_token_id` = 151643),所以响应 token j 的教师量在第 `P-1+j` 行,
+`_teacher_seq` 切 `[P-1:P+L-1]` —— 与 verl 自己切模型输出的 `no_padding_2_padding` 是同一个移位。
+判据:`KEEP_SAMPLED=1` 时 `tch_lp_nan` 必须**等于** 0。09-09 前的 git 版本切 `[P:P+L]`(错一位、末位读哑行):
+`tch_lp_nan` 0.566、`tch_lp_last` 全 NaN、`resp == tch_top1_id` 只有 0.046;集群上在跑的名册臂用的是修过的树,
+不受影响。整层另依赖 `trainer.use_v1=False`(启动器固定传):verl 默认的 V1 trainer 从不调用这里的接缝,
+`sitecustomize` 在 V1 模块被 import 时直接拒绝。
+
 ## `run_manifest.json`
 
 `experiment / project / launched_at / host / cuda_visible_devices / ckpt_dir / fingerprint /

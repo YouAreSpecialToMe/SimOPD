@@ -44,6 +44,10 @@
 注意:verl 只在配置了 trainer.rollout_data_dir 时才调 _log_rollout_data,所以
 run_opd_baseline.sh 在 SIMOPD_TRAJ_DIR 有值时会把它一并传下去。两者缺一,这里静默无事发生
 —— 而"静默无事发生"正是 h9 中继烧掉 66 步的那个形状,所以 install() 在只配了一半时会喊。
+
+同类的第二个坑(2026-09-09):verl 默认 trainer.use_v1=true,而这里的三个接缝挂在 legacy RayPPOTrainer
+上,V1 的 trainer 从不调用它们 —— 横幅照打、一个文件不写。启动器固定传 trainer.use_v1=False,
+sitecustomize 在 V1 模块被 import 时调 refuse_v1() 直接拒绝;彩排(rehearse_n2.sh)要求文件真在。
 """
 import json
 import os
@@ -56,6 +60,22 @@ _state = {"warned": False, "wrote": 0, "meta": False, "tch_warned": False, "entr
 
 def enabled():
     return os.environ.get("SIMOPD_TRAJ_DIR", "").strip() != ""
+
+
+def refuse_v1(where):
+    """归档开着就拒绝 V1 trainer。verl aebd1f8 默认 trainer.use_v1=true;本模块三处 driver 侧接缝按类名
+    挂在 legacy RayPPOTrainer 上,V1 的 PPOTrainer(verl/trainer/ppo/v1/trainer_base.py)另起一套、从不
+    调用它们 —— 2026-09-08 集群报告:V1 下横幅照打、traj/ 一个文件不写、div 行 step 全 null。
+    sitecustomize 在 verl.trainer.ppo.v1 被 import 时调这里(该模块只在 TaskRunnerV1 里被 import,
+    出现即 V1 选中);run_opd_baseline.sh 固定传 trainer.use_v1=False。没开归档就放行。"""
+    if not enabled():
+        return None
+    raise RuntimeError(
+        f"[simopd] traj_dump: {where} -- trainer.use_v1 is on (verl's default) while the analysis "
+        f"archive is enabled (SIMOPD_TRAJ_DIR={os.environ.get('SIMOPD_TRAJ_DIR', '')!r}). The archive's "
+        "driver-side hooks bind the legacy RayPPOTrainer and never fire under V1: the run would print "
+        "'armed' and record nothing (cluster report 2026-09-08). Pass trainer.use_v1=False "
+        "(run_opd_baseline.sh does) or switch the archive off on the record with SIMOPD_ARCHIVE=0.")
 
 
 def _cfg():
@@ -197,8 +217,16 @@ def _teacher_seq(ex, b, L, stop_all):
     import numpy as np
 
     P = ex["P"]
-    ids = ex["tids"][b, P:P + L]            # [L, K]
-    lp = ex["tlp"][b, P:P + L].astype(np.float32, copy=False)
+    # 教师块按 logits 约定定位:第 i 行 = 教师看完前缀后对「位置 i+1 的 token」的分布。verl 的
+    # extract_prompt_logprobs 丢掉 vLLM 的第 0 项(没有上文)、末尾补一行全 0 的哑行,teacher_manager
+    # 的 _pad_teacher_outputs 再按 prompt 左填、response 右填,与 prompts|responses 同坐标;所以响应
+    # token j 的教师量在第 P-1+j 行 —— 与 verl 自己切模型输出的 no_padding_2_padding
+    # (values[seq_offset - resp_len - 1 : seq_offset - 1])是同一个移位。
+    # 2026-09-08 集群报告:此前读 [P:P+L],把 token j 对到了教师对「下一个」token 的分布、末位读到哑行:
+    # tch_lp_nan 0.566、tch_lp_last 全 NaN、resp==tch_top1 只有 0.046(修正后 0.000 / 有限 / 0.769)。
+    # 不变量:KEEP_SAMPLED=1 时采样列必在块里,tch_lp_nan 必须为 0;非零就是错位,不是"接近 0"。
+    ids = ex["tids"][b, P - 1:P + L - 1]            # [L, K]
+    lp = ex["tlp"][b, P - 1:P + L - 1].astype(np.float32, copy=False)
     resp = ex["responses"][b, :L]
     ar = np.arange(L)
     valid = ids >= 0

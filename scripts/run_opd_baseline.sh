@@ -450,7 +450,13 @@ timeout 1800 python3 "$(dirname "$0")/preflight.py" \
     --loss "$distillation_loss_mode" \
     --max-prompt-length "$max_prompt_length"
 
+# trainer.use_v1=False(2026-09-09,从集群的手工修复移植回 git):verl aebd1f8 默认 use_v1=true,
+# 走 verl/trainer/ppo/v1 的 PPOTrainer;归档层 traj_dump 的三处 driver 侧接缝按类名挂在 legacy
+# RayPPOTrainer 上,V1 下横幅照打、traj/ 一个文件不写、div 行 step 全 null(09-08 集群报告)。
+# 名册在跑的臂全是 V0,这里钉死;sitecustomize 在 V1 模块被 import 时直接拒绝。固定 hydra 项
+# 不在指纹里,续跑不受影响。
 python3 -m verl.trainer.main_ppo \
+    trainer.use_v1=False \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files="$train_files" \

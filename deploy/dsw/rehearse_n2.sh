@@ -73,6 +73,15 @@ if [ -n "$first_tb" ] && [ "$first_tb" -lt "$last_step" ]; then
 elif [ -n "$first_tb" ]; then
     echo "note [$ARM]: teardown-phase traceback tolerated (line $first_tb > last step $last_step, exit 0)"
 fi
+# 归档层的正面证据(2026-09-09):横幅不是证据,文件才是。V1 trainer 下 traj/ 一个文件不写、
+# div 行 step 全 null(09-08 集群报告),而三步彩排每一步都该写 light / ids_ / div。
+if [ "${SIMOPD_ARCHIVE:-1}" = 1 ] && [ "${VERDICT_ONLY:-0}" != 1 ]; then
+    _tr="$CKPT_ROOT/simopd/rehearsal_${ARM}/traj"
+    [ -s "$_tr/light.jsonl" ] || fail "archive: $_tr/light.jsonl missing or empty (hooks bound to a trainer that never ran them -- trainer.use_v1 must be False)"
+    ls "$_tr"/ids_*.parquet >/dev/null 2>&1 || fail "archive: no $_tr/ids_<n>.parquet"
+    grep -qh '"step": *[0-9]' "$_tr"/div/rank*.jsonl 2>/dev/null || fail "archive: no div row with a numeric step under $_tr/div/ (V1 path, or the meta_info step injection never ran)"
+    echo "archive evidence [$ARM]: light=$(wc -l < "$_tr/light.jsonl" | tr -d ' ') rows, ids=$(ls "$_tr"/ids_*.parquet | wc -l | tr -d ' ') files, div rows carry a numeric step"
+fi
 # The trainer-side install banner is visible (same Ray job as the driver).
 # what the arm's registry function emits: 'cal' (k1_termcal: BCE term + panels), 'family'
 # (termfix / the sampled-k1 family / D / FiRe under SIMOPD_TERM_EVENT=1: panels), 'none'
