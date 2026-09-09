@@ -1,0 +1,6 @@
+dir	n_checkpoints	global_steps	size	note
+envtest	0		2.1M	环境自检产物,不在名册内
+rehearsal_a1_gkd_mix0.5_n0	1	3	27G	A 轴预演门彩排产物(3 步机判),不在名册内
+rehearsal_a3_offpolicy_n0	1	3	27G	A 轴预演门彩排产物(3 步机判),不在名册内
+rehearsal_a4_dagger_anneal_n0	1	3	27G	A 轴预演门彩排产物(3 步机判),不在名册内
+rehearsal_a5_aggrevate_n0	1	3	27G	A 轴预演门彩排产物(3 步机判),不在名册内
