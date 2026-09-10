@@ -151,3 +151,13 @@ j.groupby("step")[["fkl_mean", "rkl_mean", "jsd_mean", "ent_mean", "rep4"]].mean
 失败语义:落盘失败**绝不**弄挂训练步,但会在 stderr 喊一次(`[simopd] traj_dump 写盘失败`);
 `run_manifest.py` 失败只打 `WARN`。安装时 `SIMOPD_TRAJ_DIR` 有值而 verl 未配 `rollout_data_dir`
 会静默无事(启动器保证两者同出),这正是 `traj_dump.install()` 要喊的那种"看着武装了其实没有"。
+
+## 取回(2026-09-10 起)
+
+轨迹只写在 run 自己的 ckpt 目录里。`ckpt_sync.py` 的 aux 同步能把 `traj/` 与 `val_gen/` 随权重推上 HF,但要集群上
+有 `HF_TOKEN`;没有就用 `scripts/analysis/pack_traj.py`:**全部臂**的小文件(`light.jsonl` / `div/rank*.jsonl` /
+`summary_*.parquet` / `meta.json` / `run_manifest.json`,≈30 MB/臂)+ **指定臂 × 指定步**的整序列(`step_<n>` /
+`ids_<n>` / `val_gen/<n>.jsonl`,少数点位再带 `div/tok_step<n>_*`),打成 ≤1.5 GB 的 tar 分卷,附 MANIFEST.tsv(sha256)
+与 MISSING.tsv,挂 GitHub Release 资产,**不进 git**。挑法在脚本的 `PICKS` / `TOK_PICKS`(2026-09-10 按
+`results/20260909` 的读数定),`--picks` 覆盖;先 `--dry` 看大小与缺失。纯标准库、不解析文件,任何 python3 能跑。
+

@@ -48,6 +48,11 @@
 > 挂成 Release 资产(和 phase-2 语料同一通道;**别进 git**)。挑法在脚本的 `PICKS`/`TOK_PICKS`,要改用 `--picks`,
 > 别改默认值。特别看 MISSING.tsv 里 `traj/div/tok_step*` 在不在 —— `archive_inventory` 那列全 0 是
 > `extract.py` 的 glob 少了一层 `div/`,不一定是真没写。
+> **09-10 状态**:轨迹目前**只在集群盘上**(`archive_inventory` 29/29 都在);HF 没传(`ckpt_sync` 没 token、一次没跑)、
+> git 里没有、GitHub 也还没有任何 Release;本地到 `dsw298` 已连不上 12 天。所以取回只有两条路:① 集群侧照上面三步
+> 打包上传;② 给本地一个能 ssh 的入口(新跳板地址;公钥由用户放,不经 Claude 手),本地上去跑同一条命令。
+> 拿到包先做三件事:c2_fixed8 熵爆前后的 token 级对照(教师 top-8 覆盖掉到 .24 时学生在吐什么)、c5 正文里 im_end
+> 出现次数与复读段、d3 / h2 / g1 的结尾行为与 `dl_last` 分布。
 
 ---
 
