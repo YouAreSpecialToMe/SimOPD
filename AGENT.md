@@ -40,6 +40,15 @@
 > (`python scripts/make_lane_map.py --print | grep -E 'h(5|6|7|8|9|10)_'` 可再生成。)它们自带小帽、截断率天然高,
 > 别按主表阈值误判成塌缩(§2.2)。本地 09-09 连不上跳板,这条令只能经 git 送达。
 
+> **2026-09-10 请集群侧(rushi-Q)打一份轨迹包。**分析要的不是全部 `traj/`(29 臂 ≈ 60 GB),是**全部臂的每序列
+> 摘要 + 十几条臂在特定步的整序列**,预计 ≈ 2.5 GB。在仓库树里跑:
+> `python scripts/analysis/pack_traj.py --dry`(先看大小与缺失)→ `--out $SIMOPD_STORE/traj_pack_20260910`
+> (出 ≤1.5 GB 的 tar 分卷 + MANIFEST.tsv + MISSING.tsv + README.md)→
+> `gh release create traj-20260910 $SIMOPD_STORE/traj_pack_20260910/*.tar --title 'traj pack 2026-09-10' --notes-file $SIMOPD_STORE/traj_pack_20260910/README.md`
+> 挂成 Release 资产(和 phase-2 语料同一通道;**别进 git**)。挑法在脚本的 `PICKS`/`TOK_PICKS`,要改用 `--picks`,
+> 别改默认值。特别看 MISSING.tsv 里 `traj/div/tok_step*` 在不在 —— `archive_inventory` 那列全 0 是
+> `extract.py` 的 glob 少了一层 `div/`,不一定是真没写。
+
 ---
 
 ## 1 已经定了的(别重跑)
