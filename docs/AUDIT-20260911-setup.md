@@ -140,7 +140,7 @@
 ## 6 内核电池(本机 CPU)
 
 `a5` 41/41 · `gkd_schedule` 40/40 · `h9` 27/27 · `h_horizon` 25/25 · `n2_eos` 67 项 · `stop_set` 25/25 · `traj_dump` 42/42 —— 全绿。
-`c4_state_battery` / `union_battery` 依赖 verl(import 链要 ray、transformers、datasets,且 verl 用 3.10 语法):用 3.10 环境补跑,`c4_state` **31/31 ALL PASS**,`union` **22 项 ok、1 项失败、退出码 0**。
+`c4_state_battery` / `union_battery` 依赖 verl(import 链要 ray、transformers、datasets,且 verl 用 3.10 语法):用 3.10 环境补跑,`c4_state` **31/31 ALL PASS**,`union` **22 项 ok、无失败、退出码 0**(输出里唯一含 fail 字样的一行是 torch `transformer.py:20` 的 UserWarning)。
 
 `arm_lint.py`(同环境,103 条登记臂):59 个 PROBLEM,**0 个不是 `campaign.tsv` 账本类**;账本类分布:
 
