@@ -218,3 +218,23 @@ h5 是原式,R6 已判 h5≡h1);c3 = thunlp 官方码的化简式;b1 = DistiLLM 
 
 **对判决措辞的后果**:每条外来臂的判决写成"在 X 体制下",并带两个分母的咬合度(§4);"论文的效果能否复现"要在**他们的体制**里
 答 —— 最便宜的两格是大 gap(4B-GRPO 或 8B 教师)上 vanilla vs f2,和一对低 TAR(跨家族)师生上 vanilla vs d2;本轮不加。
+
+## 9 Demystifying 自己的 baseline 有没有问题(09-11 补,用户追问)
+
+**能证明的**:他们的 setup 就是我们 legacy vanilla 的 setup —— verl、Qwen3-1.7B-Base 学生套聊天模板加空 think 块、老师含现货
+Qwen3-4B-Instruct-2507 与 Qwen3-8B(chat 模型,以 `<|im_end|>` 收尾)、sampled-token 反向 KL 作逐 token advantage 的 PG 形式、
+n=1、τ=1、16,384 帽(`docs/PROTOCOL-demystifying.md`;09-11 原文再核:全文没有 eos / stop token / `<|im_end|>` / `<|endoftext|>`
+任何一处提及,GRPO 老师怎么训、怎么收尾也没写)。这个组合下 Base 学生只在 `<|endoftext|>` 停,采样列 k1 在每个停止事件给 −25 nat,
+老师的终止符从不被采样 —— 与 stop 配置无关,只要"Base 学生 + chat 老师 + 采样列"就成立(`MECHANISMS.md` M-I)。我们用他们的现货
+老师复现:legacy vanilla 三种子 120/121/122 步锁死、在环 .63→.44;单旋钮 `k1_rec→k1_termfix`(同测量契约)composite .247→.348、
+截断 1.0→.10;8B-Base←32B 同样的 Base/chat 分裂,同样的曲线早 10 步。他们的 clip 在我们手里是推迟不是消除(lock 122→198;w 对
+41→51–75),而他们自己的表也只在有 Mode A 的格子里 clip 有效(4B-GRPO:44.3→47.4;1.7B-GRPO:45.7→45.7)。
+
+**说不满的**:他们头条 Mode A 曲线(Fig.6)用的是自训 4B-GRPO 老师,其终止符取决于他们 RL 用的模板,我们不知道;
+4B-Instruct-2507 那格他们没报病理归属;修正侧单种子;e2/h2 带修正照塌,错位对 vanilla 充分、不是唯一可能的驱动。
+
+**结论的写法**:不是"他们数字错",是"他们的 Mode A 在同协议下可以被一个停止符读数的单旋钮关掉,而全文没有停止符分析;
+他们给的机制(token 平均目标下用长度稀释负 advantage)与修复不动聚合方式却塌缩消失这件事不相容"。要指名他们那条 4B-GRPO 曲线,
+得复现一个 GRPO 老师或拿到 ckpt;现有证据只够说"他们的协议对这个伪影是暴露的,且他们的现货老师格在我们这里就是这个伪影"。
+顺带:legacy g6_seqmean(逐序列归一)三种子只跑到 48–49 步(clip .55–.68,与 vanilla 的第一次长度冲高同期),判不了晚期,
+不能拿它当他们稀释机制的反证。
