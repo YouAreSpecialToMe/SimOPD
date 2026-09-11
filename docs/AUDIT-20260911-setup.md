@@ -271,3 +271,59 @@ y 轴刻度 0/2k/5k/7k/10k/12k。vanilla OPD(灰)从 ~1k 起、第 ~20 步先降
    **他们报的 clip 增益(4B-GRPO 44.3→47.4)来自一条不塌但过长的 baseline(11.5k 平台),不是来自撞帽塌缩**;
    我们 legacy 上 f2 的 +0.21 比他们大一个量级,因为我们的 baseline 是撞帽塌缩的 —— 两边的 baseline 病得不一样重,
    这仍然解释「为什么修正载体上 f2 归零」,但不能再说他们的 baseline 也是撞帽的那种。
+
+## 10 他们的 Mode B 是怎么来的(09-11 追问;读 Fig 6 红线 + Fig 7c)
+
+### 10.1 论文自己给的原因
+
+§4.2「Short-Sequence Exploitation (Mode B)」原文:学生「learns to truncate responses prematurely. By generating a
+high-confidence preamble (e.g., "We are given the problem…") and **immediately emitting EOS**, the model captures the
+favorable prefix advantage Σ_{t≤T_pre} a_t while avoiding the riskier reasoning steps where a_t may turn negative.」
+判据是 Eq.6:当 (1/T_pre)Σ_{t≤T_pre} a_t > (1/T)Σ_{t≤T} a_t 时「The optimizer is incentivized to favor shorter
+trajectories regardless of correctness」,而且「Once the policy locks into short outputs, the gradient reinforces this
+equilibrium」。Finding 3 把它与 Mode A 并为一句:「degenerate optimization shortcuts at both length extremes」,
+共同病根是 a_t 与序列长度经 1/T 相互作用。
+
+**"EOS" 这个词在全文只出现这一次**,没有任何测量;Fig 7 三个面板**都没有显示终止符那一格的 advantage**。
+
+### 10.2 他们的证据(渲染后读的数)
+
+**Fig 7**(文件名 `token_adv_step600_paper.svg`,step 600 = Mode B 悬崖前):
+- (a) Correct,R=1,2,854 token,ΣΔlp/T = **−0.187**;
+- (b) Long Wrong,R=0,10,691 token,ΣΔlp/T = **−0.032**(逐 token 有 −14.0 / −9.4 / −5.0 这种大负值,被长度摊平);
+- (c) Short Truncated,R=0,ΣΔlp/T = **+0.869**,展示的整条 rollout 是 **"It seems like you've provided a"**,
+  逐 token +1.6 / +0.14 / +0.01 / −0.03 / **+2.3** / **+1.9** / +0.14(a、b 两栏都有「... N tokens ...」省略标记,(c) 没有,故读作整条)。
+
+**Fig 6 红线**(`Qwen3-1.7B-GRPO` → `Qwen3-1.7B-Base`):长度第 60 步冲到 ~10k,随后**平在 ~8.2k 达 550 步**;
+clip ratio 0.49 → **第 ~300 步起 0.00 并保持**;accuracy 0.03 一路涨到 0.15;**第 ~620 步长度与 accuracy 同时归零**。
+
+### 10.3 三个候选机制,以及证据分别支持哪个
+
+1. **他们的 Eq.6 是"目标值"论证,不是"梯度"论证。**更新是逐 token 的 Σ_t a_t ∇log π(y_t),里面没有任何一项在拿这条
+   轨迹与"一条更短的假想轨迹"比较。Eq.6 说明短轨迹的目标**值**更高,但要让策略真的走过去,必须有梯度推它:
+   要么**停止符那一格自己拿到正 advantage**,要么**被推高的那些 token 本身通向一个短模式**。他们没有区分这两者。
+2. **模式俘获(mode capture)—— 他们自己的 Fig 7c 最支持这一条。**"It seems like you've provided a" 是 chat 助手
+   面对一段看起来没有指令的题面时的**对话式开场白**,不是解题。老师(chat 线自训 GRPO)非常喜欢它:实词上 +1.6/+2.3/+1.9。
+   把这个开场白推高 = 把学生推进"对话回复"模式,**而该模式的自然长度本来就短** —— 停止是模式的副产品,不需要 Eq.6。
+   这是同一张图的纯逐 token 读法。
+3. **终止符(登记假说,他们没测)。**若老师在**普通位置**也给学生的停止 id 不低的质量,则该处 a_stop>0,
+   p(stop) 被直接推高。旁证:Fig 6 红线的 Base 学生 clip ratio 能**衰减到 0.00 并保持 300 步以上** ——
+   **他们的老师没有在惩罚学生的 eot**(我们的现货 Instruct 老师在惩罚:停止位 q_T(eot) 中位 1.4e-11,Δℓ ≈ −25,
+   截断棘轮到 1.00 且 0/500 回头)。再进一步"老师奖励 eot",就会得到**慢积累 + 突然翻车**:均值长度看不出变化,
+   直到采样真的开始撞上它。**他们观察到的正是这个形状**(平 550 步,一步归零);Eq.6 预测的是全程持续的变短压力,
+   不是悬崖。
+
+### 10.4 判据与对我们的意义
+
+**一次前向就能判**:对一个 chat 线 GRPO 老师,量 q_T(eot) / q_T(im_end) 在**停止位与普通位**的分布,与现货
+Instruct 老师对照;训练侧记 `eos_dl_at_stop`(仪表已在)。这既能判他们的 Mode B,也能判我们的镜像预测。
+
+**我们从没跑出过 Mode B。**51 run 窗口里最短的臂是 h1 的 4,947 token,H 预算线的短是设计使然;我们这对师生只产生 Mode A。
+这与 M-I 的框架自洽:塌缩 = 持续的 G_late > R_stop;**Mode A 是 R_stop 太弱,Mode B 是 R_stop 太强**,
+两端共用同一个坐标 —— 而他们把两端都归给 1/T 聚合。论文里值得写一句:两个失效模式坐在同一条停止压力轴的两端,
+**解释任何一端都不需要那个聚合项**。
+
+**他们理论的可证伪推论,我们差一格**:若 1/T 稀释真的承重,换聚合方式(seq-mean ↔ token-mean)就该有明显差别 ——
+那正是 `g6_seqmean` 这个旋钮。修正载体上 g6 健康(clip .062 @197),但载体本身也健康,**不判别**;
+判别格是 **legacy 载体 + seq-mean**,而我们的 legacy g6 三种子只跑到 48–49 步(与 vanilla 第一次长度冲高同期)。
+这一格与"名册里不得有未修 eos 的臂"(用户定)冲突,**只能作为机制探针另行提案,不进名册**;此处仅登记缺口。
