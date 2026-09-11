@@ -192,7 +192,7 @@ h5 是原式,R6 已判 h5≡h1);c3 = thunlp 官方码的化简式;b1 = DistiLLM 
 
 **为什么他们有效、我们没有 —— 四条,按证据强度排:**
 
-1. **他们的 baseline 病着,我们的没病。**Demystifying 自己的表:clip 在 4B-GRPO→1.7B-Base(大 gap、长度涨到上限=Mode A)
+1. **他们的 baseline 病着,我们的没病(⚠ §9 已收窄:他们的 baseline 是「过长但不塌」,不是撞帽塌缩)。**Demystifying 自己的表:clip 在 4B-GRPO→1.7B-Base(大 gap、长度涨到上限=Mode A)
    44.3→47.4,在 1.7B-GRPO→1.7B-Base 上 45.7→45.7,零效果;scale 在小 gap +0.6、大 gap −3.1。我们 legacy 载体带同一种病,
    f2 把 lock 从 122 推到 198,175 步 f2 0.648 vs vanilla 0.438;d2 150 步 0.641 vs 0.475 —— **比论文报的还大,是复现**。
    修好终止符后 vanilla 不塌,f2/d2 无事可做(重训 f2@100 0.632 vs 0.622,d2@175 0.666 vs 0.662;N0 审计 T2:f1/f2/f3/b1 在
@@ -209,7 +209,7 @@ h5 是原式,R6 已判 h5≡h1);c3 = thunlp 官方码的化简式;b1 = DistiLLM 
 
 | 臂 | 论文体制 | 论文效应 | legacy 载体(病 baseline) | 修正载体 |
 |---|---|---|---|---|
-| f2 clip | 4B-GRPO→1.7B-Base,Mode A | +3.1(大 gap);0.0(小 gap) | @175 +0.21 | @100 +0.01 |
+| f2 clip | 4B-GRPO→1.7B-Base(**长度平台 11.5k,未撞帽**,§9) | +3.1(大 gap);0.0(小 gap) | @175 +0.21 | @100 +0.01 |
 | d2 SelecTKD | Qwen2 Inst 对 / 跨家族,UltraChat | +1.5–3 pp | @150 +0.17 | @175 +0.00 |
 | d3 TA-OPD 5% | GRPO 思考教师,DAPO | 10% 预算 +0–3.2 | 122 步塌(比 vanilla 早) | @175 −0.18 |
 | h1 ESR N=100 | 1.5–32B,τ0.7,LoRA | 不掉点 + 24× | 唯一不塌的 k1 臂 | @200 −0.01(=主张) |
@@ -219,22 +219,55 @@ h5 是原式,R6 已判 h5≡h1);c3 = thunlp 官方码的化简式;b1 = DistiLLM 
 **对判决措辞的后果**:每条外来臂的判决写成"在 X 体制下",并带两个分母的咬合度(§4);"论文的效果能否复现"要在**他们的体制**里
 答 —— 最便宜的两格是大 gap(4B-GRPO 或 8B 教师)上 vanilla vs f2,和一对低 TAR(跨家族)师生上 vanilla vs d2;本轮不加。
 
-## 9 Demystifying 自己的 baseline 有没有问题(09-11 补,用户追问)
+## 9 Demystifying 自己的 baseline 有没有问题(09-11;当晚读图后**重写**)
 
-**能证明的**:他们的 setup 就是我们 legacy vanilla 的 setup —— verl、Qwen3-1.7B-Base 学生套聊天模板加空 think 块、老师含现货
-Qwen3-4B-Instruct-2507 与 Qwen3-8B(chat 模型,以 `<|im_end|>` 收尾)、sampled-token 反向 KL 作逐 token advantage 的 PG 形式、
-n=1、τ=1、16,384 帽(`docs/PROTOCOL-demystifying.md`;09-11 原文再核:全文没有 eos / stop token / `<|im_end|>` / `<|endoftext|>`
-任何一处提及,GRPO 老师怎么训、怎么收尾也没写)。这个组合下 Base 学生只在 `<|endoftext|>` 停,采样列 k1 在每个停止事件给 −25 nat,
-老师的终止符从不被采样 —— 与 stop 配置无关,只要"Base 学生 + chat 老师 + 采样列"就成立(`MECHANISMS.md` M-I)。我们用他们的现货
-老师复现:legacy vanilla 三种子 120/121/122 步锁死、在环 .63→.44;单旋钮 `k1_rec→k1_termfix`(同测量契约)composite .247→.348、
-截断 1.0→.10;8B-Base←32B 同样的 Base/chat 分裂,同样的曲线早 10 步。他们的 clip 在我们手里是推迟不是消除(lock 122→198;w 对
-41→51–75),而他们自己的表也只在有 Mode A 的格子里 clip 有效(4B-GRPO:44.3→47.4;1.7B-GRPO:45.7→45.7)。
+> **更正记录**:本节第一版(commit 6823632)写了两句现在**撤回**的话 ——
+> ①「他们的 setup 就是我们 legacy vanilla 的 setup」;②「他们的现货老师格在我们这里就是这个伪影」。
+> 撤回理由:把论文的图逐张渲染出来读之后发现,**他们所有未加调节的 OPD 曲线用的都是自训 GRPO 老师**,
+> 而且**跟我们同一个学生(1.7B-Base)那条 vanilla 曲线根本没塌**。下面是重读的结果。
 
-**说不满的**:他们头条 Mode A 曲线(Fig.6)用的是自训 4B-GRPO 老师,其终止符取决于他们 RL 用的模板,我们不知道;
-4B-Instruct-2507 那格他们没报病理归属;修正侧单种子;e2/h2 带修正照塌,错位对 vanilla 充分、不是唯一可能的驱动。
+### 9.1 他们的配置(Appendix A 原文)
 
-**结论的写法**:不是"他们数字错",是"他们的 Mode A 在同协议下可以被一个停止符读数的单旋钮关掉,而全文没有停止符分析;
-他们给的机制(token 平均目标下用长度稀释负 advantage)与修复不动聚合方式却塌缩消失这件事不相容"。要指名他们那条 4B-GRPO 曲线,
-得复现一个 GRPO 老师或拿到 ckpt;现有证据只够说"他们的协议对这个伪影是暴露的,且他们的现货老师格在我们这里就是这个伪影"。
-顺带:legacy g6_seqmean(逐序列归一)三种子只跑到 48–49 步(clip .55–.68,与 vanilla 的第一次长度冲高同期),判不了晚期,
-不能拿它当他们稀释机制的反证。
+「We implement the training pipeline using verl.」·「a total batch size of 128, 1 rollout for each prompt」·
+「a single epoch per rollout batch to eliminate off-policy bias」·**「The maximum sequence length is set to 16,384 tokens during training.」**·
+「temperature of τ=1.0 and top-p=1.0」·训练集 Nemotron-Cascade Math·非思考前缀。**lr 与训练步数仍然全文未报。**
+注意措辞是 maximum **sequence** length(我们的协议是 prompt 1024 + response 16384 分开钉),这一处不可逐字对齐,登记。
+
+### 9.2 图里的数(SVG 渲染后读的,不是正文转述)
+
+**Figure 9**(Teacher `Qwen3-4B-GRPO` → Student **`Qwen3-1.7B-Base`**,与我们同一个学生,横轴到 ~460 步):
+y 轴刻度 0/2k/5k/7k/10k/12k。vanilla OPD(灰)从 ~1k 起、第 ~20 步先降到 ~0.7k、然后陡升,
+**第 ~60 步见顶 ~12.7k,之后一路缓降到 ~11.5k,从第 250 步到第 460 步一直平**;
++Clip 顶 7.7k→回落→10.5k→~9.5k;+Logs 顶 11.0k→8.7k→10.8k→~9.5k。右图 Train Accuracy 三条**全程在涨**
+(OPD ~0.11,clip/logs ~0.125)。**即:在 16,384 的帽下,他们这条 vanilla 峰值只到 ~12.7k,离帽还有 3.6k,而且是降下来平住的 —— 没有塌。**
+
+**Figure 6**(Mode A/B 图,四栏 Accuracy / Response Length / Clip Ratio / advantage):
+- **Mode A(蓝)= `Qwen3-4B-GRPO` → `Qwen3-1.7B`(chat 学生,不是 Base)**:长度从 ~11k 涨到 ~12.8k,
+  **clip ratio 0.47 → 0.68–0.75**,accuracy 0.28 → 0.12,曲线在 ~150 步停。12.8k 均值配 0.75 截断率 = 16,384 帽被四分之三的 rollout 撞到,与正文「grows until hitting the predefined maximum limit」自洽。
+- **Mode B(红)= `Qwen3-1.7B-GRPO` → `Qwen3-1.7B-Base`**:长度第 60 步冲到 ~10k,随后**稳在 ~8.2k 平了 550 步**;
+  **clip ratio 冲到 0.49 后单调衰减,第 ~300 步起为 0.00 并保持**;accuracy 0.03 一路涨到 0.15;
+  到第 ~620 步长度**瞬间掉到 0**、accuracy 掉到 0。
+
+**Figure 4**(四老师对比)的老师是 `Qwen3-{1.7B,4B}-GRPO` 与 `Qwen3-{1.7B,4B}`,**并且整张图是「OPD w/ Clip」**,横轴到 1.1k 步。
+`Qwen3-4B-Instruct-2507` 在全文只出现三处:Table 1 顶部作为**模型自身分数**、§3 pass@1024 天花板实验的老师之一(**只报 pass@k,不报任何训练动态**)、以及 Table 2 里 30B-A3B-2507 是别人方法的老师。
+**Table 1 的 OPD / +Clip / +Scale 三行只在 `Qwen3-1.7B-GRPO` 与 `Qwen3-4B-GRPO` 两个自训老师下报。**
+
+### 9.3 结论(取代第一版)
+
+1. **不能说「他们的 baseline 病着」。**跟我们同一个学生、未加调节的那条曲线(Fig 9 灰)跑了 460 步不塌,峰值离帽 3.6k,准确率还在涨。
+   更要命的对照是 Fig 6 的 Mode B:**Base 学生在他们手里 clip ratio 能衰减到 0.00 并保持 300 步以上** —— 学生正常停得下来。
+   我们的 legacy Base 学生从来做不到这件事(棘轮到 1.00,`MECHANISMS.md` M-I:0/500 回头)。
+2. **我们塌的那一格,他们没跑过。**`1.7B-Base ← 现货 4B-Instruct-2507 + 不加调节`,论文里没有任何训练动态。
+   所以我们的结果**不与他们的数字冲突**,它是他们证据之外的一格。这对论文其实是好消息:主张从「他们错了」收缩为
+   「他们的协议在换一个现货 Instruct 老师后会产生一个他们没测到的终止符伪影」,后者我们有单旋钮证据(.247→.348、截断 1.0→.10)。
+3. **他们 vanilla 的曲线形状像我们的修正载体,不像我们的 legacy。**升→过冲→缓降→平台:`vanilla_corr` 是 12.4k@50 → 平 9.7k;
+   他们是 12.7k@60 → 平 11.5k;我们的 legacy 是 13.3k@50 → 回落 10.2k@75 → **再冲到 16,384@125 不下来**。第三段是我们独有的。
+4. **登记假说(不是结论)**:他们的两个老师都是从 Qwen3 chat 线自训 GRPO 的,而 Fig 6 Mode B 显示 Base 学生的截断率能归零 ——
+   说明**他们的老师没有惩罚学生的 `<|endoftext|>`**;现货 4B-Instruct-2507 会(我们实测停止位 q_T(eot) 中位 1.4e-11,`docs/data/eos_stop_*.txt`)。
+   顺着这条,他们的 **Mode B 是同一个错位的镜像候选**:老师若在很多位置都给 eot 不低的质量,采样到 eot 就拿正优势,
+   学生最终锁死在「开头一段就停」—— 正是他们描述的 abrupt degeneration。他们自己的解释(1/T 稀释)也能盖住 Mode B,两者并存,
+   **判据**:对一个 chat 线 GRPO 老师量 q_T(eot) 在停止位与非停止位的分布,与现货 Instruct 老师对比。需要一次前向,不需要训练。
+5. **对 §8 第 1 条的影响**:§8 说「他们的 baseline 病着,我们的没病」——**前半句撤回**,改为:
+   **他们报的 clip 增益(4B-GRPO 44.3→47.4)来自一条不塌但过长的 baseline(11.5k 平台),不是来自撞帽塌缩**;
+   我们 legacy 上 f2 的 +0.21 比他们大一个量级,因为我们的 baseline 是撞帽塌缩的 —— 两边的 baseline 病得不一样重,
+   这仍然解释「为什么修正载体上 f2 归零」,但不能再说他们的 baseline 也是撞帽的那种。

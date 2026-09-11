@@ -53,3 +53,29 @@ n=1 / batch 128 / 16,384 / τ=1.0 / top-p=1.0,reverse-KL sampled-token。**
   verl 侧用 `data.apply_chat_template_kwargs.enable_thinking=False` 即可。
 - [ ] 评测生成参数(温度、max tokens、AMC/AIME avg@32 的采样温度)
 - [ ] 曲线横轴刻度(step? epoch? token 数)—— 决定锚点对表方式
+
+## 更正与补全(2026-09-11,把图渲染出来逐张读之后)
+
+**哪个老师用在哪个实验 —— 本文件原表把四个老师并列,会误导。**逐处核对:
+
+| 出现处 | 老师 | 报了什么 |
+|---|---|---|
+| §3 Fig 3(pass@1024 天花板) | 4B-Instruct-2507、Qwen3-{4B,8B,32B}、4B-GRPO | **只有 pass@k 曲线,没有任何训练动态** |
+| §3 Fig 4(四老师对比) | `Qwen3-{1.7B,4B}-GRPO`、`Qwen3-{1.7B,4B}` | 准确率 + informativeness,**整张图是 OPD w/ Clip**,横轴 1.1k 步 |
+| §4 Fig 6(Mode A/B) | Mode A = 4B-GRPO→**Qwen3-1.7B(chat 学生)**;Mode B = 1.7B-GRPO→1.7B-Base | 长度 / clip ratio / advantage |
+| §5 Fig 9 + Table 1 | `1.7B-GRPO`、`4B-GRPO` 两个自训老师 | OPD / +Clip / +Scale |
+
+**结论:`Qwen3-4B-Instruct-2507` 从未作为「未加调节 OPD」的老师报过训练动态。**我们把它当「Demystifying 的现货格 =
+筛选档与复现锚点合一」是**只在 pass@k 那一格成立**;训练动态上它是我们独有的一格(审计 §9)。零自训纪律不变,
+但论文里「与锚点对表」的措辞要改成:协议对表(verl / batch 128 / n=1 / τ=1 / top-p=1 / 单 epoch / 16,384 / 同数据集 / 非思考前缀),
+**不是曲线对表**。
+
+**Appendix A 原文补全**(本文件原记「lr / 步数 ABSENT」,仍然 ABSENT,其余现在有了):
+「We implement the training pipeline using verl.」/「a total batch size of 128, 1 rollout for each prompt」/
+「For the GRPO baselines, the group advantage is calculated across a size of 128×8 rollouts.」/
+「a single epoch per rollout batch to eliminate off-policy bias」/
+**「The maximum sequence length is set to 16,384 tokens during training.」**(注意是 **sequence**,含不含 prompt 未言明;
+我们是 prompt 1024 + response 16384)/「temperature of τ=1.0 and top-p=1.0」/ avg@32 用 N=40 候选、M=10 次独立试验。
+
+**Figure 9 的长度读数**(与我们的曲线对比,审计 §9.2):vanilla 峰值 ~12.7k @ 第 60 步 → 缓降 → **~11.5k 平到第 460 步**,
+**从未接近 16,384**,train accuracy 全程在涨。Fig 6 的 Mode A(chat 学生)才是撞帽那条:clip ratio 0.47→0.75。
