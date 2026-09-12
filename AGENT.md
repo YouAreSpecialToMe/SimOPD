@@ -53,6 +53,24 @@
 > 打包上传;② 给本地一个能 ssh 的入口(新跳板地址;公钥由用户放,不经 Claude 手),本地上去跑同一条命令。
 > 拿到包先做三件事:c2_fixed8 熵爆前后的 token 级对照(教师 top-8 覆盖掉到 .24 时学生在吐什么)、c5 正文里 im_end
 > 出现次数与复读段、d3 / h2 / g1 的结尾行为与 `dl_last` 分布。
+>
+> **✅ 2026-09-12 到货 —— 走的是第三条路:HuggingFace 数据集。**
+> `https://huggingface.co/datasets/Jerrycool/opd`(public、非 gated),单文件
+> `simopd_retrain_20260912.zip`,**14,238,440,728 字节 / 13.3 GiB**,
+> sha256 `9dec5b44914f9cceef8fbd6f34770e1027208ae5e47b6f6558fc0418ef2ef454`
+> (仓库根 `SHA256SUMS` 里的源路径 `/home/rqiang_google_com/opd/simopd_data/hf_pack/` = rushi-Q)。
+> 内容 **比我请求的多得多**:不是 `pack_traj.py` 的 2.5 GB 挑选包,而是 29 臂的**全部非权重产物**
+> —— 18,242 个文件、解压 15.06 GiB(`traj/` 13.72 GiB + `val_gen/` 1.30 GiB + `metrics/` 0.04 GiB
+> + manifest/指纹/停止契约),不含 `global_step_*/` 权重(4.9 TiB)。所以 `pack_traj.py` 的 PICKS/TOK_PICKS
+> **这一轮用不上了**(脚本留着,下一波再用)。
+> **本地落点**:`~/projects/simopd_data/hf_pack/`(**仓库外**,15 GB 绝不进 git;SimOPD 的 .gitignore 里没有这条路径,
+> 别把它挪进仓库树)。下载用 curl 断点续传(本机无 hf CLI / huggingface_hub / wget / aria2c)。
+> **磁盘**:下载前本卷只剩 43 GiB(91% 满)。zip 13.3 + 解压 15.1 = 28.4 GiB,留约 14.7 GiB —— 够但紧,
+> 校验通过后可删 zip 回收 13.3 GiB。
+> **数据集 README 自报的四条缺口**(与我们 `results/20260909` 的记录一致):173 个存档点**没有任何离线评测**
+> (包内准确率全部是在环评测);`metrics/` 有缺步(作业被取消/到时限处)与同步多写(按 mtime 取最近);
+> 教师列索引 09-04 修过一次,**包内数据全部来自修复后的重跑,抽查 `tch_lp_nan` = 0**(与我们 09-09 移植的
+> `[P-1:P+L-1]` 切片对得上);实验跟踪离线模式,无在线曲线。
 
 ---
 
