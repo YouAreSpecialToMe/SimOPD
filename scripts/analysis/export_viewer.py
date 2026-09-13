@@ -22,12 +22,12 @@ from transformers import AutoTokenizer
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "/home/zz865/opd_pack/extracted"
 OUT = sys.argv[2] if len(sys.argv) > 2 else "/home/zz865/viewer_data.json"
-ARMS = sys.argv[3:] or ["vanilla_corr_s0", "g1_verified_only_corr_s0",
-                        "d3_teachability_corr_s0", "h1_first_segment_corr_s0"]
+ARMS = sys.argv[3:] or sorted(d for d in os.listdir(ROOT)
+                              if os.path.isdir(os.path.join(ROOT, d)))
 
-N_SEQ = 3          # sequences kept per (arm, step)
+N_SEQ = 2          # sequences kept per (arm, step)
 BINS = 400         # whole-sequence trace resolution
-WIN = 220          # tokens of detail per window
+WIN = 200          # tokens of detail per window
 IMEND = 151645
 
 tk = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B-Base")
@@ -64,10 +64,14 @@ def downsample(vals, n):
     return out
 
 
-def window(ids, r, ent, qime, lo, hi):
+def window(ids, r, ent, qime, top1, lo, hi):
+    """One token per entry: [text, r, entropy, q_T(im_end), teacher's top-1 when it differs]."""
     toks = []
     for j in range(max(0, lo), min(len(ids), hi)):
-        toks.append([tok_text(ids[j]), r2(r[j]), r2(ent[j]), r2(qime[j])])
+        alt = None
+        if top1 and j < len(top1) and top1[j] is not None and top1[j] != ids[j]:
+            alt = tok_text(top1[j])
+        toks.append([tok_text(ids[j]), r2(r[j]), r2(ent[j]), r2(qime[j]), alt])
     return {"o": max(0, lo), "toks": toks}
 
 
@@ -118,6 +122,7 @@ for arm in ARMS:
         tlp = t.column("tch_lp").to_pylist()
         ent = t.column("ent").to_pylist() if "ent" in cn else [[]] * len(rid)
         qim = t.column("tch_lp_151645").to_pylist() if "tch_lp_151645" in cn else [[]] * len(rid)
+        t1c = t.column("tch_top1_id").to_pylist() if "tch_top1_id" in cn else [[]] * len(rid)
         gt = t.column("gt").to_pylist() if "gt" in cn else [""] * len(rid)
         sc = t.column("score").to_pylist() if "score" in cn else [None] * len(rid)
         tr = t.column("truncated").to_pylist() if "truncated" in cn else [None] * len(rid)
@@ -141,30 +146,60 @@ for arm in ARMS:
             q = [(math.exp(qim[k][j]) if (qim[k] and j < len(qim[k]) and ok(qim[k][j])) else None)
                  for j in range(L)]
 
+            top1 = t1c[k] if t1c and k < len(t1c) else []
             hot = None
             best = 0.0
             for j in range(L - 1):
                 if q[j] is not None and q[j] > best:
                     best, hot = q[j], j
 
-            wins = [window(ids, r, e, q, 0, WIN)]
+            # the most-suppressed and most-reinforced body positions are where the
+            # disagreement actually lives, so make them reachable
+            body = [(r[j], j) for j in range(L - 1) if r[j] is not None]
+            rmax = max(body)[1] if body else None
+            rmin = min(body)[1] if body else None
+
+            wins = [window(ids, r, e, q, top1, 0, WIN)]
             if L > 2 * WIN:
-                wins.append(window(ids, r, e, q, L - WIN, L))
-            if hot is not None and best > 0.2 and not (hot < WIN or hot > L - WIN):
-                wins.append(window(ids, r, e, q, hot - WIN // 2, hot + WIN // 2))
+                wins.append(window(ids, r, e, q, top1, L - WIN, L))
+            for p in (hot if (hot is not None and best > 0.2) else None, rmax, rmin):
+                if p is None or p < WIN or p > L - WIN:
+                    continue
+                if any(abs(p - (w["o"] + WIN // 2)) < WIN for w in wins):
+                    continue
+                wins.append(window(ids, r, e, q, top1, p - WIN // 2, p + WIN // 2))
             wins.sort(key=lambda w: w["o"])
 
             out.append({
                 "seq": k, "len": L, "trunc": bool(tr[k]) if tr[k] is not None else None,
                 "score": r2(sc[k]) if sc[k] is not None else None,
                 "gt": (gt[k] or "")[:80],
-                "hot": hot, "hotq": r2(best),
+                "hot": hot, "hotq": r2(best), "rmax": rmax, "rmin": rmin,
+                "rmaxv": r2(r[rmax]) if rmax is not None else None,
+                "rminv": r2(r[rmin]) if rmin is not None else None,
                 "trace": {"r": downsample(r, BINS), "ent": downsample(e, BINS),
                           "q": downsample(q, BINS)},
                 "wins": wins,
             })
         if out:
             entry["samples"][str(step)] = out
+            edges = [(0, 100), (100, 500), (500, 2000), (2000, 8000), (8000, 16400)]
+            prof, allr = [], []
+            acc = {e: [] for e in edges}
+            for k in picks:
+                L = min(len(rid[k]), len(slp[k]), len(tlp[k]))
+                for j in range(L - 1):
+                    if ok(slp[k][j]) and ok(tlp[k][j]):
+                        v = slp[k][j] - tlp[k][j]
+                        allr.append(v)
+                        for e in edges:
+                            if e[0] <= j < e[1]:
+                                acc[e].append(v)
+                                break
+            for e in edges:
+                prof.append(r2(sum(acc[e]) / len(acc[e])) if acc[e] else None)
+            entry.setdefault("prof", {})[str(step)] = {
+                "bins": prof, "mean": r2(sum(allr) / len(allr)) if allr else None}
 
     data["arms"][name] = entry
 
