@@ -39,3 +39,4 @@ wandb/
 
 # 轨迹浏览器的逐序列数据(23 MB,从 HF 的 Jerrycool/opd 包派生,用 export_viewer.py 重生成)
 docs/traj-data/
+docs/eval-data/
