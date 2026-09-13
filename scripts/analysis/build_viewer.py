@@ -7,7 +7,11 @@ src = sys.argv[1] if len(sys.argv) > 1 else "viewer_data.json"
 out = sys.argv[2] if len(sys.argv) > 2 else "traj_viewer.html"
 data = open(src, encoding="utf-8").read()
 
-HTML = r"""<title>Token Signal Scope</title>
+HTML = r"""<!doctype html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Token Signal Scope</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root{
@@ -69,6 +73,8 @@ code{font-family:var(--mono);font-size:12px;background:var(--panel2);padding:1px
 @media (max-width:760px){.wrap{grid-template-columns:1fr}.rail{border-right:none;border-bottom:1px solid var(--rule)}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
+</head>
+<body>
 
 <div class="wrap">
 <aside class="rail">
@@ -277,6 +283,7 @@ addEventListener('resize',()=>{renderSeries();
 
 renderArms();renderSteps();renderSeries();renderSeqs();
 </script>
+</body></html>
 """
 
 open(out, "w", encoding="utf-8").write(HTML.replace("__DATA__", data))
