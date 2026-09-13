@@ -140,7 +140,7 @@ label.tgl{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--d
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap">
       <div class="lab" id="streamlab" style="margin:0">Token 流</div>
-      <label class="tgl"><input type="checkbox" id="showalt"> 显示教师想要的 token(仅 r&gt;2 处)</label>
+      <label class="tgl"><input type="checkbox" id="showalt"> 显示教师想要的 token(标记处)</label>
     </div>
     <div class="stream" id="stream" style="margin-top:9px"></div>
   </div>
@@ -159,6 +159,9 @@ label.tgl{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--d
 <script type="application/json" id="DATA">__DATA__</script>
 <script>
 const D=JSON.parse(document.getElementById('DATA').textContent);
+const SEQBASE=(D.meta&&D.meta.seqdir)||'traj-data/';
+const seqCache=new Map();
+let streamToken=0;                       // guards against out-of-order fetches
 const armNames=Object.keys(D.arms);
 const REF='vanilla_corr';
 let curArm=armNames.includes(REF)?REF:armNames[0], curStep=null, curSeq=0, filter='';
@@ -247,10 +250,14 @@ function drawTrace(s){
     const px=i/n*w,ht=Math.min(1,v)*(zero-6);
     x.globalAlpha=.85;x.beginPath();x.moveTo(px,zero);x.lineTo(px,zero-ht);x.stroke();}
   x.globalAlpha=1;
-  x.fillStyle=css('--ink');x.globalAlpha=.06;
-  s.wins.forEach(win=>{const a=win.o/s.len*w,b=(win.o+win.toks.length)/s.len*w;
-    x.fillRect(a,0,Math.max(2,b-a),h);});
-  x.globalAlpha=1;
+  // mark the positions the jump buttons target
+  const flag=(p,col)=>{if(p===null||p===undefined||!s.len)return;
+    const px=p/s.len*w;
+    x.strokeStyle=col;x.lineWidth=1;x.globalAlpha=.9;x.setLineDash([2,2]);
+    x.beginPath();x.moveTo(px,0);x.lineTo(px,h-12);x.stroke();
+    x.setLineDash([]);x.globalAlpha=1;};
+  flag(s.rmax,css('--hot')); flag(s.rmin,css('--cold'));
+  if(s.hotq>0.5)flag(s.hot,css('--mark'));
   x.fillStyle=css('--dim');x.font='10px '+css('--mono');
   x.fillText('0',2,zero-3);x.fillText('位置 0',2,h-2);
   x.textAlign='right';x.fillText(String(s.len),w-2,h-2);x.textAlign='left';
@@ -273,34 +280,59 @@ function renderSeries(){
   drawProfile();
 }
 
-function renderStream(){
+async function renderStream(){
   const s=D.arms[curArm].samples[String(curStep)][curSeq];
   drawTrace(s);
+  const mine=++streamToken;
   el('streamlab').textContent='Token 流 · 序列 #'+s.seq+' · '+s.len+' token';
-  const showAlt=el('showalt').checked;
-  const out=[];let prevEnd=null;
-  s.wins.forEach(win=>{
-    if(prevEnd!==null&&win.o>prevEnd) out.push('<span class="gap">略去 '+(win.o-prevEnd)+' 个 token</span>');
-    win.toks.forEach((t,i)=>{
-      const pos=win.o+i,txt=t[0],r=t[1],e=t[2],q=t[3],alt=t[4];
-      const dis=(alt&&r!==null&&r>2);
-      const cls='tok'+((q!==null&&q>0.5)?' hotstop':'')+(dis?' dis':'');
-      const safe=esc(txt);
-      const body=(showAlt&&dis)?safe+'<span class="alt">→'+esc(alt)+'</span>':safe;
-      out.push('<span class="'+cls+'" style="background:'+sigColor(r)+'" id="p'+pos+'" data-p="'+pos+
-        '" data-r="'+r+'" data-e="'+e+'" data-q="'+q+'" data-a="'+(alt?attr(alt):'')+
-        '" data-t="'+attr(txt)+'">'+body+'</span>');});
-    prevEnd=win.o+win.toks.length;});
-  if(prevEnd!==null&&prevEnd<s.len) out.push('<span class="gap">略去 '+(s.len-prevEnd)+' 个 token</span>');
+  el('jumps').innerHTML='';
+
+  let full=seqCache.get(s.key);
+  if(!full){
+    el('stream').innerHTML='<span class="note">载入整条序列…</span>';
+    try{
+      const res=await fetch(SEQBASE+encodeURIComponent(s.key)+'.json');
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      full=await res.json();
+      seqCache.set(s.key,full);
+    }catch(err){
+      if(mine!==streamToken)return;
+      el('stream').innerHTML='<span class="note">取不到整条序列 ('+esc(err.message)+
+        ')。这份页面需要从本地服务器打开(<code>python3 -m http.server</code>),'+
+        '直接用 file:// 双击会被浏览器的同源策略挡住。</span>';
+      return;
+    }
+  }
+  if(mine!==streamToken)return;
+
+  const showAlt=el('showalt').checked, toks=full.toks, extra=full.extra||{};
+  const out=new Array(toks.length);
+  for(let j=0;j<toks.length;j++){
+    const txt=toks[j][0], r=toks[j][1], ex=extra[j];
+    const alt=ex?ex[2]:null, q=ex?ex[1]:null;
+    const dis=!!alt;
+    const cls='tok'+((q!==null&&q!==undefined&&q>0.5)?' hotstop':'')+(dis?' dis':'');
+    const safe=esc(txt);
+    const body=(showAlt&&dis)?safe+'<span class="alt">\u2192'+esc(alt)+'</span>':safe;
+    // a 16k-token response makes 16k spans, so only emit attributes that carry
+    // something; the empty ones cost ~40 chars each across the whole stream
+    out[j]='<span class="'+cls+'" style="background:'+sigColor(r)+'" id="p'+j+
+      '" data-p="'+j+'" data-r="'+r+
+      (ex&&ex[0]!==null?'" data-e="'+ex[0]:'')+
+      (q!==null&&q!==undefined?'" data-q="'+q:'')+
+      (alt?'" data-a="'+attr(alt):'')+
+      '" data-t="'+attr(txt)+'">'+body+'</span>';
+  }
   el('stream').innerHTML=out.join('');
 
   const j=[];
-  const mk=(p,lab)=>{if(p!==null&&p!==undefined&&el('p'+p))j.push('<button class="jump" data-j="'+p+'">'+lab+'</button>');};
+  const mk=(p,lab)=>{if(p!==null&&p!==undefined&&p>=0&&p<toks.length)
+    j.push('<button class="jump" data-j="'+p+'">'+lab+'</button>');};
   mk(0,'开头');
   mk(s.rmax,'最受压制 r='+s.rmaxv);
   mk(s.rmin,'最受强化 r='+s.rminv);
   if(s.hotq>0.5) mk(s.hot,'教师想结束 @'+s.hot);
-  mk(s.len-1,'结尾');
+  mk(toks.length-1,'结尾');
   el('jumps').innerHTML=j.join('');
   el('jumps').querySelectorAll('.jump').forEach(b=>b.onclick=()=>{
     const t=el('p'+b.dataset.j);if(!t)return;
@@ -355,8 +387,8 @@ el('stream').addEventListener('mousemove',ev=>{
   el('r-tok').textContent=JSON.stringify(t.dataset.t);
   el('r-pos').textContent=t.dataset.p;
   el('r-r').textContent=t.dataset.r;
-  el('r-e').textContent=t.dataset.e;
-  el('r-q').textContent=t.dataset.q;
+  el('r-e').textContent=t.dataset.e||'—';
+  el('r-q').textContent=t.dataset.q||'—';
   el('r-a').textContent=t.dataset.a?JSON.stringify(t.dataset.a):'(与学生相同)';
 });
 el('showalt').onchange=()=>{const arr=D.arms[curArm].samples[String(curStep)];if(arr&&arr.length)renderStream();};

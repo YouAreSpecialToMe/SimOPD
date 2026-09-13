@@ -22,6 +22,7 @@ from transformers import AutoTokenizer
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "/home/zz865/opd_pack/extracted"
 OUT = sys.argv[2] if len(sys.argv) > 2 else "/home/zz865/viewer_data.json"
+SEQDIR = os.path.splitext(OUT)[0] + "_seq"   # per-sequence full token detail
 ARMS = sys.argv[3:] or sorted(d for d in os.listdir(ROOT)
                               if os.path.isdir(os.path.join(ROOT, d)))
 
@@ -64,15 +65,21 @@ def downsample(vals, n):
     return out
 
 
-def window(ids, r, ent, qime, top1, lo, hi):
-    """One token per entry: [text, r, entropy, q_T(im_end), teacher's top-1 when it differs]."""
-    toks = []
-    for j in range(max(0, lo), min(len(ids), hi)):
+def full_tokens(ids, r, ent, qime, top1):
+    """Every token as [text, r]; the richer fields go in a sparse side map keyed by
+    position, kept only where something is actually happening (a real disagreement,
+    or the teacher wanting to end), so the file stays small."""
+    toks, extra = [], {}
+    for j in range(len(ids)):
+        rv = r2(r[j])
+        toks.append([tok_text(ids[j]), rv])
         alt = None
         if top1 and j < len(top1) and top1[j] is not None and top1[j] != ids[j]:
             alt = tok_text(top1[j])
-        toks.append([tok_text(ids[j]), r2(r[j]), r2(ent[j]), r2(qime[j]), alt])
-    return {"o": max(0, lo), "toks": toks}
+        q = qime[j]
+        if (rv is not None and rv > 2 and alt) or (q is not None and q > 0.05):
+            extra[str(j)] = [r2(ent[j]), r2(q), alt]
+    return toks, extra
 
 
 data = {"meta": {"root": ROOT, "r": "stu_lp - tch_lp", "bins": BINS, "win": WIN},
@@ -159,16 +166,12 @@ for arm in ARMS:
             rmax = max(body)[1] if body else None
             rmin = min(body)[1] if body else None
 
-            wins = [window(ids, r, e, q, top1, 0, WIN)]
-            if L > 2 * WIN:
-                wins.append(window(ids, r, e, q, top1, L - WIN, L))
-            for p in (hot if (hot is not None and best > 0.2) else None, rmax, rmin):
-                if p is None or p < WIN or p > L - WIN:
-                    continue
-                if any(abs(p - (w["o"] + WIN // 2)) < WIN for w in wins):
-                    continue
-                wins.append(window(ids, r, e, q, top1, p - WIN // 2, p + WIN // 2))
-            wins.sort(key=lambda w: w["o"])
+            toks, extra = full_tokens(ids, r, e, q, top1)
+            key = f"{name}__{step}__{k}"
+            os.makedirs(SEQDIR, exist_ok=True)
+            with open(os.path.join(SEQDIR, key + ".json"), "w", encoding="utf-8") as fh:
+                json.dump({"toks": toks, "extra": extra},
+                          fh, separators=(",", ":"), ensure_ascii=False)
 
             out.append({
                 "seq": k, "len": L, "trunc": bool(tr[k]) if tr[k] is not None else None,
@@ -179,7 +182,7 @@ for arm in ARMS:
                 "rminv": r2(r[rmin]) if rmin is not None else None,
                 "trace": {"r": downsample(r, BINS), "ent": downsample(e, BINS),
                           "q": downsample(q, BINS)},
-                "wins": wins,
+                "key": key,
             })
         if out:
             entry["samples"][str(step)] = out
@@ -205,6 +208,9 @@ for arm in ARMS:
 
 with open(OUT, "w") as fh:
     json.dump(data, fh, separators=(",", ":"), ensure_ascii=False)
-print("wrote", OUT, os.path.getsize(OUT), "bytes")
+nseq = sum(len(os.listdir(SEQDIR)) for _ in [0]) if os.path.isdir(SEQDIR) else 0
+sz = sum(os.path.getsize(os.path.join(SEQDIR, f)) for f in os.listdir(SEQDIR)) if nseq else 0
+print("wrote", OUT, os.path.getsize(OUT), "bytes (index)")
+print("wrote", SEQDIR, nseq, "sequence files,", sz, "bytes total")
 for a, v in data["arms"].items():
     print(f"  {a:28} steps={len(v['steps'])} sampled_steps={len(v['samples'])}")
