@@ -8,9 +8,13 @@
 
 ---
 
-## ⚠ 这是 `0917` 分支:2026-09 名册重训的交接包
+## ⚠ 2026-09 名册重训的交接包(`0917` 分支,09-18 已合并进 `ch-dev`)
 
-上一轮执行方已停机。这个分支 = `ch-dev` + 那一轮实际在跑的 Slurm 自动化 + 一份交接手册。
+上一轮执行方已停机。`0917` = `ch-dev@fea5556` + 那一轮实际在跑的 Slurm 自动化 + 一份交接手册;
+09-18 合并回 `ch-dev`,两条分支现在内容一致。
+
+**还剩什么、先做哪些、谁在跑哪条 → [docs/REMAINING-20260918.md](docs/REMAINING-20260918.md)**
+(逐臂待办表从实物现算、按优先级的顺序、认领方式、等拍板的三件事)。
 
 **落档 5400/6050 步(89.3%)、19 条臂训练完成、155 份评测 parquet。
 剩 650 步训练和 114 格评测。**
@@ -69,8 +73,11 @@ EVAL_GRID=light sbatch slurm/retrain_eval_farm.sbatch   # 起评测专列
 
 ## 协作者
 
-远程算力协作:名册中 `remote` 标记的臂开放认领,契约与交付见
-**[docs/COLLABORATORS.md](docs/COLLABORATORS.md)**(先读 The contract)。
+**2026-09 名册的收尾工作**见 **[docs/REMAINING-20260918.md](docs/REMAINING-20260918.md)**(含认领方式)。
+
+下面这份是 **2026-08 16k campaign** 的远程协作契约(29 臂 × 3 seed、`vanilla` 基线),
+对 2026-09 名册不适用,留作历史:名册中 `remote` 标记的臂开放认领,契约与交付见
+**[docs/COLLABORATORS.md](docs/COLLABORATORS.md)**。
 
 ## 结果与分析(16k campaign,29 臂 × 3 seed)
 
@@ -89,6 +96,9 @@ EVAL_GRID=light sbatch slurm/retrain_eval_farm.sbatch   # 起评测专列
 | [docs/SimOPD-plan.md](docs/SimOPD-plan.md) | 实验计划 v3.1:定位、7 轴、诊断 D1'–D6、三阶段流程、判决规则、硬件预算、里程碑 |
 | [docs/SimOPD-casefile.md](docs/SimOPD-casefile.md) | 案卷:动物园普查、管辖权裁定、8 轴参赛名单(审/替/落)、代表选择准则 |
 | [docs/HANDOFF-20260917.md](docs/HANDOFF-20260917.md) | **交接手册(2026-09 名册重训)**:环境、资产、逐臂剩余步数、评测缺口、Slurm 自动化层、12 个已知坑 |
+| [docs/REMAINING-20260918.md](docs/REMAINING-20260918.md) | **还没跑完的(给接手的合作者)**:650 步训练 + 114 格评测的逐臂表、建议顺序、认领、必须知道的 9 条、等拍板的 3 件 |
+| [docs/EVAL-LEDGER-20260918.md](docs/EVAL-LEDGER-20260918.md) | 155 份评测入账:覆盖哪些格、`\boxed{}` 风险解除、在环 val 与离线评测不可比 |
+| [docs/CORNELL-FEASIBILITY-20260918.md](docs/CORNELL-FEASIBILITY-20260918.md) | 续训在 Cornell 能不能跑:只能用 80 G 卡的显存算术、指纹钉住的旋钮、实测机时 |
 | [docs/INFRA-NOTES.md](docs/INFRA-NOTES.md) | infra 勘察:verl 主线原生 OPD 基座裁定、缺口→接缝图、槽位布局、W1 清单;v1.1 集群实测补充 |
 | [docs/PROTOCOL-unified.md](docs/PROTOCOL-unified.md) | **统一实验协议(预注册)**:10 篇受审论文 setup 调研表 + 锁定协议 + 各臂实现来源(代码复用图)+ 显式偏离清单 |
 | [docs/PROTOCOL-demystifying.md](docs/PROTOCOL-demystifying.md) | Demystifying 协议实录(锚点依据):模型/数据/超参抽取 + 未决项 |

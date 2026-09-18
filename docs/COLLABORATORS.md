@@ -1,5 +1,10 @@
 # Running SimOPD arms as a remote collaborator
 
+> **Historical (2026-08, 16k campaign).** This contract predates the 2026-09 roster
+> re-run: single seed, `vanilla_corr` as the base, `configs/retrain_roster.tsv`. For the
+> work still outstanding on that roster -- and how to claim it -- see
+> [`REMAINING-20260918.md`](REMAINING-20260918.md).
+
 SimOPD is a pre-registered audit of on-policy distillation (OPD) variants: one
 frozen protocol, 33 "arms" (one trick per arm), verdicts per arm against a vanilla
 floor. Target: ICLR 2027. Everything that defines a run is pinned in this repo;

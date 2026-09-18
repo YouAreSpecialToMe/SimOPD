@@ -301,7 +301,7 @@ verl 自己那份剥特殊符的文本 dump(`traj/_verl_text/`,每步整批 ~1 G
 `SIMOPD_DIV_PANEL / DIV_CHUNK`、`LOGGER`(显式给了就不再加 `file`)。
 
 **两条硬约束(2026-09-09,集群上的手工修复移植回 git;09-09 之前从 git 新 clone 起的 run 归档是坏的)**:
-- **`trainer.use_v1=False` 必须在启动命令里**(`run_opd_baseline.sh` 已固定传)。verl `aebd1f8` 默认
+- **`trainer.use_v1=False` 必须在启动命令里**(`run_opd_baseline.sh` 已固定传)。verl(`aebd1f8` 与现钉的 `3d36367e` 皆然)默认
   `use_v1=true`,走 `verl/trainer/ppo/v1` 的 `PPOTrainer`;归档层三处 driver 侧接缝按类名挂在 legacy
   `RayPPOTrainer` 上,V1 下**横幅照打、`traj/` 一个文件不写、`div` 行 `step` 全 null**。`src/sitecustomize.py`
   在 `verl.trainer.ppo.v1` 被 import 时(只有 V1 路径会 import 它)调 `traj_dump.refuse_v1()` 直接拒绝;
@@ -472,8 +472,9 @@ False**,除非真装了 modelscope——2026-08-23 就是容器注入了 `True` 
 归档层:`SIMOPD_ARCHIVE`、`SIMOPD_TRAJ_*`、`SIMOPD_DIV_PANEL`、`VERL_FILE_LOGGER_PATH`(启动器自己算)。
 
 **软件栈(2026-09-04 从本地环境与 lock 抄下,新集群照这个装)**:verl = 上游 `volcengine/verl`
-**commit `aebd1f8`**(2026-07-31;本地无任何未提交补丁,已核;`deploy/dsw/setup.sh` 现已钉此 commit,
-`VERL_COMMIT=` 可换)、vLLM **0.26.0+cu129**(`setup.sh` / `deploy/pai/Dockerfile` 里的 wheel URL)、
+**commit `3d36367e`**(2026-09-04;唯一真值是 `deploy/dsw/verl.pin`,`setup.sh` 读它,`VERL_COMMIT=` 可换。
+2026-09 名册的全部权重产自此版;此前 `setup.sh` 内联钉的 `aebd1f8`(07-31)已作废 —— 照它装出来的
+环境与产出权重的不是一个。2026-09 名册实际装出的全栈版本以 `docs/HANDOFF-20260917.md` §3.4 为准)、vLLM **0.26.0+cu129**(`setup.sh` / `deploy/pai/Dockerfile` 里的 wheel URL)、
 torch **2.11.0+cu129**、ray 2.56.1、transformers 5.10.4、tensordict 0.10.0(`deploy/pai/requirements.lock`)、
 flash-attn 2.8.3.post1(cp312 wheel 就在 `deploy/dsw/` 里,56 MB)。`src/sitecustomize.py` 的八个钩子挂在
 verl/vLLM 的具体内部符号上 —— **换任一版本都要重跑 CPU 电池再上卡**。
@@ -565,7 +566,7 @@ verl/vLLM 的具体内部符号上 —— **换任一版本都要重跑 CPU 电�
   照样输出、舰队照样起 lane、直到 vLLM 起完才在 `gkd_mix.install()` 里炸。已改成 `$SIMOPD_STORE/...`
   + `arm.py` 展开 + 舰队起 lane 前断言。**登记表里不许再出现绝对路径。**
 - **`setup.sh` 曾拉 verl 的上游 HEAD**(`--depth 1`,不钉 commit):钩子挂在 verl 内部符号上,新集群装出
-  "当天的 verl"就是赌。已钉 `aebd1f8`。
+  "当天的 verl"就是赌。已钉(现为 `3d36367e`,见 `deploy/dsw/verl.pin`)。
 - **产生 `docs/data/` 证据的分析脚本有 ~20 个从未进 git**(`eos_stop_audit.py`、`eval_offline_textdump.py`、
   `analyze_diag.py`、`emit_dynamics.py`、`clock_b2.py`、`v2probe_paired.py` ……,见 `docs/AUDIT-20260904.md` F 节),
   与 `eval_worker_exp.sh` 同一死法:只在盘上。头号机制 `docs/data/eos_stop_audit.txt` 的生成脚本现在**不可复现**。
