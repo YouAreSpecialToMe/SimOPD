@@ -195,7 +195,8 @@ code{font-family:var(--mono);font-size:11.5px;background:var(--panel2);padding:1
       <span style="display:flex;gap:6px;align-items:center"><span class="ramp"></span>
         <span style="font-family:var(--mono)">r −3 … 0 … +8</span></span>
       <span>青=被强化 · 锈=被压制</span>
-      <span style="color:var(--mark)">▮ 教师想在此结束</span>
+      <span style="color:var(--mark)">▮ 教师想在此结束 q&gt;0.5</span>
+      <span>实测极罕见:20 条序列里正文内只有 4 处,几乎都只出现在<b>末位</b></span>
       <span>▯ 字节片段</span>
     </div>
   </div>
@@ -429,13 +430,23 @@ async function renderStream(){
   }
   el('stream').innerHTML=out.join('');
 
+  // how often the teacher wanted to end anywhere in this response
+  let nEnd=0,nEndBody=0;
+  for(const k in extra){const q=extra[k][1];
+    if(q!==null&&q!==undefined&&q>0.05){nEnd++;if(+k<toks.length-1)nEndBody++;}}
+  el('streamlab').textContent='Token 流 · 序列 #'+s.seq+' · '+s.len+
+    ' token · 教师想结束的位置 '+nEnd+' 处(正文内 '+nEndBody+')';
+
   const j=[];
   const mk=(p,lab)=>{if(p!==null&&p!==undefined&&p>=0&&p<toks.length)
     j.push('<button class="jump" data-j="'+p+'">'+lab+'</button>');};
   mk(0,'开头');
   mk(s.rmax,'最受压制 r='+s.rmaxv);
   mk(s.rmin,'最受强化 r='+s.rminv);
-  if(s.hotq>0.5) mk(s.hot,'教师想结束 @'+s.hot);
+  // always offer the body position where the teacher most wants to end, even when
+  // that is only q=0.08 -- it is rare for it to clear 0.5, and the value matters
+  if(s.hot!==null&&s.hot!==undefined&&s.hot>0)
+    mk(s.hot,'教师最想结束 q='+(s.hotq||0)+' @'+s.hot);
   mk(toks.length-1,'结尾');
   el('jumps').innerHTML=j.join('');
   el('jumps').querySelectorAll('.jump').forEach(b=>b.onclick=()=>{

@@ -94,7 +94,8 @@ label.tgl{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--d
 <aside class="rail">
   <div>
     <h1>Token Signal Scope</h1>
-    <div class="sub">SimOPD 2026-09 · 逐 token 训练信号</div>
+    <div class="sub">SimOPD 2026-09 · 逐 token 训练信号<br>
+      <a href="traj-eval.html" style="color:var(--accent)">同题演变(评测)→</a></div>
   </div>
   <div>
     <div class="lab">臂 <span id="armcount" style="letter-spacing:0;text-transform:none"></span></div>
@@ -132,7 +133,8 @@ label.tgl{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--d
       <span style="display:flex;gap:6px;align-items:center"><span class="ramp"></span>
         <span style="font-family:var(--mono)">r −3 … 0 … +8</span></span>
       <span>青=被强化 · 锈=被压制</span>
-      <span style="color:var(--mark)">▮ 教师想在此结束</span>
+      <span style="color:var(--mark)">▮ 教师想在此结束 q&gt;0.5</span>
+      <span>实测极罕见:20 条序列里正文内只有 4 处,几乎都只出现在<b>末位</b></span>
       <span>▯ 字节片段</span>
     </div>
   </div>
@@ -324,6 +326,13 @@ async function renderStream(){
       '" data-t="'+attr(txt)+'">'+body+'</span>';
   }
   el('stream').innerHTML=out.join('');
+
+  // how often the teacher wanted to end anywhere in this response
+  let nEnd=0,nEndBody=0;
+  for(const k in extra){const q=extra[k][1];
+    if(q!==null&&q!==undefined&&q>0.05){nEnd++;if(+k<toks.length-1)nEndBody++;}}
+  el('streamlab').textContent='Token 流 · 序列 #'+s.seq+' · '+s.len+
+    ' token · 教师想结束的位置 '+nEnd+' 处(正文内 '+nEndBody+')';
 
   const j=[];
   const mk=(p,lab)=>{if(p!==null&&p!==undefined&&p>=0&&p<toks.length)
