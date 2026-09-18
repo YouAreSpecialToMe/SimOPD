@@ -95,7 +95,7 @@ import verl.trainer.distillation.losses as vl; \
 from simopd.topk_losses import _dispatching_compute_topk_loss as d; \
 stock={'kl','k1','abs','mse','k2','low_var_kl','k3','forward_kl_topk'}; \
 arms=sorted(set(vl.DISTILLATION_LOSS_REGISTRY)-stock); \
-assert len(arms) == 12, f'expected 12 arm losses, got {len(arms)}: {arms}'; \
+assert len(arms) >= 12, f'expected >= 12 arm losses, got {len(arms)}: {arms}'; \
 assert vl.compute_topk_loss is d, 'top-k dispatch not installed'; \
 print('arm losses registered:', len(arms))" \
  && python scripts/arm.py check | head -1

@@ -22,7 +22,7 @@ set -euo pipefail
 ARM=${1:?arm id}
 GPUS=${2:?gpu pair, e.g. 0,1}
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+D=${SIMOPD_STORE:?先 source simopd_env.sh}
 LOGD=$D/a_axis
 mkdir -p "$LOGD"
 cd "$ROOT"
@@ -92,7 +92,13 @@ elif [ -n "$first_tb" ]; then
     echo "note [$ARM]: teardown-phase traceback tolerated (line $first_tb > last step $last_step, exit 0)"
 fi
 
-case "$ARM" in
+# 名册臂名带载体后缀(k1_termfix 的 _n0 / _corr),而下面的判据分派表写的是**裸旋钮
+# 名**。2026-09-08:a5_aggrevate_n0 因此没匹配到 a5 分支,掉进 *) 默认分支,被 a1 的
+# gkd_mix 判据判了 FAIL;a1/a3/a4 同理跳过了各自的 λ 断言,PASS 是打折的。分派一律用
+# 剥掉载体后缀的 KNOB,报错和路径仍用完整 ARM。
+KNOB=${ARM%_n0}; KNOB=${KNOB%_corr}
+
+case "$KNOB" in
   a5_aggrevate)
     grep -q 'a5_aggrevate armed' "$LOG"            || fail "a5 wrapper never armed"
     grep -q 'training-prompt keys loaded' "$LOG"   || fail "membership keys not loaded"
@@ -125,23 +131,23 @@ case "$ARM" in
 esac
 
 # 无侧带臂(纯 env / 数据臂)跳过侧带判据。
-case "$ARM" in
+case "$KNOB" in
   h7_gen512|h8_gen2048|h10_task_subset)
     echo "rehearsal sideband n/a [$ARM]"
     echo "REHEARSAL PASS [$ARM]"
     exit 0 ;;
 esac
 
-python - "$ARM" "$SIDEBAND" <<'PY' || exit 1
+python - "$ARM" "$SIDEBAND" "$KNOB" <<'PY' || exit 1
 import json, sys
-arm, path = sys.argv[1], sys.argv[2]
+arm, path, knob = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     rows = [json.loads(l) for l in open(path) if l.strip()]
 except OSError:
     sys.exit(f"REHEARSAL FAIL [{arm}]: sideband {path} never written")
 if not rows:
     sys.exit(f"REHEARSAL FAIL [{arm}]: sideband empty")
-if arm == "a5_aggrevate":
+if knob == "a5_aggrevate":
     # 30s 完成时 flush 带会在步中途拍累积快照(n_seen 提交时计数、结局完成时
     # 落账,快照天然 sum<n_seen)——按步折叠取末行再判:闭步末行必须精确平衡
     # (步界 flush 发生在同步屏障之后),末步容忍快照;sum>n_seen 任何行恒致命。
@@ -173,7 +179,7 @@ if arm == "a5_aggrevate":
                  f"(mixed+full_teacher+tail_tokens all zero) -- a5 would train as vanilla")
     if seen and deg / seen > 0.10:
         sys.exit(f"REHEARSAL FAIL [{arm}]: degraded {deg}/{seen} > 10% of eligible -- teacher route unhealthy")
-elif arm in ("h6_gen_sched", "h9_prune_adapt"):
+elif knob in ("h6_gen_sched", "h9_prune_adapt"):
     by_step = {}
     for r in rows:
         if "h_target" in r:
@@ -185,7 +191,7 @@ elif arm in ("h6_gen_sched", "h9_prune_adapt"):
     ms = sum(r.get("n_miss", 0) for r in by_step.values())
     if tr <= 0:
         sys.exit(f"REHEARSAL FAIL [{arm}]: zero training rollouts counted")
-    if arm == "h6_gen_sched":
+    if knob == "h6_gen_sched":
         if len(st) >= 2 and not all(b > a for a, b in zip(st, st[1:])):
             sys.exit(f"REHEARSAL FAIL [{arm}]: horizon not ascending across steps: {st}")
     else:
@@ -204,11 +210,11 @@ else:
         if "lam_target" in r:
             by_step[r.get("step")] = r["lam_target"]
     slams = [by_step[k] for k in sorted(by_step)]
-    if arm == "a4_dagger_anneal" and len(slams) >= 2 and not all(b < a for a, b in zip(slams, slams[1:])):
+    if knob == "a4_dagger_anneal" and len(slams) >= 2 and not all(b < a for a, b in zip(slams, slams[1:])):
         sys.exit(f"REHEARSAL FAIL [{arm}]: schedule not descending across steps: {slams}")
-    if arm == "a1_gkd_mix0.5" and abs(lams[-1] - 0.5) > 1e-9:
+    if knob == "a1_gkd_mix0.5" and abs(lams[-1] - 0.5) > 1e-9:
         sys.exit(f"REHEARSAL FAIL [{arm}]: constant lambda drifted: {lams}")
-    if arm == "a3_offpolicy" and abs(lams[-1] - 1.0) > 1e-9:
+    if knob == "a3_offpolicy" and abs(lams[-1] - 1.0) > 1e-9:
         sys.exit(f"REHEARSAL FAIL [{arm}]: constant lambda drifted: {lams}")
 print(f"rehearsal sideband OK [{arm}]: {len(rows)} rows")
 PY

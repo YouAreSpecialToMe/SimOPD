@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-sys.path.insert(0, "/mgfs/shared/Group_GY/changhao/SimOPD/scripts")
+sys.path.insert(0, os.environ["SIMOPD_ROOT"] + "/scripts")
 import eval_offline as EO  # noqa: E402
 
 

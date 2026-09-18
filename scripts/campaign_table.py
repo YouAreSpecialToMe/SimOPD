@@ -4,6 +4,7 @@ Cells are kept in separate tables because they are not comparable: different stu
 different teacher, different starting accuracy (1.7B-Base 0.468, 8B-Base 0.664). A
 number from one says nothing about the other except through its own vanilla.
 """
+import os
 import re, glob, os, sys
 from collections import defaultdict
 from statistics import mean
@@ -34,7 +35,7 @@ def scan(paths):
                     last_step[cur] = max(last_step.get(cur, 0), int(m.group(1)))
 
 scan(sorted(glob.glob("logs/*/lane*.log")) + sorted(glob.glob("logs/lane*.log")))
-scan(sorted(glob.glob("/mgfs/shared/Group_GY/changhao/simopd_data/wpair_logs/lane*.log")))
+scan(sorted(glob.glob(os.environ["SIMOPD_STORE"] + "/wpair_logs/lane*.log")))
 
 def split(n):
     w = n.endswith("_w")

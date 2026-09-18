@@ -1,0 +1,10 @@
+3d36367e83d7130f0b658b6be46db96d85ff9ce7
+# upstream volcengine/verl,2026-09-04,"[megatron, ci] chore: upgrade Ascend stack to Megatron 0.18.0 (#7604)"
+#
+# 2026-09 名册重训(29 臂 / 5400 步)产出的全部 checkpoint 都在这个 commit 上跑出来。
+# src/sitecustomize.py 的八个钩子按名字挂 verl/vLLM 的内部符号,换版本钩子就可能静默
+# 挂空 —— 所以要续跑这批权重,必须用这个 sha,不是别的。
+#
+# 分叉记录:ch-dev 的 setup.sh 曾内联 aebd1f8a27d5606226f2b85682cacaf2fdf7eaa7
+# (2026-07-31)。两者相差约五周;本地 clone 是 shallow,判不出祖先关系,只知道日期更晚。
+# 要改回那个版本的话,得重跑 CPU 电池和 n2 彩排,并且不能再拿来续跑本批 checkpoint。

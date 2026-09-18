@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # 补充探针:tau=1.0 采样态停止行为(区分"通道被压死"vs"仅失去 argmax")
 set -uo pipefail
-ROOT=/mgfs/shared/Group_GY/changhao/SimOPD-exp
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+ROOT=$SIMOPD_ROOT
+D=$SIMOPD_STORE
 OUT=$D/evals_v2probe
 cd "$ROOT"
-source /mgfs/shared/Group_GY/changhao/SimOPD/simopd/bin/activate
-[ -f /mgfs/shared/Group_GY/changhao/SimOPD/simopd_env.sh ] && source /mgfs/shared/Group_GY/changhao/SimOPD/simopd_env.sh
+source $SIMOPD_ROOT/simopd/bin/activate
+[ -f $SIMOPD_ROOT/simopd_env.sh ] && source $SIMOPD_ROOT/simopd_env.sh
 export PYTHONUNBUFFERED=1
 cell() { local g=$1 run=$2 st=$3
   CUDA_VISIBLE_DEVICES=$g python scripts/eval_offline.py \

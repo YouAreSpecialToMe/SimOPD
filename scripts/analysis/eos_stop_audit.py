@@ -14,7 +14,7 @@ import glob
 import os
 import time
 
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache")
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"

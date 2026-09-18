@@ -1,8 +1,9 @@
 """四方风格解剖:教师 / 初始学生 / c2@250 / c4@250(+vanilla@250 病态对照)。
 逐响应测:长度、结构标记、验算口癖、答案位置、答案后余量、重复度;并抽真实样本。"""
+import os
 import glob, re
 import pandas as pd
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 CELLS = [("教师 4B-Instruct", f"{D}/evals_style/teacher_greedy_text__math500__step-1__*.parquet"),
          ("初始学生 1.7B-Base", f"{D}/evals_style/base_greedy_text__math500__step-1__*.parquet"),
          ("c2@250(健康)", f"{D}/evals_style/c2_greedy_text__math500__step250__*.parquet"),

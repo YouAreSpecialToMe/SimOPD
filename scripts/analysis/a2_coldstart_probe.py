@@ -5,7 +5,7 @@ what token does the SFT target end with, what does the SFT model emit at the end
 answer, and what do a2's eval responses contain (CPU, cluster venv)."""
 import os, glob, re
 from collections import Counter
-D="/mgfs/shared/Group_GY/changhao/simopd_data"
+D=os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
 import pandas as pd, torch, numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM

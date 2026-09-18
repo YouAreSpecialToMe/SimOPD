@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 风格四方对照 cell:教师 / 基座 / c2@250 / c4@250,贪心 math500 16k,带全文
 set -uo pipefail
-ROOT=/mgfs/shared/Group_GY/changhao/SimOPD-exp
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+ROOT=$SIMOPD_ROOT
+D=$SIMOPD_STORE
 OUT=$D/evals_style
 mkdir -p "$OUT"
 cd "$ROOT"
-source /mgfs/shared/Group_GY/changhao/SimOPD/simopd/bin/activate
-[ -f /mgfs/shared/Group_GY/changhao/SimOPD/simopd_env.sh ] && source /mgfs/shared/Group_GY/changhao/SimOPD/simopd_env.sh
+source $SIMOPD_ROOT/simopd/bin/activate
+[ -f $SIMOPD_ROOT/simopd_env.sh ] && source $SIMOPD_ROOT/simopd_env.sh
 export PYTHONUNBUFFERED=1
 cell() { local g=$1 model=$2 rid=$3 st=$4
   CUDA_VISIBLE_DEVICES=$g python scripts/eval_offline.py \

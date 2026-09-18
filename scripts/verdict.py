@@ -179,7 +179,11 @@ def main():
                    os.path.expanduser("~/data/simopd_evals"))))
     p.add_argument("--bench", default="math500")
     p.add_argument("--step", type=int, default=250)
-    p.add_argument("--seed", type=int, default=0, help="arm seed compared against vanilla_s<seed>")
+    p.add_argument("--seed", type=int, default=0, help="arm seed compared against <base>_s<seed>")
+    # 2026-09 名册的判决基线是 vanilla_corr(§2.2:k1_termfix / N0 载体是所有臂的 base,
+    # 名册里没有任何未修 eos 的臂),而 vanilla 这条 run 根本不会被产出 —— 写死 BASE
+    # 的话每一行都是 MISSING,而且是安静地 MISSING。默认值保持 vanilla,不动历史用法。
+    p.add_argument("--base", default=BASE, help="判决基线的 run 名(2026-09 名册用 vanilla_corr)")
     p.add_argument("--write", help="also write the ledger as markdown here")
     a = p.parse_args()
     out = []
@@ -191,13 +195,13 @@ def main():
     emit(f"# Verdict ledger -- {a.bench} @ step {a.step} (evals: {a.evals})")
 
     # ---- noise floor ---------------------------------------------------------
-    vans = {s: load_correct(a.evals, f"{BASE}_s{s}", a.bench, a.step) for s in SEEDS}
+    vans = {s: load_correct(a.evals, f"{a.base}_s{s}", a.bench, a.step) for s in SEEDS}
     have = [s for s in SEEDS if vans[s] is not None]
     floor = None
     emit("\n## Noise floor (vanilla seeds, range of accuracy)")
     for s in SEEDS:
         if vans[s] is None:
-            emit(f"- seed {s}: MISSING   ->  {eval_cmd(f'{BASE}_s{s}', a.bench, a.step)}")
+            emit(f"- seed {s}: MISSING   ->  {eval_cmd(f'{a.base}_s{s}', a.bench, a.step)}")
         else:
             emit(f"- seed {s}: acc {vans[s].mean():.4f}  ({len(vans[s])} problems)")
     if len(have) == len(SEEDS):
@@ -210,7 +214,7 @@ def main():
     base = vans.get(a.seed)
 
     # ---- per-arm rows --------------------------------------------------------
-    emit(f"\n## Arms vs {BASE}_s{a.seed}")
+    emit(f"\n## Arms vs {a.base}_s{a.seed}")
     emit("| arm | Δacc | b (van✓ arm✗) | c (van✗ arm✓) | p (exact McNemar) | verdict |")
     emit("|---|---|---|---|---|---|")
     for arm in ARMS:
@@ -249,10 +253,10 @@ def main():
         emit(f"| {arm} | {delta:+.4f} | {b_} | {c_} | {pval:.4f} | {verdict}{cav} |")
 
     # ---- side-effect panel: transfer deltas where artifacts exist ------------
-    emit(f"\n## Side-effect panel (transfer deltas vs {BASE}_s{a.seed}; informational until per-bench floors exist)")
+    emit(f"\n## Side-effect panel (transfer deltas vs {a.base}_s{a.seed}; informational until per-bench floors exist)")
     any_transfer = False
     for bench in TRANSFER:
-        vb = load_correct(a.evals, f"{BASE}_s{a.seed}", bench, a.step)
+        vb = load_correct(a.evals, f"{a.base}_s{a.seed}", bench, a.step)
         if vb is None:
             continue
         for arm in ARMS:

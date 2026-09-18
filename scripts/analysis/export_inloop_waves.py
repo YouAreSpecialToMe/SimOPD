@@ -3,6 +3,7 @@
 每个 EXPERIMENT_NAME 可能对应多个 wandb run(每次开机一个 id):
 按 wave 分组后逐 step 合并,同 step 后创建的 run 胜(续跑接续,复盘 4 的教训)。
 """
+import os
 import csv, os, sys
 import wandb
 
@@ -44,8 +45,8 @@ for r in runs:
         n += 1
     print(f"  {wave:<7} {r.name:<28} run={r.id} rows={n} created={str(r.created_at)[:16]}", file=sys.stderr)
 
-os.makedirs("/mgfs/shared/Group_GY/changhao/simopd_data/tmp_export", exist_ok=True)
-p = "/mgfs/shared/Group_GY/changhao/simopd_data/tmp_export/inloop_v2_vs_legacy.csv"
+os.makedirs(os.environ["SIMOPD_STORE"] + "/tmp_export", exist_ok=True)
+p = os.environ["SIMOPD_STORE"] + "/tmp_export/inloop_v2_vs_legacy.csv"
 with open(p, "w", newline="") as f:
     w = csv.writer(f)
     w.writerow(["wave", "arm", "step", "val_acc", "resp_len", "clip_ratio", "tps", "tokens", "h_target", "h9_budget"])

@@ -1,4 +1,5 @@
 """corr 波的终止面板:每步 stop 事件密度 + 事件级/词级 Delta-ell,回答 N0 的修正机会有多少。"""
+import os
 import csv, os, sys, re
 import wandb
 KEYS = {"step":"training/global_step",
@@ -22,7 +23,7 @@ for r in sorted(runs, key=lambda r: str(r.created_at)):
         for k, wk in KEYS.items():
             v = row.get(wk)
             if v is not None: out[k] = v
-p = "/mgfs/shared/Group_GY/changhao/simopd_data/tmp_export/n0_term_panels.csv"
+p = os.environ["SIMOPD_STORE"] + "/tmp_export/n0_term_panels.csv"
 with open(p, "w", newline="") as f:
     w = csv.writer(f); cols=[k for k in KEYS if k!="step"]
     w.writerow(["arm","step"]+cols)
