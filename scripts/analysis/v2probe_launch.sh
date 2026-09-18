@@ -3,13 +3,13 @@
 # 复刻 docs/late-training-collapse.md 的诊断协议:greedy mean@1, 16384 预算,
 # stop 契约 auto -> 各 ckpt 自己的 v2 pin(151643,151645)。
 set -uo pipefail
-ROOT=/mgfs/shared/Group_GY/changhao/SimOPD-exp
-D=/mgfs/shared/Group_GY/changhao/simopd_data
+ROOT=$SIMOPD_ROOT
+D=$SIMOPD_STORE
 OUT=$D/evals_v2probe
 mkdir -p "$OUT"
 cd "$ROOT"
-source /mgfs/shared/Group_GY/changhao/SimOPD/simopd/bin/activate
-[ -f /mgfs/shared/Group_GY/changhao/SimOPD/simopd_env.sh ] && source /mgfs/shared/Group_GY/changhao/SimOPD/simopd_env.sh
+source $SIMOPD_ROOT/simopd/bin/activate
+[ -f $SIMOPD_ROOT/simopd_env.sh ] && source $SIMOPD_ROOT/simopd_env.sh
 export PYTHONUNBUFFERED=1
 cell() { # gpu run step
   local g=$1 run=$2 st=$3

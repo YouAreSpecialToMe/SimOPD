@@ -2,9 +2,9 @@
 # CPU correctness audit for the domain campaigns: everything provable without GPUs.
 # Each section is independent -- one failure must not hide the others.
 set -uo pipefail
-cd /mgfs/shared/Group_GY/changhao/SimOPD-exp
+cd $SIMOPD_ROOT
 source simopd_env.sh
-DATA=/mgfs/shared/Group_GY/changhao/simopd_data
+DATA=$SIMOPD_STORE
 export HF_HUB_OFFLINE=1
 
 echo "===== 1. reward 单测(当前 HEAD)====="
@@ -48,8 +48,8 @@ echo
 echo "===== 4. parquet schema 对表(code vs math)====="
 python - <<'PY' || echo "SECTION4 FAILED"
 import pandas as pd
-m = pd.read_parquet("/mgfs/shared/Group_GY/changhao/simopd_data/simopd_math/train.parquet")
-c = pd.read_parquet("/mgfs/shared/Group_GY/changhao/simopd_data/simopd_code/train.parquet")
+m = pd.read_parquet("$SIMOPD_STORE/simopd_math/train.parquet")
+c = pd.read_parquet("$SIMOPD_STORE/simopd_code/train.parquet")
 print("  math 列:", sorted(m.columns))
 print("  code 列:", sorted(c.columns))
 print("  列集合相同:", sorted(m.columns) == sorted(c.columns))
@@ -80,7 +80,7 @@ def plen(p):
         txt = " ".join(str(x.get("content", x)) for x in msgs)
     return len(tok(txt, add_special_tokens=False).input_ids)
 for name in ["simopd_code/train.parquet", "simopd_code/val_holdout.parquet", "simopd_math/train.parquet"]:
-    df = pd.read_parquet(f"/mgfs/shared/Group_GY/changhao/simopd_data/{name}")
+    df = pd.read_parquet(f"$SIMOPD_STORE/{name}")
     n = min(len(df), 3000)
     sample = df["prompt"].sample(n, random_state=0) if len(df) > n else df["prompt"]
     ls = np.sort(np.array([plen(p) for p in sample]))

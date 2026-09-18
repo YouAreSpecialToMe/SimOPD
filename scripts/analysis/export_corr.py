@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """导出 corr 波(*_corr_s0_16k, created>=08-19)+ 其 legacy 对应臂的 in-loop 曲线。"""
+import os
 import csv, os, sys, re
 import wandb
 KEYS = {"step": "training/global_step",
@@ -26,7 +27,7 @@ def merge(rlist, wave):
             n += 1
         print(f"  {wave:<7} {r.name:<32} rows={n} created={str(r.created_at)[:16]}", file=sys.stderr)
 merge(legacy, "mfleet"); merge(corr, "corr")
-p = "/mgfs/shared/Group_GY/changhao/simopd_data/tmp_export/inloop_corr_vs_mfleet.csv"
+p = os.environ["SIMOPD_STORE"] + "/tmp_export/inloop_corr_vs_mfleet.csv"
 with open(p, "w", newline="") as f:
     w = csv.writer(f); w.writerow(["wave","arm","step","val_acc","resp_len","clip_ratio"])
     for (wave, arm), steps in sorted(table.items()):

@@ -32,7 +32,7 @@ _PREFIXES = ("SIMOPD_", "DISTILLATION_", "MAX_", "TOTAL_", "TRAIN_", "PPO_", "RO
 _SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.I)
 
 
-def _git(path):
+def _git1(path):
     try:
         sha = subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], capture_output=True, text=True,
                              timeout=10).stdout.strip()
@@ -41,6 +41,27 @@ def _git(path):
         return {"sha": sha or None, "dirty": dirty} if sha else None
     except Exception:
         return None
+
+
+def _git(path, rel=""):
+    """Sha of the code that ran -- resolved through the snapshot if need be.
+
+    run_parallel.sh copies scripts/ configs/ src/ into an immutable per-wave snapshot
+    and every lane runs from there, so __file__'s parent is a plain directory with no
+    .git and this returned None for every run: `run_manifest: ... git ?`. The snapshot
+    is a verbatim copy of the repo as of launch, and run_manifest runs AT launch, so
+    the repo's HEAD is exactly the sha that produced it. Fall back to $SIMOPD_ROOT and
+    say which path answered, so a reader can tell a direct read from a resolved one.
+    """
+    got = _git1(os.path.join(path, rel) if rel else path)
+    if got:
+        return got
+    root = os.environ.get("SIMOPD_ROOT")
+    if root:
+        got = _git1(os.path.join(root, rel) if rel else root)
+        if got:
+            return {**got, "resolved_from": "SIMOPD_ROOT (ran from a snapshot)"}
+    return None
 
 
 def collect(a):
@@ -60,7 +81,7 @@ def collect(a):
         extra_overrides=a.extra.split() if a.extra else [],
         eval_protocol=dict(suite_k=os.environ.get("SIMOPD_SUITE_K", "32"),
                            note="SIMOPD_SUITE_K 默认 32;2026-09 重训按 AGENT.md §2.2b 用 8"),
-        git=dict(simopd=_git(root), verl=_git(os.path.join(root, "verl"))),
+        git=dict(simopd=_git(root), verl=_git(root, "verl")),
         python=platform.python_version(), env=dict(sorted(env.items())),
     )
     try:

@@ -2,10 +2,11 @@
 """v2 定性探针配对分析:复刻 late-training-collapse.md 的 §1/§2 算术 + §4 文本读法。
 对每臂 (peak, late):总分、P(finish)、acc|finish、配对转移矩阵、子群 Δ、
 截断响应的 boxed 统计(首个 boxed 位置、boxed 重复次数、尾部循环)。"""
+import os
 import glob, os, re, sys
 import pandas as pd
 
-OUT = "/mgfs/shared/Group_GY/changhao/simopd_data/evals_v2probe"
+OUT = os.environ["SIMOPD_STORE"] + "/evals_v2probe"
 PAIRS = [("a1_gkd_mix0.5_s0_16k", 50, 125),
          ("a3_offpolicy_s0_16k", 50, 250),
          ("h6_gen_sched_s0_16k", 25, 175)]

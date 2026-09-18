@@ -2,8 +2,9 @@
 教师下一个 token 更想要终止(im_end/eot)还是继续?随循环次数如何变化?
 并让教师从该位置真实贪心生成 24 token。骨架复用 eos_stop_audit.py。
 Run: python post_answer_probe.py  (gpu252, 1 GPU)"""
+import os
 import glob, os, re
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache")
 os.environ["HF_HUB_OFFLINE"] = "1"; os.environ["TRANSFORMERS_OFFLINE"] = "1"
 import pandas as pd, torch

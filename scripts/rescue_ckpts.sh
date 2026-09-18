@@ -12,7 +12,7 @@
 set -uo pipefail
 DEST=${1:?用法: rescue_ckpts.sh <目标目录> [tier...]}; shift || true
 TIERS="${*:-R1 R2 R3}"
-D=${SIMOPD_STORE:-/mgfs/shared/Group_GY/changhao/simopd_data}
+D=${SIMOPD_STORE:?先 source slurm/cluster.env}
 MAN="$(dirname "$0")/../docs/data/rescue_manifest.csv"
 [ -f "$MAN" ] || { echo "!! 找不到清单 $MAN"; exit 1; }
 ok=0; miss=0

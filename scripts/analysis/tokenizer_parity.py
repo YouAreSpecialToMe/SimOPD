@@ -10,7 +10,7 @@ import sys
 PART = sys.argv[1] if len(sys.argv) > 1 else "all"
 if PART in ("all", "1"):
     import os, json, hashlib, glob
-    D="/mgfs/shared/Group_GY/changhao/simopd_data"
+    D=os.environ["SIMOPD_STORE"]
     os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
     from transformers import AutoTokenizer, AutoConfig
     STU="Qwen/Qwen3-1.7B-Base"; TCH="Qwen/Qwen3-4B-Instruct-2507"
@@ -56,7 +56,7 @@ if PART in ("all", "1"):
     print("[student template with assistant turn]:", repr(s))
 if PART in ("all", "2"):
     import os, json, glob, difflib
-    D="/mgfs/shared/Group_GY/changhao/simopd_data"
+    D=os.environ["SIMOPD_STORE"]
     os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
     import pandas as pd, torch
     from transformers import AutoTokenizer, AutoModelForCausalLM

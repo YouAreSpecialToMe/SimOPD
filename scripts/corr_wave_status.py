@@ -14,7 +14,7 @@ import os
 import re
 import time
 
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 LOGD = f"{D}/corr_wave"
 SLOTS = {
     0: ["vanilla_corr", "n2_corr", "b1_skew_kl_corr", "b5_k2_corr"],

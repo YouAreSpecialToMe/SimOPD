@@ -28,7 +28,7 @@ import os
 import sys
 import time
 
-CK = os.environ.get("CKPT_ROOT", "/mgfs/shared/Group_GY/changhao/simopd_data/ckpt") + "/simopd"
+CK = os.environ.get("CKPT_ROOT", os.environ["SIMOPD_STORE"] + "/ckpt") + "/simopd"
 
 
 def find_ckpts(root, with_opt=(), settle=120):

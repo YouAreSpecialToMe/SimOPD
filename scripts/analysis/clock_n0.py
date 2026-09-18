@@ -1,8 +1,9 @@
 """n0 波 A 轴双拼写时钟 + 末 token rollout 探针:
 off-policy 轨迹(教师示范以 im_end 结尾)在 N0 事件级读数下,教给学生的是
 "im_end 拼写"还是"用自己的 eot 在教师认可的位置停"?"""
+import os
 import glob, os
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 

@@ -77,7 +77,7 @@ SUBSET_FILE = "data/math500_subset100.json"
 # training reward uses -- METRICS.md's no-second-implementation rule.
 LOCAL_BENCHMARKS = {
     "codeval": (os.path.join(os.environ.get("SIMOPD_CODE_DIR",
-                             "/mgfs/shared/Group_GY/changhao/simopd_data/simopd_code"),
+                             os.environ["SIMOPD_STORE"] + "/simopd_code"),
                              "val_holdout.parquet"), "codecontests"),
 }
 

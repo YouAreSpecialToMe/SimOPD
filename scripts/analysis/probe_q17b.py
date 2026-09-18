@@ -1,7 +1,7 @@
 """Qwen3-1.7B(instruct)终止 token 实测:120 题 greedy + 120 题 tau=1,
 记录每条轨迹 finish_reason / 最后 token id / 长度。nonthink 模板与战役协议一致。"""
 import os
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 from collections import Counter

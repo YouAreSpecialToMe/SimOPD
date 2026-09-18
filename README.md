@@ -6,6 +6,67 @@
 每个 trick 判为 **必需 / 无用 / 有副作用**,双向贪心蒸出最小有效配方 **SimOPD**。
 方法论血统:LitePPO(Tricks or Traps, arXiv:2508.08221)之于 GRPO/DAPO。
 
+---
+
+## ⚠ 这是 `0917` 分支:2026-09 名册重训的交接包
+
+上一轮执行方已停机。这个分支 = `ch-dev` + 那一轮实际在跑的 Slurm 自动化 + 一份交接手册。
+
+**落档 5400/6050 步(89.3%)、19 条臂训练完成、155 份评测 parquet。
+剩 650 步训练和 114 格评测。**
+
+权重和数据不在 git 里,在两个公开的 HF 仓库:
+
+| 仓库 | 内容 | 大小 |
+|---|---|---|
+| [Jerrycool/opd-ckpt](https://huggingface.co/Jerrycool/opd-ckpt) | `resume/` 10 条臂的完整存档(带优化器) + `eval/` 24 条臂的推理权重 | 865 GiB |
+| [Jerrycool/opd](https://huggingface.co/datasets/Jerrycool/opd) | `runs/` 训练侧产物 + `evals/` 155 份评测 + `assets/` A 轴离策缓存 | 13.6 GiB |
+
+### 五步跑起来
+
+```bash
+git clone https://github.com/YouAreSpecialToMe/SimOPD.git && cd SimOPD && git checkout 0917
+cp simopd_env.example.sh simopd_env.sh && $EDITOR simopd_env.sh   # 路径、分区、SIMOPD_SUITE_K=8
+bash deploy/dsw/setup.sh                                          # verl 钉在 deploy/dsw/verl.pin
+huggingface-cli download Jerrycool/opd-ckpt              --local-dir dl_ckpt
+huggingface-cli download Jerrycool/opd --repo-type dataset --local-dir dl_data
+. ./simopd_env.sh && bash scripts/assemble_handoff.sh dl_ckpt dl_data
+```
+
+最后一步会把两个仓库合回同一个目录、把 `eval/` 的权重重新嵌套成评测端要的形状,
+然后逐臂自检。**不要手工 `cp`** —— 停止契约和 checkpoint 分在两个仓库,而且两种
+权重的目录形状不一样,手工摆几乎必错。自检不过就别往下走。
+
+摆好之后:
+
+```bash
+bash slurm/campaign_tick.sh                             # 逐臂剩余步数
+RUNS="a4_dagger_anneal_n0:0" LANES=1 STEPS=200     sbatch slurm/retrain_lane_node.sbatch               # 续训(最短的一条,只剩 25 步)
+python scripts/eval_refill_exp.py --grid light --write  # 扫出缺的评测格
+EVAL_GRID=light sbatch slurm/retrain_eval_farm.sbatch   # 起评测专列
+```
+
+### 详细手册
+
+**[docs/HANDOFF-20260917.md](docs/HANDOFF-20260917.md)** —— 12 节,事无巨细:
+硬件前提、从零装环境、`simopd_env.sh` 逐项、资产准备、实验设计速览、
+**逐臂剩余步数表**、评测网格与缺口、自动化层的数据流与闸门文件、
+**这一轮踩过的 12 个坑**(每条都给了根因与修复位置)、已知缺口、验收清单。
+
+上手顺序:只想快点跑起来看 §1–§5 和 §12;想知道某处为什么这么写看 §10。
+
+### 三个必须知道的点
+
+1. **verl 版本钉死在 `deploy/dsw/verl.pin`**(`3d36367e`)。`sitecustomize.py` 的八个
+   钩子按名字挂 verl/vLLM 的内部符号,换版本钩子会**静默**挂空 —— 横幅照打、
+   归档一个文件不写。这批 checkpoint 全部产自这个 commit。
+2. **`SIMOPD_SUITE_K=8` 必须设。** 已有 155 份评测是 avg@8,而脚本默认 32;
+   `eval_suite.py` 按每题采样数过滤产物,两者不会混进同一个 composite。
+3. **`trainer.use_v1=False` 不能动。** verl 默认 `use_v1=true`,V1 下 SimOPD 的三处
+   trainer 接缝全部失效且不报错。
+
+---
+
 ## 协作者
 
 远程算力协作:名册中 `remote` 标记的臂开放认领,契约与交付见
@@ -27,6 +88,7 @@
 | [docs/ARMS-GUIDE.md](docs/ARMS-GUIDE.md) | **从这里开始**:基础 OPD setting(目标函数、锁定协议)+ 每个臂的直观/数学讲解 + 执行脚本 + 本集群(Group_GY 7 机)适配清单 |
 | [docs/SimOPD-plan.md](docs/SimOPD-plan.md) | 实验计划 v3.1:定位、7 轴、诊断 D1'–D6、三阶段流程、判决规则、硬件预算、里程碑 |
 | [docs/SimOPD-casefile.md](docs/SimOPD-casefile.md) | 案卷:动物园普查、管辖权裁定、8 轴参赛名单(审/替/落)、代表选择准则 |
+| [docs/HANDOFF-20260917.md](docs/HANDOFF-20260917.md) | **交接手册(2026-09 名册重训)**:环境、资产、逐臂剩余步数、评测缺口、Slurm 自动化层、12 个已知坑 |
 | [docs/INFRA-NOTES.md](docs/INFRA-NOTES.md) | infra 勘察:verl 主线原生 OPD 基座裁定、缺口→接缝图、槽位布局、W1 清单;v1.1 集群实测补充 |
 | [docs/PROTOCOL-unified.md](docs/PROTOCOL-unified.md) | **统一实验协议(预注册)**:10 篇受审论文 setup 调研表 + 锁定协议 + 各臂实现来源(代码复用图)+ 显式偏离清单 |
 | [docs/PROTOCOL-demystifying.md](docs/PROTOCOL-demystifying.md) | Demystifying 协议实录(锚点依据):模型/数据/超参抽取 + 未决项 |

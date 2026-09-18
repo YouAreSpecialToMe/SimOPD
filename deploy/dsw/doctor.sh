@@ -240,10 +240,14 @@ ARMS=$(PYTHONPATH="$SIMOPD_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" python -c "
 import verl.trainer.distillation.losses as vl
 stock={'kl','k1','abs','mse','k2','low_var_kl','k3','forward_kl_topk'}
 print(len(set(vl.DISTILLATION_LOSS_REGISTRY)-stock))" 2>/dev/null)
-if [ "${ARMS:-0}" = "12" ]; then
-    ok "12 custom arm losses register through sitecustomize"
+# Floor, not equality: the failure this guards is "the arms were never baked in"
+# (0, or an import failure), and the count only ever grows as arms land. It was
+# pinned at 12 on 2026-08-01 and silently went stale the moment wave 19 shipped,
+# so every correctly-configured machine failed this line. 12 is the wave-1 floor.
+if [ "${ARMS:-0}" -ge 12 ] 2>/dev/null; then
+    ok "${ARMS} custom arm losses register through sitecustomize"
 else
-    bad "expected 12 custom arm losses, got '${ARMS:-<import failed>}'"
+    bad "expected >= 12 custom arm losses, got '${ARMS:-<import failed>}'"
     fix "PYTHONPATH must include $SIMOPD_ROOT/src; verl must import cleanly"
 fi
 

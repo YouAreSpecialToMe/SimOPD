@@ -23,7 +23,7 @@ import gzip
 import os
 import statistics as st
 
-D = os.environ.get("SIMOPD_DATA_ROOT", "/mgfs/shared/Group_GY/changhao/simopd_data")
+D = os.environ.get("SIMOPD_DATA_ROOT", os.environ["SIMOPD_STORE"])
 INLOOP = os.path.join(D, "tmp_export", "inloop_corr_vs_mfleet.csv")
 PANELS = os.path.join(D, "tmp_export", "n0_term_panels.csv")
 BANKED = os.path.join(D, "exp_patrol", "combined_metrics.csv.gz")

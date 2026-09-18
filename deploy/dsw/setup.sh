@@ -298,7 +298,13 @@ echo "=== [1/6] third-party checkouts ==="
 # vllm.v1.worker.gpu.sample.prompt_logprob ...)。从前这里 --depth 1 拉上游 HEAD,新集群装出来的
 # 是「当天的 verl」,钩子挂不上时有的响、有的静默。本地 verl/ 无任何未提交补丁(已核),所以钉
 # commit 就够了。要换版本:VERL_COMMIT=<sha> bash deploy/dsw/setup.sh,并重跑 CPU 电池。
-VERL_COMMIT=${VERL_COMMIT:-aebd1f8a27d5606226f2b85682cacaf2fdf7eaa7}   # upstream volcengine/verl, 2026-07-31
+# 钉子的唯一真值在 deploy/dsw/verl.pin(一行 sha)。从前这里内联一个常量、verl.pin 又是
+# 另一个,两处各说各话:2026-09 这批 checkpoint 全部产自 3d36367e,而内联常量写的是
+# aebd1f8a(2026-07-31)—— 照内联值装出来的环境跟产出权重的环境不是一个。清单与预检
+# (scripts/check_archive.py)读的都是这个文件,改版本只改它。
+_PINF="$(dirname "${BASH_SOURCE[0]}")/verl.pin"
+VERL_COMMIT=${VERL_COMMIT:-$(head -1 "$_PINF" 2>/dev/null | tr -dc 0-9a-f)}
+[ -n "$VERL_COMMIT" ] || { echo "FATAL: 读不到 $_PINF,无法确定 verl 版本" >&2; exit 1; }
 if [ ! -d verl ]; then
     git clone --no-checkout "$(GH https://github.com/volcengine/verl.git)" verl
     git -C verl fetch --depth 1 origin "$VERL_COMMIT"

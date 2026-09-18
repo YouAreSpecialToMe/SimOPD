@@ -4,7 +4,7 @@ a2_coldstart_s0@25/50/100: p(<|im_end|>) / p(<|endoftext|>) at the end of a teac
 plus a tau=0.7 sampled continuation -- does the OPD phase amplify the sampler-refused terminator?
 Bears on the R5 appendix P1 prediction (dual-stop re-eval of a2@25 halves truncation)."""
 import os, glob, torch, json
-D="/mgfs/shared/Group_GY/changhao/simopd_data"
+D=os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForCausalLM

@@ -24,7 +24,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-ROOT = "/mgfs/shared/Group_GY/changhao/simopd_data"
+ROOT = os.environ["SIMOPD_STORE"]
 EVAL = os.path.join(ROOT, "evals")
 Q = os.path.join(ROOT, "evalq")
 BENCH = ["aime24", "aime25", "amc23", "minerva", "math500"]

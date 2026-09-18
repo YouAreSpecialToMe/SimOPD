@@ -26,7 +26,7 @@ STALE_MIN=${STALE_MIN:-45}
 PERIOD=${PERIOD:-3600}
 STEPS=${STEPS:-250}
 DRY=${DRY:-0}
-VENV=${SIMOPD_VENV:-/mgfs/shared/Group_GY/changhao/SimOPD/simopd}
+VENV=${SIMOPD_VENV:-$SIMOPD_ROOT/simopd}
 LOG_DIR=${LOG_DIR:-$ROOT/logs}
 
 _say() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }

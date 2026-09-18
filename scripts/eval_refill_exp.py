@@ -31,7 +31,7 @@ import sys
 import time
 from collections import defaultdict
 
-D = os.environ.get("SIMOPD_STORE", "/mgfs/shared/Group_GY/changhao/simopd_data")
+D = os.environ.get("SIMOPD_STORE", os.environ["SIMOPD_STORE"])
 Q = f"{D}/evalq_exp"
 EVALS = f"{D}/evals"
 CKPT = f"{D}/ckpt/simopd"
@@ -53,7 +53,22 @@ def prio(run):
     return 3
 
 
-def scan(reap=False):
+# 轻档网格下一格"算完成"要的基准集。写在这里而不是只写在出队列那段:两处口径
+# 必须一致,否则非锚点格永远停在 3/5、永远被重排 —— 2026-09-17 实测,worker 抢到
+# 后三项全 skip existing、5 分钟空转、释放、再被排回来,而且这种格只增不减,
+# 一晚下来会把所有 worker 都耗在 no-op 上。
+ANCHOR_STEPS = {100, 200, 250}
+CHEAP_STEPS = {25, 50, 150}
+LIGHT_BENCH = ("amc23", "minerva", "math500")
+
+
+def required_bench(step, grid):
+    if grid == "light" and step in CHEAP_STEPS:
+        return set(LIGHT_BENCH)
+    return set(BENCH)
+
+
+def scan(reap=False, grid="full"):
     done = defaultdict(set)          # (run, step) -> {bench}
     for p in glob.glob(f"{EVALS}/*.parquet"):
         m = re.match(r"(.+?)__([a-z0-9]+)__step(\d+)__seed", os.path.basename(p))
@@ -88,7 +103,9 @@ def scan(reap=False):
                 shutil.rmtree(cp, ignore_errors=True)
     todo = []
     for run, step in have:
-        if len(done[(run, step)]) >= len(BENCH):
+        if grid == "light" and step not in ANCHOR_STEPS and step not in CHEAP_STEPS:
+            continue                 # 轻档不排这些步,别让它们虚占 todo 计数
+        if done[(run, step)] >= required_bench(step, grid):
             continue
         if f"{run}__{step}" in claimed:
             continue                 # 有人正在跑;claim 过期由 worker 侧处理
@@ -154,7 +171,7 @@ def main():
     a = ap.parse_args()
 
     while True:
-        have, done, todo = scan(reap=a.write)
+        have, done, todo = scan(reap=a.write, grid=a.grid)
         cur = 0
         if os.path.exists(f"{Q}/pending.txt"):
             cur = sum(1 for _ in open(f"{Q}/pending.txt"))

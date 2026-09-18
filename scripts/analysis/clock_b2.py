@@ -1,6 +1,7 @@
 """b2 双拼写时钟:固定 15 个答案完成态,逐 bank 测 p(eot) 与 p(im_end)。"""
+import os
 import glob, os
-D = "/mgfs/shared/Group_GY/changhao/simopd_data"
+D = os.environ["SIMOPD_STORE"]
 os.environ.setdefault("HF_HOME", f"{D}/hf_cache"); os.environ["HF_HUB_OFFLINE"]="1"; os.environ["TRANSFORMERS_OFFLINE"]="1"
 import pandas as pd, torch
 from datasets import load_dataset
