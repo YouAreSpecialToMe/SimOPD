@@ -162,8 +162,12 @@ GDDR6 卡带宽只有 H100 的约四分之一,vLLM decode 吃带宽,会慢好几
    已核:`save_freq` **不在指纹里**、不改训练数值,改 10 的代价只是磁盘(每个存档 26.8 GB)。
 2. **avg@8 还是 avg@32。**协议原文是 avg@32,实际产出全是 avg@8。要么接受 avg@8 并在
    论文里写明;要么全部重评(AIME/AMC 的生成量 ×4,先把已有 155 份挪走,别混放)。
-3. **训练在哪跑。**Cornell 的 80 G 卡只有 `nlplarge-compute-01` 那 8 张 A100,
-   现被 verification 项目占到 9/25 截稿之后。要么等,要么找别处的 80 G 卡。
+3. **训练在哪跑。**Cornell 的 80 G 卡只有 `nlplarge-compute-01` 那 8 张 A100,是全实验室共享的:
+   我们的账户在高优先级分区上**最多 2 张 = 1 条 lane**(QoS `MaxTRESPA gres/gpu=2`,已核),
+   10 条臂串行 A100 上估 **9–12 天**;低优先级分区 `nlplarge` 不设上限,但会被抢占重排。
+   要么接受 1 条 lane 慢慢跑(`c5_union_rkl` 放这条),要么再找别处的 80 G 卡并行。
+   (09-18 版这里写"被 verification 项目占到 9/25",错 —— 那些作业不占 GPU。详见
+   [`CORNELL-FEASIBILITY-20260918.md`](CORNELL-FEASIBILITY-20260918.md) §5。)
 
 ## 7 怎么复查进度
 
