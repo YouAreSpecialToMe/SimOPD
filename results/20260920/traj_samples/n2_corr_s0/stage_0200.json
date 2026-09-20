@@ -1,0 +1,1 @@
+{"arm": "n2_corr_s0", "step": 200, "population": 128, "n": 100, "seed": 2665550568, "sampling": "uniform without replacement over the step's batch", "source": "traj/ids_200.parquet", "source_sig": "1462209:1789387846", "light_rows_joined": 100, "div_rows_joined": 100, "sample_mean_score": 0.11, "population_mean_score": 0.109375, "sample_mean_resp_len": 10648.45, "bytes": 1003647}

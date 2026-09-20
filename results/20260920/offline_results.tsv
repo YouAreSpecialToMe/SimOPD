@@ -1,0 +1,58 @@
+arm	step	k_small_benches	seed	aime24	aime25	amc23	minerva	math500	aime_pooled	composite	trunc_pct	len_mean	vanilla_base_used	vanilla_base_composite	diff_vs_vanilla	registered_base	diff_vs_registered_base	gap_vs_paper_ref_32.8173	is_best_step	n_complete_suites	stop_set	paper_table	paper_row	paper_composite	paper_step	paper_seeds	amc23_trunc_pct_by_step
+a1_gkd_mix0.5_n0	100	8	0	2.08	6.67	34.69	11.64	54.6	4.38	26.33	52.4	18073	vanilla_corr	32.24	-5.91	vanilla_corr		-6.49	0	2	151645	T2	Fixed mix	24.7	50	1	25:15;50:8;100:64;150:43;200:40
+a1_gkd_mix0.5_n0	200	8	0	3.75	6.25	34.69	14.46	64.07	5.0	29.55	32.3	13111	vanilla_corr	34.25	-4.69	vanilla_corr		-3.26	1	2	151645	T2	Fixed mix	24.7	50	1	25:15;50:8;100:64;150:43;200:40
+a3_offpolicy_n0	100	8	0	0.0	1.25	25.62	12.01	48.93	0.62	21.8	30.6	12687	vanilla_corr	32.24	-10.44	vanilla_corr		-11.02	1	2	151645	T2	Teacher	20.59	50	1	25:24;50:15;100:40;150:52;200:62
+a3_offpolicy_n0	200	8	0	0.83	2.5	23.44	9.07	47.07	1.67	20.31	59.5	21691	vanilla_corr	34.25	-13.94	vanilla_corr		-12.51	0	2	151645	T2	Teacher	20.59	50	1	25:24;50:15;100:40;150:52;200:62
+a4_dagger_anneal_n0	100	8	0	2.5	3.33	34.06	13.36	57.47	2.92	26.95	41.1	14908	vanilla_corr	32.24	-5.29	vanilla_corr		-5.87	0	2	151645	T2	Annealed mix	21.74	50	1	25:23;50:13;100:48;150:52;200:42
+a4_dagger_anneal_n0	200	8	0	5.42	6.67	37.5	15.69	65.53	6.04	31.19	28.4	11886	vanilla_corr	34.25	-3.06	vanilla_corr		-1.63	1	2	151645	T2	Annealed mix	21.74	50	1	25:23;50:13;100:48;150:52;200:42
+a5_aggrevate_n0	100	8	0	4.17	4.58	32.81	13.11	59.8	4.38	27.53	48.1	17282	vanilla_corr	32.24	-4.72	vanilla_corr		-5.29	0	2	151645						25:12;50:23;100:58;150:52;200:44
+a5_aggrevate_n0	200	8	0	5.0	7.08	40.94	13.6	64.2	6.04	31.2	35.4	14013	vanilla_corr	34.25	-3.05	vanilla_corr		-1.62	1	2	151645						25:12;50:23;100:58;150:52;200:44
+b1_skew_kl_corr	100	8	0	6.25	6.67	39.38	15.93	69.0	6.46	32.69	8.2	6657	vanilla_corr	32.24	0.45	vanilla_corr		-0.13	0	2	off	T7	Skew	33.81	200	3	25:9;50:43;100:13;150:13;200:10
+b1_skew_kl_corr	200	8	0	7.92	8.33	43.12	17.03	69.87	8.12	34.54	5.1	6873	vanilla_corr	34.25	0.29	vanilla_corr		1.72	1	2	off	T7	Skew	33.81	200	3	25:9;50:43;100:13;150:13;200:10
+b2_forward_kl_corr	100	8	0	6.25	5.0	40.94	16.54	66.6	5.62	32.43	7.3	8499	vanilla_corr	32.24	0.19	vanilla_corr		-0.39	0	2	off	T7	Forward	32.77	125	1	25:7;50:40;100:11;150:13;200:18
+b2_forward_kl_corr	200	8	0	2.92	7.92	44.38	16.54	68.6	5.42	33.73	15.2	9982	vanilla_corr	34.25	-0.51	vanilla_corr		0.92	1	2	off	T7	Forward	32.77	125	1	25:7;50:40;100:11;150:13;200:18
+c2_qb_fixed8_corr	100	8	0	5.0	7.5	40.62	13.73	67.4	6.25	32.0	15.8	9819	vanilla_corr	32.24	-0.24	c2_quantile_budget_corr	-1.41	-0.82	0	2	off	T5	Fixed |S|=8	23.83	25	3	25:18;50:42;100:22;150:21;200:16
+c2_qb_fixed8_corr	200	8	0	5.42	7.08	43.75	15.2	67.6	6.25	33.2	12.2	9890	vanilla_corr	34.25	-1.05	c2_quantile_budget_corr	-2.29	0.38	1	2	off	T5	Fixed |S|=8	23.83	25	3	25:18;50:42;100:22;150:21;200:16
+c2_qb_perseq_corr	100	8	0	4.58	9.17	42.19	15.2	66.6	6.88	32.71	13.0	8056	vanilla_corr	32.24	0.47	c2_quantile_budget_corr	-0.7	-0.1	0	2	off	T5	Quantile: sequence scope	27.99	25	3	25:17;50:50;100:21;150:19;200:26
+c2_qb_perseq_corr	200	8	0	4.17	9.17	42.5	18.14	69.33	6.67	34.16	15.8	8727	vanilla_corr	34.25	-0.09	c2_quantile_budget_corr	-1.33	1.34	1	2	off	T5	Quantile: sequence scope	27.99	25	3	25:17;50:50;100:21;150:19;200:26
+c2_quantile_budget_corr	100	8	0	4.58	7.08	42.19	17.16	68.47	5.83	33.41	14.0	8324	vanilla_corr	32.24	1.17	c2_quantile_budget		0.59	0	2	off	T5	Quantile: mean budget 8	33.56	75	1	25:13;50:51;100:23;150:52;200:22
+c2_quantile_budget_corr	200	8	0	7.92	10.0	45.0	18.14	69.87	8.96	35.49	14.6	8561	vanilla_corr	34.25	1.24	c2_quantile_budget		2.67	1	2	off	T5	Quantile: mean budget 8	33.56	75	1	25:13;50:51;100:23;150:52;200:22
+c3_intersection_corr	100	8	0	7.08	9.58	43.12	16.05	66.27	8.33	33.44	24.4	10638	vanilla_corr	32.24	1.2	vanilla_corr		0.63	0	2	off	T5	Intersection	34.52	250	3	25:48;50:25;100:31;150:25;200:28
+c3_intersection_corr	200	8	0	7.08	7.08	43.12	15.44	68.2	7.08	33.46	17.3	9950	vanilla_corr	34.25	-0.79	vanilla_corr		0.65	1	2	off	T5	Intersection	34.52	250	3	25:48;50:25;100:31;150:25;200:28
+c4_hq	100	8	0	3.75	8.75	40.94	15.56	67.73	6.25	32.62	9.1	7104	vanilla_corr	32.24	0.38	c4_carrier		-0.2	0	2	off	T5	Student-tail + HQ gate	33.56	75	1	25:13;50:45;100:18;150:12;200:13
+c4_hq	200	8	0	7.5	6.25	42.19	15.56	70.47	6.88	33.77	5.6	6684	vanilla_corr	34.25	-0.47	c4_carrier		0.96	1	2	off	T5	Student-tail + HQ gate	33.56	75	1	25:13;50:45;100:18;150:12;200:13
+c4_pi_tail_budget_corr	100	8	0	5.0	7.92	44.06	16.3	68.33	6.46	33.79	10.9	7857	vanilla_corr	32.24	1.55	c4_pi_tail_budget		0.97	0	2	off	T5	Student-tail: 95% mass	35.04	175	1	25:12;50:45;100:20;150:31;200:32
+c4_pi_tail_budget_corr	200	8	0	7.08	5.83	41.88	17.65	69.73	6.46	33.93	20.4	10031	vanilla_corr	34.25	-0.32	c4_pi_tail_budget		1.11	1	2	off	T5	Student-tail: 95% mass	35.04	175	1	25:12;50:45;100:20;150:31;200:32
+c4_state	100	8	0	4.17	9.17	42.5	16.05	67.73	6.67	33.24	10.6	7425	vanilla_corr	32.24	1.0	c4_carrier		0.42	0	2	off	T5	Student-tail + state gate	33.42	100	1	25:14;50:44;100:16;150:17;200:14
+c4_state	200	8	0	9.17	5.42	43.44	17.77	70.93	7.29	34.86	6.6	6811	vanilla_corr	34.25	0.61	c4_carrier		2.04	1	2	off	T5	Student-tail + state gate	33.42	100	1	25:14;50:44;100:16;150:17;200:14
+c5_union_fkl	100	8	0	6.25	7.92	41.56	15.69	67.07	7.08	32.85	7.7	8648	vanilla_corr	32.24	0.61	b2_forward_kl		0.03	1	2	off	T5	FKL union	33.01	75	1	25:9;50:42;100:12;150:98;200:99
+c5_union_fkl	200	8	0	5.42	6.25	36.56	11.15	55.6	5.83	27.29	98.4	32246	vanilla_corr	34.25	-6.96	b2_forward_kl		-5.53	0	2	off	T5	FKL union	33.01	75	1	25:9;50:42;100:12;150:98;200:99
+c5_union_rkl	100	8	0	4.17	2.92	31.25	11.64	46.87	3.54	23.33	93.5	30655	vanilla_corr	32.24	-8.91	c1_lsm_topk32_renorm		-9.49	1	1	off	T5	RKL union	29.18	25	1	25:15;50:55;100:99;150:100
+d2_selectkd_corr	100	8	0	5.42	6.67	47.5	15.07	66.6	6.04	33.8	18.5	8863	vanilla_corr	32.24	1.56	vanilla_corr		0.99	0	2	off	T4	SelecTKD	33.09	150	3	25:10;50:50;100:24;150:18;200:15
+d2_selectkd_corr	200	8	0	6.67	5.42	43.12	16.91	70.67	6.04	34.19	7.9	7019	vanilla_corr	34.25	-0.06	vanilla_corr		1.37	1	2	off	T4	SelecTKD	33.09	150	3	25:10;50:50;100:24;150:18;200:15
+d3_teachability_corr	100	8	0	3.33	4.58	38.44	13.97	63.8	3.96	30.04	28.7	10855	vanilla_corr	32.24	-2.2	vanilla_corr		-2.78	0	2	off	T4	TA-OPD	29.88	100	3	25:10;50:32;100:35;150:18;200:24
+d3_teachability_corr	200	8	0	6.67	5.42	40.31	16.42	62.87	6.04	31.41	18.8	12047	vanilla_corr	34.25	-2.84	vanilla_corr		-1.41	1	2	off	T4	TA-OPD	29.88	100	3	25:10;50:32;100:35;150:18;200:24
+e2_set_coverage_a0_corr	100	8	0	3.75	3.33	31.56	10.91	56.27	3.54	25.57	44.9	15372	vanilla_corr	32.24	-6.67	vanilla_corr		-7.25	1	1	off	T6	Membership only	24.46	25	3	25:9;50:45;100:58
+f2_hard_clip_corr	100	8	0	5.83	9.58	44.38	16.05	67.13	7.71	33.82	14.6	8114	vanilla_corr	32.24	1.58	vanilla_corr		1.0	0	2	off	T7	Hard clip	34.34	175	3	25:8;50:52;100:24;150:15;200:12
+f2_hard_clip_corr	200	8	0	8.33	8.33	41.88	15.93	69.6	8.33	33.93	6.3	6926	vanilla_corr	34.25	-0.31	vanilla_corr		1.12	1	2	off	T7	Hard clip	34.34	175	3	25:8;50:52;100:24;150:15;200:12
+f3_power_corr	100	8	0	7.08	7.5	42.19	15.81	65.73	7.29	32.76	20.1	9146	vanilla_corr	32.24	0.52	vanilla_corr		-0.06	0	2	off	T7	Power	33.79	125	3	25:18;50:18;100:26;150:13;200:9
+f3_power_corr	200	8	0	6.25	9.58	43.12	14.95	69.33	7.92	33.83	6.4	7598	vanilla_corr	34.25	-0.42	vanilla_corr		1.01	1	2	off	T7	Power	33.79	125	3	25:18;50:18;100:26;150:13;200:9
+g1_verified_only_corr	100	8	0	5.0	5.0	39.38	15.07	62.6	5.0	30.51	18.5	8057	vanilla_corr	32.24	-1.73	vanilla_corr		-2.31	1	2	off	T3	Correct	28.23	125	3	25:34;50:27;100:28;150:51;200:63
+g1_verified_only_corr	200	8	0	2.5	2.92	28.75	14.22	53.93	2.71	24.9	46.3	16391	vanilla_corr	34.25	-9.35	vanilla_corr		-7.92	0	2	off	T3	Correct	28.23	125	3	25:34;50:27;100:28;150:51;200:63
+g6_seqmean_corr	100	8	0	5.42	6.25	39.38	16.54	66.07	5.83	31.95	28.1	11689	vanilla_corr	32.24	-0.29	vanilla_corr		-0.86	1	1	off						25:4;50:44;100:35
+h1_first_segment_corr	100	8	0	4.17	5.42	37.81	12.38	60.53	4.79	28.88	8.1	3958	vanilla_corr	32.24	-3.36	vanilla_corr		-3.94	0	2	off	T4	Prefix	30.32	250	3	25:6;50:10;100:9;150:9;200:15
+h1_first_segment_corr	200	8	0	3.75	6.67	44.06	12.75	61.47	5.21	30.87	10.6	5021	vanilla_corr	34.25	-3.38	vanilla_corr		-1.95	1	2	off	T4	Prefix	30.32	250	3	25:6;50:10;100:9;150:9;200:15
+h2_last_segment_corr	100	8	0	0.42	2.08	23.44	11.52	49.53	1.25	21.44	63.9	21125	vanilla_corr	32.24	-10.8	vanilla_corr		-11.38	1	1	off	T4	Suffix	17.17	250	3	25:9;50:34;100:76
+h3_random_segment_corr	100	8	0	4.17	5.42	35.31	12.99	62.33	4.79	28.86	35.0	12264	vanilla_corr	32.24	-3.38	vanilla_corr		-3.96	0	2	off	T4	Window	32.71	250	3	25:6;50:18;100:50;150:42;200:36
+h3_random_segment_corr	200	8	0	6.25	9.17	42.5	17.16	67.13	7.71	33.62	24.4	9744	vanilla_corr	34.25	-0.62	vanilla_corr		0.81	1	2	off	T4	Window	32.71	250	3	25:6;50:18;100:50;150:42;200:36
+h4_random_scatter_corr	100	8	0	3.33	6.25	35.62	13.36	61.07	4.79	28.71	37.7	13042	vanilla_corr	32.24	-3.53	vanilla_corr		-4.11	0	2	off	T4	Scatter	30.09	50	3	25:5;50:27;100:50;150:42;200:42
+h4_random_scatter_corr	200	8	0	7.08	7.5	39.06	15.93	65.8	7.29	32.02	34.6	12773	vanilla_corr	34.25	-2.23	vanilla_corr		-0.8	1	2	off	T4	Scatter	30.09	50	3	25:5;50:27;100:50;150:42;200:42
+n2_corr	100	8	0	5.0	7.08	42.19	17.89	65.0	6.04	32.78	33.2	12673	vanilla_corr	32.24	0.54	vanilla_corr		-0.04	0	3	off						25:12;50:21;100:37;150:42;200:35;250:32
+n2_corr	200	8	0	6.25	8.75	45.0	16.3	69.0	7.5	34.45	22.7	10455	vanilla_corr	34.25	0.2	vanilla_corr		1.63	1	3	off						25:12;50:21;100:37;150:42;200:35;250:32
+n2_corr	250	8	0	3.75	9.17	43.44	16.91	69.8	6.46	34.15	17.7	9197	vanilla_corr	34.82	-0.67	vanilla_corr		1.33	0	3	off						25:12;50:21;100:37;150:42;200:35;250:32
+vanilla_corr	100	8	0	7.08	5.83	41.25	15.32	65.93	6.46	32.24	15.6	8421	vanilla_corr	32.24		vanilla_corr		-0.58	0	3	off	ref	Vanilla (original run family)	32.82	75	3	25:10;50:52;100:25;150:16;200:11;250:25
+vanilla_corr	200	8	0	7.5	7.92	44.06	16.42	68.8	7.71	34.25	6.0	6917	vanilla_corr	34.25		vanilla_corr		1.43	0	3	off	ref	Vanilla (original run family)	32.82	75	3	25:10;50:52;100:25;150:16;200:11;250:25
+vanilla_corr	250	8	0	7.5	6.25	41.88	18.87	71.67	6.88	34.82	11.3	7721	vanilla_corr	34.82		vanilla_corr		2.01	1	3	off	ref	Vanilla (original run family)	32.82	75	3	25:10;50:52;100:25;150:16;200:11;250:25
+vanilla_te	100	8	0	5.42	10.42	45.0	16.54	67.0	7.92	34.12	14.6	8026	vanilla_corr	32.24	1.88	vanilla_corr		1.3	0	3	off						25:12;50:51;100:22;150:17;200:12;250:27
+vanilla_te	200	8	0	5.83	8.33	45.0	15.69	69.13	7.08	34.23	6.7	7055	vanilla_corr	34.25	-0.02	vanilla_corr		1.41	0	3	off						25:12;50:51;100:22;150:17;200:12;250:27
+vanilla_te	250	8	0	6.67	7.92	45.31	17.16	69.93	7.29	34.92	13.3	8223	vanilla_corr	34.82	0.1	vanilla_corr		2.11	1	3	off						25:12;50:51;100:22;150:17;200:12;250:27
