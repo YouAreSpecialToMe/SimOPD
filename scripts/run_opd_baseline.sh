@@ -67,6 +67,12 @@ TEACHER_MODEL=${TEACHER_MODEL:-Qwen/Qwen3-4B-Instruct-2507}
 
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-1}
 TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}
+rollout_tp=${SIMOPD_ROLLOUT_TP:-1}
+teacher_tp=${SIMOPD_TEACHER_TP:-1}
+if (( rollout_tp < 1 || teacher_tp < 1 || NGPUS_PER_NODE % rollout_tp != 0 || TEACHER_WORLD_SIZE % teacher_tp != 0 )); then
+    echo "FATAL: actor/teacher pool sizes must be divisible by their tensor-parallel sizes" >&2
+    exit 1
+fi
 
 # k1_rec, not stock k1: mathematically identical, but it carries the Delta-ell panel
 # METRICS.md requires on EVERY run. Defaulting to stock k1 meant f2_hard_clip and
@@ -491,7 +497,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=${rollout_tp} \
     actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_mem_util} \
     actor_rollout_ref.rollout.n=${rollout_n} \
     actor_rollout_ref.rollout.temperature=1.0 \
@@ -522,7 +528,7 @@ python3 -m verl.trainer.main_ppo \
     distillation.nnodes=1 \
     distillation.teacher_models.teacher_model.model_path="$TEACHER_MODEL" \
     distillation.teacher_models.teacher_model.inference.name=vllm \
-    distillation.teacher_models.teacher_model.inference.tensor_model_parallel_size=1 \
+    distillation.teacher_models.teacher_model.inference.tensor_model_parallel_size=${teacher_tp} \
     distillation.teacher_models.teacher_model.inference.gpu_memory_utilization=0.85 \
     distillation.teacher_models.teacher_model.inference.max_model_len=${max_num_tokens} \
     distillation.distillation_loss.loss_mode=${distillation_loss_mode} \

@@ -157,7 +157,10 @@ def compute_reverse_kl_topk(
     return out
 
 
-TOPK_DISPATCH = {"lsm_topk_renorm": compute_reverse_kl_topk}
+from simopd.composed import compute_composed_topk
+
+TOPK_DISPATCH = {"lsm_topk_renorm": compute_reverse_kl_topk,
+                 "composed_skl_selectkd": compute_composed_topk}
 
 _original_compute_topk_loss = None
 

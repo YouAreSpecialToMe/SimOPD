@@ -68,6 +68,12 @@ def main():
                     f"enable_thinking=False:\n      {rendered!r}")
 
     tok_t = AutoTokenizer.from_pretrained(a.teacher)
+    if a.loss == "composed_skl_selectkd" or os.environ.get("PROJECT_NAME", "").startswith("simopd_scaling"):
+        if tok.get_vocab() != tok_t.get_vocab():
+            fail.append("scaling requires identical token-to-id mappings, not just matching vocabulary size")
+        expected_eos = int(os.environ.get("SIMOPD_MODEL_EOS_ID", "151643"))
+        if tok.eos_token_id != expected_eos:
+            fail.append(f"scaling student EOS {tok.eos_token_id} differs from configured {expected_eos}")
     # The teacher never generates -- it scores the student's tokens -- so a vocabulary
     # mismatch does not crash, it silently scores the wrong token ids.
     if tok.vocab_size != tok_t.vocab_size:
@@ -183,7 +189,10 @@ def main():
                     fail.append(f"{var}={val} (deliberate) but modelscope is not installed "
                                 f"in this venv -- every vLLM engine will die at init.")
 
-    print(f"  step0 MATH500 anchor {STEP0_MATH500} (recorded; val_before_train is off)")
+    if os.environ.get("PROJECT_NAME", "").startswith("simopd_scaling"):
+        print("  scaling: evaluate each untrained student separately; the 1.7B historical anchor is not reused")
+    else:
+        print(f"  step0 MATH500 anchor {STEP0_MATH500} (recorded; val_before_train is off)")
     if fail:
         print("\npreflight FAILED:", file=sys.stderr)
         for f in fail:

@@ -277,7 +277,7 @@ REQUIRED_MODULES = ("simopd.losses", "simopd.topk_losses", "simopd.teacher_patch
                     "simopd.h_budget", "simopd.h9_controller",
                     "simopd.teacher_registry", "simopd.b3_additive",
                     "simopd.eos_gather", "simopd.stop_set", "simopd.traj_dump",
-                    "simopd.seqkey", "simopd.div_panel")
+                    "simopd.seqkey", "simopd.div_panel", "simopd.composed")
 
 
 def _refuse_v1_trainer():
@@ -299,6 +299,8 @@ def _after_ray_trainer():
     from simopd import traj_dump
 
     traj_dump.install()
+    from simopd import composed
+    composed.install_trainer()
 
 
 # verl module -> what to run once it has finished executing

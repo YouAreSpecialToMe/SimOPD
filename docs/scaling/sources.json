@@ -1,0 +1,41 @@
+{
+  "github_ref": "origin/0917",
+  "commit": "60ab0cacd6ff2cabb4fb4382cc966a63f4b1ccc2",
+  "review_date": "2026-09-20",
+  "planning_only": false,
+  "evidence_inputs": {
+    "work/overleaf/data/20260920/post_eval_bystep.csv": "18a9a84496a9a1b69d6f15f3d9fb2357826a1cccb7c09b578cbbfe96fdcbd4c2",
+    "work/overleaf/data/main_results.csv": "84ea35b8a24cb5f12747fe935e85d3589ea0e744c9271bd8059cc399bf02a17c"
+  },
+  "ignored_as_evidence": [
+    "illustrative CSV adjustments",
+    "250-step unmeasured curve extensions",
+    "illustrative prefix handoff below step 100"
+  ],
+  "plan_updated": "2026-09-21",
+  "method_decision": "Fixed dynamic vocabulary budget + SKL(alpha=0.1) + clip + failure-only + SelecTKD vs Vanilla",
+  "clip_composition_semantics": "Direct reverse SKL on renormalized adaptive support; c=log(m/p)+alpha*p/m-alpha; stop-gradient credit clip [-10,10]. Forward reports raw SKL.",
+  "objective_interpretation": "Single selected SKL objective; remove Ours-KL and Ours-JS scaling variants",
+  "implementation_status": "Implemented; 19 CPU tests passed; no GPU integration test or training submitted",
+  "selection_caveat": "Descriptive matched checkpoint support vs Vanilla, historical SKL/JSD effectively tied; composite gain untested",
+  "implementation_branch": "codex/scaling-selectkd-skl",
+  "primary_matrix": {
+    "teachers_b": [
+      4,
+      8,
+      32
+    ],
+    "students_b": [
+      1.7,
+      4,
+      8
+    ],
+    "methods": [
+      "vanilla",
+      "ours"
+    ],
+    "runs_per_seed": 18
+  },
+  "hardware_assumption": "4 concurrent jobs x 8 GPUs (4 actor + 4 teacher), provisional H100 80GB",
+  "training_submitted": false
+}

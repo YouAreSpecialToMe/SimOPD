@@ -872,6 +872,24 @@ def _topk_registry_fn(*extra_keys, signal="loss"):
 
 from simopd.topk_losses import OVERLAP_KEYS, PI_TAIL_KEYS, SHADOW_KEYS
 
+_composed_post = _topk_registry_fn(
+    "recipe_skl", "recipe_clip_frac", "recipe_credit_abs", "recipe_clipped_credit_abs",
+    "recipe_selectkd_weight", "recipe_selectkd_accept", "recipe_support_size",
+    "recipe_teacher_mass", "recipe_student_mass", signal="loss")
+
+
+@register_distillation_loss(DistillationLossSettings(names=["composed_skl_selectkd"], use_topk=True))
+def composed_skl_selectkd(config, distillation_config, model_output, data):
+    from simopd.composed import apply_failure_gate
+
+    if os.environ.get("SIMOPD_COMPOSED", "0") != "1":
+        raise RuntimeError("composed loss requires SIMOPD_COMPOSED=1 (verifier hook)")
+    cfg = distillation_config.distillation_loss
+    if cfg.use_policy_gradient or cfg.use_task_rewards or cfg.loss_max_clamp is not None:
+        raise ValueError("composed loss uses direct gradients and internal credit clipping")
+    losses, metrics = _composed_post(config, distillation_config, model_output, data)
+    return apply_failure_gate(losses, data), metrics
+
 # Every top-k arm reports the same two panels on top of its own keys: the shadow
 # masks (what the other D-axis selectors would have chosen -- redundancy prediction
 # #4, and the cheap way to tell whether two settings are actually different) and

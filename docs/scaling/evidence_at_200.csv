@@ -1,0 +1,13 @@
+arm,step,seed,composite_pct,gap_vs_vanilla_corr_pp,source,comparison
+vanilla_corr,200,0,34.24810049019607,0.0,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+a1_gkd_mix0.5_n0,200,0,29.55373774509804,-4.694362745098033,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+a3_offpolicy_n0,200,0,20.30986519607843,-13.938235294117643,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+a4_dagger_anneal_n0,200,0,31.19031862745097,-3.0577818627451023,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+a5_aggrevate_n0,200,0,31.19552696078431,-3.052573529411763,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+h3_random_segment_corr,200,0,33.62463235294117,-0.6234681372549034,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+d2_selectkd_corr,200,0,34.18627450980392,-0.06182598039215037,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+c2_quantile_budget_corr,200,0,35.4905637254902,1.2424632352941245,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+c4_state,200,0,34.85802696078431,0.6099264705882348,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+b1_skew_kl_corr,200,0,34.53774509803922,0.28964460784314383,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+n2_corr,200,0,34.44975490196078,0.20165441176470722,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain
+f2_hard_clip_corr,200,0,33.93492647058823,-0.3131740196078425,20260920/post_eval_bystep.csv,descriptive same-checkpoint; configuration differences remain

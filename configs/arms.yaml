@@ -14,6 +14,48 @@
 #   python scripts/arm.py env <run_id>      # env-var block for run_opd_baseline.sh
 
 arms:
+  # Separate scaling campaign: use scripts/scaling.py, never the legacy lane roster.
+  - run_id: scaling_vanilla
+    axis: scaling
+    cohort: scaling
+    desc: "Scaling control: event-aligned sampled reverse KL"
+    status: stock
+    env: &scaling_common
+      DISTILLATION_LOSS_MODE: k1_termfix
+      USE_POLICY_GRADIENT: "True"
+      USE_TASK_REWARDS: "False"
+      LOSS_MAX_CLAMP: "10.0"
+      DISTILLATION_TOPK: 66
+      SIMOPD_COMPOSED: "0"
+      SIMOPD_KEEP_SAMPLED: "1"
+      SIMOPD_GATHER_EOS: "1"
+      SIMOPD_TERM_EVENT: "1"
+      SIMOPD_EOS_IDS: "151643"
+      SIMOPD_EOS_TEACHER_IDS: "151643,151645"
+      SIMOPD_STOP_IDS: "off"
+      SIMOPD_SHADOW: "0"
+      SIMOPD_LOSS_AGG_MODE: token-mean
+
+  - run_id: scaling_ours
+    axis: scaling
+    cohort: scaling
+    desc: "Dynamic support + SKL(0.1) credit clip + failure-only + SelecTKD"
+    status: stock
+    note: "Direct clipped-credit SKL gradient, not sampled PG. Global failure-token
+           normalization; SelecTKD is soft weighting without selected-count rescale.
+           See docs/SCALING-RECIPE.md. CPU validation is not a GPU training receipt."
+    env:
+      <<: *scaling_common
+      DISTILLATION_LOSS_MODE: composed_skl_selectkd
+      USE_POLICY_GRADIENT: "False"
+      LOSS_MAX_CLAMP: "null"
+      SIMOPD_COMPOSED: "1"
+      SIMOPD_COMPOSED_ALPHA: "0.1"
+      SIMOPD_COMPOSED_CLIP: "10"
+      SIMOPD_QB_TARGET_BUDGET: "8"
+      SIMOPD_SELECTKD_K: "5"
+      SIMOPD_SELECTKD_BETA: "0.01"
+
   # ---- baseline (the reference every verdict is measured against) ----
   - run_id: vanilla
     axis: "-"

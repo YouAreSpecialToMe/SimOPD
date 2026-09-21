@@ -81,6 +81,7 @@ H9_NO_RELAY_MODES = {"k1"}   # verl 自带的原版 k1:不经过我们的任何 
 
 
 EXPECT_PG = {
+    "scaling_vanilla": True, "scaling_ours": False,
     "c4_rep": False, "c4_hq": False, "c4_state": False, "c4_carrier": False,
     "c5_union_rkl": False, "c5_union_fkl": False,
     "a1_gkd_mix0.5_n0": True,
@@ -242,12 +243,22 @@ def main():
         problems.extend(_term_family_problems(rid, env))
 
         # --- manifest and ledger wiring ---
-        if tsv_names.count(rid) == 0:
+        scaling = a.get("cohort") == "scaling"
+        if scaling:
+            # Separate pair-indexed manifest; do not enlist new scaling runs in
+            # the historical campaign or compare every size to one vanilla row.
+            manifest = os.path.join(ROOT, "configs", "scaling_seed0.csv")
+            import csv
+            with open(manifest) as mf:
+                scaling_rows = list(csv.DictReader(mf))
+            if not any(r["method"] == rid.removeprefix("scaling_") for r in scaling_rows):
+                problems.append(f"{tag} absent from scaling_seed0.csv")
+        elif tsv_names.count(rid) == 0:
             problems.append(f"{tag} has no campaign.tsv row")
         for pair in {p for p in tsv_pairs if p[0] == rid}:
             if tsv_pairs.count(pair) > 1:
                 problems.append(f"{tag} seed {pair[1]} appears {tsv_pairs.count(pair)}x in campaign.tsv")
-        if rid != "vanilla" and f'"{rid}"' not in verdict_src:
+        if not scaling and rid != "vanilla" and f'"{rid}"' not in verdict_src:
             problems.append(f"{tag} missing from verdict.py ARMS -- its verdict would simply never print")
 
         # --- arm.py env materializes ---
