@@ -13,6 +13,13 @@ import torch
 
 MODE = "composed_skl_selectkd"
 
+# Order of SKL credit and clipping (SIMOPD_COMPOSED_CREDIT; docs/SCALING-RECIPE.md):
+#   skl_then_clip       clip(c_skl(a), -b, b)            -- the 0921 recipe, the default
+#   clip_then_reweight  r_skl(a) * clip(a, -b, b)        -- 2026-10-22: clip the raw log-ratio a = log(q/p),
+#                       with r_skl(a) = c_skl(a) / a from the RAW a (r_skl(0) = (1-alpha)^2), so clipping always acts
+#                       on the same quantity whether or not the Skew KL reweighting is on
+CREDIT_ORDERS = ("skl_then_clip", "clip_then_reweight")
+
 
 def prediction_mask(teacher, response_mask, total):
     """Mask logits predicting responses, not input-token rows or the final dummy.
@@ -51,7 +58,38 @@ def adaptive_support(student_lp, teacher_lp, valid, budget):
     return keep
 
 
-def clipped_skl(student_lp, teacher_lp, keep, alpha=0.1, clip=10.0):
+def skl_credit(a, alpha):
+    """c_skl(a) = log(rho) + alpha/rho - alpha with rho = alpha + (1-alpha)e^a, the local credit of reverse
+    KL(p || alpha p + (1-alpha) q) at a = log(q/p); c_skl(a) = a at alpha = 0. Log space throughout (rho = m/p),
+    finite for any finite a."""
+    if alpha == 0:
+        return a
+    log_rho = torch.logaddexp(torch.full_like(a, math.log(alpha)), a + math.log1p(-alpha))
+    return log_rho + alpha * torch.exp(-log_rho) - alpha
+
+
+def skl_reweight(a, alpha, eps=1e-2):
+    """r_skl(a) = c_skl(a) / a, in [0, 1] for 0 <= alpha < 1 (c_skl(0) = 0 and c_skl'(a) =
+    [(1-alpha) e^a / rho]^2 lies in [0, 1]); the continuous limit (1-alpha)^2 at a = 0. Below |a| < eps the
+    Taylor series (1-alpha)^2 (1 + alpha a + alpha (3 alpha - 1) a^2 / 3) replaces the 0/0 division
+    (truncation error O(a^3)). Diagnostics only: the credit itself uses the exact product form below."""
+    if alpha == 0:
+        return torch.ones_like(a)
+    small = a.abs() < eps
+    safe = torch.where(small, torch.ones_like(a), a)
+    direct = skl_credit(safe, alpha) / safe
+    series = (1 - alpha) ** 2 * (1 + alpha * a + alpha * (3 * alpha - 1) * a * a / 3)
+    return torch.where(small, series, direct)
+
+
+def clip_then_reweight_credit(a, alpha, clip):
+    """r_skl(a) * clip(a, -b, b), written as c_skl(a) * min(1, b / |a|): the same value (clip(a)/a = min(1, b/|a|)),
+    exact where |a| <= b (no division, so no 0/0 at a = 0), and |result| <= b because |c_skl(a)| <= |a|."""
+    scale = torch.clamp(clip / a.abs(), max=1.0)        # a = 0 gives inf, clamped to 1: c_skl(0) * 1 = 0
+    return skl_credit(a, alpha) * scale
+
+
+def clipped_skl(student_lp, teacher_lp, keep, alpha=0.1, clip=10.0, order="skl_then_clip"):
     """Direct reverse SKL on renormalized support, with clipped local credit.
 
     p=student, q=teacher, m=alpha*p+(1-alpha)*q.
@@ -60,9 +98,15 @@ def clipped_skl(student_lp, teacher_lp, keep, alpha=0.1, clip=10.0):
     including m's student dependence. Clipping c defines a modified update,
     not scalar-loss clamping. The returned forward value remains raw SKL;
     diagnostics separately report the clipped credit.
+
+    order="clip_then_reweight" (2026-10-22) uses r_skl(a) * clip(a, -b, b) at a = log(q/p) on the support
+    instead: unclipped (|a| <= b everywhere) it is c_skl(a), the exact SKL gradient as above; at alpha = 0 it is
+    the clipped reverse-KL credit clip(a, -b, b); where |a| > b it is a modified update bounded by b.
     """
     if not 0 <= alpha < 1 or not math.isfinite(clip) or clip <= 0:
         raise ValueError("require 0 <= alpha < 1 and finite positive credit clip")
+    if order not in CREDIT_ORDERS:
+        raise ValueError(f"credit order must be one of {CREDIT_ORDERS}, not {order!r}")
     if student_lp.shape != teacher_lp.shape or keep.shape != student_lp.shape:
         raise ValueError("support tensors must have the same shape")
     if not keep.any(-1).all():
@@ -86,15 +130,24 @@ def clipped_skl(student_lp, teacher_lp, keep, alpha=0.1, clip=10.0):
     correction = alpha * (pn - mix).exp() - alpha if alpha else 0.0
     credit = (mix - pn + correction).detach()
     credit = torch.where(keep, credit, 0.0)
-    bounded = credit.clamp(-clip, clip)
+    if order == "skl_then_clip":
+        bounded = credit.clamp(-clip, clip)
+        clipped = (credit.abs() > clip) & keep
+    else:
+        log_ratio = torch.where(keep, qn - pn, 0.0).detach()   # raw a = log(q/p) on the renormalized support
+        bounded = torch.where(keep, clip_then_reweight_credit(log_ratio, alpha, clip), 0.0)
+        clipped = (log_ratio.abs() > clip) & keep
     surrogate = -(prob.detach() * bounded * pn).sum(-1)
     losses = raw.detach() + (surrogate - surrogate.detach())
     diagnostics = {
         "recipe_skl": raw.detach(),
-        "recipe_clip_frac": ((credit.abs() > clip) & keep).sum(-1) / keep.sum(-1),
+        "recipe_clip_frac": clipped.sum(-1) / keep.sum(-1),
         "recipe_credit_abs": (prob.detach() * credit.abs()).sum(-1),
         "recipe_clipped_credit_abs": (prob.detach() * bounded.abs()).sum(-1),
     }
+    if order == "clip_then_reweight":
+        # the credit before the Skew KL reweighting: clip(a, -b, b)
+        diagnostics["recipe_prereweight_credit_abs"] = (prob.detach() * log_ratio.clamp(-clip, clip).abs()).sum(-1)
     return losses, diagnostics
 
 
@@ -121,7 +174,8 @@ def compute_composed_topk(student_logits, teacher_topk_log_probs, teacher_topk_i
     keep = adaptive_support(p, q, valid, float(os.environ.get("SIMOPD_QB_TARGET_BUDGET", "8")))
     loss, out = clipped_skl(p, q, keep,
                            float(os.environ.get("SIMOPD_COMPOSED_ALPHA", "0.1")),
-                           float(os.environ.get("SIMOPD_COMPOSED_CLIP", "10")))
+                           float(os.environ.get("SIMOPD_COMPOSED_CLIP", "10")),
+                           os.environ.get("SIMOPD_COMPOSED_CREDIT", "skl_then_clip"))
     weight, accepted = selectkd_weights(
         ids, student_logits.detach().argmax(-1),
         int(os.environ.get("SIMOPD_SELECTKD_K", "5")),

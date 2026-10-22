@@ -86,6 +86,29 @@ L_{\rm surrogate}=-\sum_{j\in S}\operatorname{sg}(p_j\bar c_j)\log p_j.
 同时记录 clip fraction、裁剪前后 credit 绝对值。
 
 这与历史 sampled SKL + PG 不是同一梯度估计器，也不把 clamp 一个 KL 标量当作 credit clip。
+
+### 2026-10-22：先裁剪原始 log-ratio，再做 Skew KL 重加权（`SIMOPD_COMPOSED_CREDIT`）
+
+`SIMOPD_COMPOSED_CREDIT=clip_then_reweight` 换成另一种 credit 构造；不设或设为 `skl_then_clip` 时就是上面的 0921 定义，逐位不变。
+令 \(a_j=\log(q_j/p_j)\)（同一支持集上重归一化后的原始 log-ratio），\(\rho_j=\alpha+(1-\alpha)e^{a_j}=m_j/p_j\)：
+
+\[
+c_{\rm skl}(a)=\log\rho+\frac{\alpha}{\rho}-\alpha,\qquad
+r_{\rm skl}(a)=\frac{c_{\rm skl}(a)}{a},\quad r_{\rm skl}(0)=(1-\alpha)^2,\qquad
+\bar c_j=\operatorname{sg}\bigl(r_{\rm skl}(a_j)\,\operatorname{clip}(a_j,-b,b)\bigr).
+\]
+
+- 裁剪作用在原始 \(a\) 上，\(r_{\rm skl}\) 也由原始 \(a\) 算；与 0921 的 \(\operatorname{clip}(c_{\rm skl}(a))\) 不是同一更新。
+- 实现写成等价的 \(c_{\rm skl}(a)\cdot\min(1,b/|a|)\)：\(|a|\le b\) 处恰为 \(c_{\rm skl}(a)\)，不做除法，\(a=0\) 处没有 0/0；
+  \(c_{\rm skl}\) 用 log-space 计算。\(0\le r_{\rm skl}\le 1\)（\(c_{\rm skl}(0)=0\)，\(c_{\rm skl}'=[(1-\alpha)e^a/\rho]^2\in[0,1]\)），
+  所以 \(|\bar c|\le b\)。
+- 两个开关：不裁剪（所有 \(|a|\le b\)）时就是精确 SKL 梯度；\(\alpha=0\)（关掉重加权）时就是 \(\operatorname{clip}(a,-b,b)\) 的裁剪 reverse KL。
+- forward 仍记录原始 SKL。诊断：`recipe_clip_frac` 在这种构造下是 \(|a|>b\) 的支持集占比；`recipe_prereweight_credit_abs`、
+  `recipe_clipped_credit_abs` 分别是重加权前（\(\operatorname{clip}(a)\)）、后（\(\bar c\)）的概率加权 credit 绝对值；
+  `recipe_credit_abs` 仍是未裁剪的 \(c_{\rm skl}\)。
+- CPU 测试见 `tests/test_composed.py` 末尾：无裁剪时与精确 SKL 梯度一致、\(\alpha=0\) 时与裁剪 reverse KL 一致、
+  \(r_{\rm skl}\in[0,1]\) 及 0 处极限、近零与极端 \(a\) 有限、\(|\bar c|\le b\)、以及负对照（原始 log-ratio 被裁剪时两种顺序的梯度不同）。
+  加入 STOPD 时 IPW 乘在 \(\bar c\) 之后，\(r_{\rm skl}\le1\) 不约束乘上 IPW 后的最终 credit。
 Vanilla 保留固定 verl 默认的 sampled-loss `loss_max_clamp=10`；
 Ours 显式设置 `loss_max_clamp=null`，防止内部 credit clipping 后再次裁剪标量 loss。
 

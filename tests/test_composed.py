@@ -217,3 +217,110 @@ def test_packed_kernel_with_terminal_carrier_and_dummy_row(monkeypatch):
     grad = torch.autograd.grad(out['distillation_losses'][valid].sum(), z)[0]
     assert torch.isfinite(grad).all()
     assert not grad[:, -1].any()  # final dummy never updates the model
+
+
+# ---- clip-then-reweight credit order (2026-10-22): r_skl(a) * clip(a, -b, b) at the raw a = log(q/p) -------------
+from simopd.composed import (CREDIT_ORDERS, clip_then_reweight_credit, skl_credit,  # noqa: E402
+                             skl_reweight)
+
+NEW = "clip_then_reweight"
+
+
+def _skl_reference(z, q, keep, alpha):
+    p_ref = z.masked_fill(~keep, -torch.inf).softmax(-1)
+    q_ref = q.detach().masked_fill(~keep, -torch.inf).softmax(-1)
+    mix = alpha * p_ref + (1 - alpha) * q_ref
+    return (p_ref[keep] * (p_ref[keep].log() - mix[keep].log())).sum()
+
+
+@pytest.mark.parametrize("alpha", [0.0, 0.1, 0.5])
+def test_clip_then_reweight_unclipped_is_the_exact_skl_gradient(alpha):
+    torch.manual_seed(10)
+    z = torch.randn(3, 7, dtype=torch.float64, requires_grad=True)
+    q = torch.randn(3, 7, dtype=torch.float64).log_softmax(-1)
+    keep = torch.tensor([[1, 0, 1, 1, 0, 1, 0]] * 3, dtype=torch.bool)
+    actual, diag = clipped_skl(z.log_softmax(-1), q, keep, alpha, 100, order=NEW)
+    assert diag["recipe_clip_frac"].max() == 0
+    reference = _skl_reference(z, q, keep, alpha)
+    torch.testing.assert_close(actual.sum(), reference)
+    grad = torch.autograd.grad(actual.sum(), z, retain_graph=True)[0]
+    torch.testing.assert_close(grad, torch.autograd.grad(reference, z)[0], atol=1e-12, rtol=1e-10)
+    legacy, _ = clipped_skl(z.log_softmax(-1), q, keep, alpha, 100)
+    torch.testing.assert_close(grad, torch.autograd.grad(legacy.sum(), z)[0], atol=1e-12, rtol=1e-10)
+
+
+def test_clip_then_reweight_without_skew_is_clipped_reverse_kl():
+    torch.manual_seed(3)
+    z = (4 * torch.randn(2, 9, dtype=torch.float64)).requires_grad_()
+    q = (4 * torch.randn(2, 9, dtype=torch.float64)).log_softmax(-1)
+    keep = torch.ones_like(z, dtype=torch.bool)
+    clip = 2.0
+    loss, diag = clipped_skl(z.log_softmax(-1), q, keep, alpha=0.0, clip=clip, order=NEW)
+    assert diag["recipe_clip_frac"].max() > 0                     # the clip binds somewhere
+    pn = z.log_softmax(-1)
+    a = (q - pn).detach()
+    expected = torch.autograd.grad(-(pn.exp().detach() * a.clamp(-clip, clip) * pn).sum(), z)[0]
+    torch.testing.assert_close(torch.autograd.grad(loss.sum(), z)[0], expected, atol=1e-12, rtol=1e-10)
+    legacy, _ = clipped_skl(z.log_softmax(-1), q, keep, alpha=0.0, clip=clip)   # alpha 0: c_skl(a) = a, same update
+    torch.testing.assert_close(torch.autograd.grad(legacy.sum(), z)[0], expected, atol=1e-12, rtol=1e-10)
+
+
+@pytest.mark.parametrize("alpha", [0.0, 0.1, 0.5, 0.9])
+def test_reweight_factor_is_in_unit_interval_with_its_limit_at_zero(alpha):
+    a = torch.cat([torch.linspace(-60, 60, 24001, dtype=torch.float64), torch.zeros(1, dtype=torch.float64)])
+    r = skl_reweight(a, alpha)
+    assert torch.isfinite(r).all() and (r >= -1e-15).all() and (r <= 1 + 1e-15).all()
+    assert r[a == 0].item() == pytest.approx((1 - alpha) ** 2, abs=1e-15)
+    for tiny in (1e-300, 1e-12, 1e-8, 1e-5):
+        for x in (tiny, -tiny):
+            v = skl_reweight(torch.tensor([x], dtype=torch.float64), alpha).item()
+            assert v == pytest.approx((1 - alpha) ** 2, abs=1e-4)
+    if alpha:
+        # the series below |a| < 1e-2 and the direct division above it meet: compare both at the switch
+        edge = torch.tensor([-1e-2, 1e-2], dtype=torch.float64)
+        series = (1 - alpha) ** 2 * (1 + alpha * edge + alpha * (3 * alpha - 1) * edge * edge / 3)
+        torch.testing.assert_close(series, skl_credit(edge, alpha) / edge, atol=1e-8, rtol=0)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("alpha", [0.1, 0.5])
+def test_final_credit_is_bounded_finite_and_equals_its_definition(alpha, dtype):
+    b = 10.0
+    a = torch.tensor([0., 1e-30, -1e-12, 1e-6, -5., 9.99, 10., -10.5, 40., -40., 700., -700., 1e4, -1e4], dtype=dtype)
+    c = clip_then_reweight_credit(a, alpha, b)
+    assert torch.isfinite(c).all() and (c.abs() <= b * (1 + 1e-6)).all()
+    # c_skl(0) is 0 up to the rounding of log(rho) at rho = 1, as in the 0921 credit (its own test allows 1e-7)
+    assert c[a == 0].abs().max() <= (1e-7 if dtype == torch.float32 else 1e-15)
+    nz = a != 0
+    a64 = a.double()
+    definition = (skl_credit(a64[nz], alpha) / a64[nz]) * a64[nz].clamp(-b, b)  # r_skl(a) * clip(a), float64
+    torch.testing.assert_close(c[nz].double(), definition, rtol=1e-5 if dtype == torch.float32 else 1e-12,
+                               atol=1e-6 if dtype == torch.float32 else 1e-12)
+    inside = a.abs() <= b                                          # unclipped entries are exactly c_skl(a)
+    torch.testing.assert_close(c[inside], skl_credit(a[inside], alpha), rtol=0, atol=0)
+
+
+def test_clip_then_reweight_changes_the_update_where_the_raw_ratio_is_clipped():
+    # Negative control. Token 0: q << p, a ~ -30, c_skl(a) ~ log(alpha) + 1 - alpha ~ -1.4 -- inside [-10, 10], so
+    # skl_then_clip leaves it alone while clip_then_reweight scales it by 10/30. Token 1: a ~ +30, c_skl ~ 29.8: one
+    # order clamps to 10, the other gives 29.8 * 10/30.
+    z = torch.tensor([[0., -30., -2.]], dtype=torch.float64, requires_grad=True)
+    q = torch.tensor([[-30., 0., -2.]], dtype=torch.float64).log_softmax(-1)
+    keep = torch.ones_like(z, dtype=torch.bool)
+    new, dn = clipped_skl(z.log_softmax(-1), q, keep, alpha=0.1, clip=10, order=NEW)
+    old, do = clipped_skl(z.log_softmax(-1), q, keep, alpha=0.1, clip=10)
+    torch.testing.assert_close(new.detach(), old.detach())           # the same raw SKL forward value
+    gn = torch.autograd.grad(new.sum(), z, retain_graph=True)[0]
+    go = torch.autograd.grad(old.sum(), z)[0]
+    assert torch.isfinite(gn).all() and not torch.allclose(gn, go)
+    assert dn["recipe_clip_frac"].item() == pytest.approx(2 / 3)     # |a| > 10 on tokens 0 and 1
+    assert do["recipe_clip_frac"].item() == pytest.approx(1 / 3)     # |c_skl| > 10 on token 1 only
+    assert dn["recipe_clipped_credit_abs"].item() <= 10 + 1e-9
+    assert "recipe_prereweight_credit_abs" in dn and "recipe_prereweight_credit_abs" not in do
+
+
+def test_unknown_credit_order_is_refused():
+    assert CREDIT_ORDERS == ("skl_then_clip", "clip_then_reweight")
+    z = torch.zeros(1, 3)
+    with pytest.raises(ValueError):
+        clipped_skl(z.log_softmax(-1), z.log_softmax(-1), torch.ones_like(z).bool(), order="clip_after")
